@@ -252,16 +252,26 @@ For the Kanata workloads FTR represents each pipeline stage as a child transacti
 
 The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units. Then 100 random windows of log-uniform width are answered by `classify` and `resolve` and checked against the trace: the share answered with no undecided signal, the median undecided share of the others, `classify` time per signal on one thread, and the slowest `resolve` of the undecided signals on 16 threads.
 
-| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ | windows exact | undecided | classify | slowest read |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| scr1_axi | 0.05s | 2.15 ns | 5 MiB | 7.1 KiB | 0.59% | 40.3 KiB | 32,768 | 29% | 22% | 5.2 ns | 9.5 ms |
-| rsa256 | 0.02s | 9.92 ns | 15 MiB | 3.1 KiB | 0.01% | 321.5 KiB | 2 | 93% | 4% | 18.5 ns | 5.8 ms |
-| rsa256_long | 0.09s | 5.82 ns | 147 MiB | 19.9 KiB | 0.01% | 3.10 MiB | 2 | 97% | 4% | 44.3 ns | 29.8 ms |
-| c910_coremark | 0.22s | 0.37 ns | 70 MiB | 1.73 MiB | 0.71% | 8.82 MiB | 1,024–4,096 | 43% | 24% | 14.1 ns | 26.4 ms |
-| scr1_x8 | 0.06s | 0.33 ns | 10 MiB | 10.1 KiB | 0.08% | 322.3 KiB | 32,768 | 31% | 21% | 3.7 ns | 7.0 ms |
-| long_sparse | 0.04s | 8.47 ns | 7 MiB | 174.5 KiB | 2.17% | 472.9 KiB | 134,217,728 | 19% | 100% | 2.8 ns | 9.6 ms |
-| many_active | 0.13s | 6.02 ns | 42 MiB | 1.24 MiB | 1.78% | 8.11 MiB | 32,768–65,536 | 25% | 85% | 7.1 ns | 72.0 ms |
-| wide_bus | 0.03s | 79.89 ns | 3 MiB | 43.1 KiB | 0.31% | 396.5 KiB | 8,192 | 35% | 73% | 117.2 ns | 5.4 ms |
+The FST rows index the workload's fstapi zlib file, whose blocks its writer chose; fstapi keeps values a replay records twice, which count as changes.
+
+| workload | trace | build | per change | peak memory | sidecar | share of trace | loaded | Δ | windows exact | undecided | classify | slowest read |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| scr1_axi | VTR | 0.05s | 2.15 ns | 5 MiB | 7.1 KiB | 0.59% | 40.3 KiB | 32,768 | 29% | 22% | 5.2 ns | 9.6 ms |
+| scr1_axi | FST zlib | 0.04s | 1.90 ns | 7 MiB | 7.6 KiB | 0.32% | 40.4 KiB | 32,768 | 29% | 22% | 5.2 ns | 4.7 ms |
+| rsa256 | VTR | 0.02s | 10.00 ns | 15 MiB | 3.1 KiB | 0.01% | 321.5 KiB | 2 | 93% | 4% | 17.7 ns | 5.1 ms |
+| rsa256 | FST zlib | 0.05s | 27.77 ns | 18 MiB | 4.0 KiB | 0.01% | 321.5 KiB | 2 | 93% | 4% | 57.4 ns | 9.4 ms |
+| rsa256_long | VTR | 0.09s | 5.71 ns | 147 MiB | 19.9 KiB | 0.01% | 3.10 MiB | 2 | 97% | 4% | 45.6 ns | 30.4 ms |
+| rsa256_long | FST zlib | 0.09s | 5.66 ns | 119 MiB | 33.0 KiB | 0.01% | 3.10 MiB | 2 | 97% | 4% | 108.6 ns | 9.1 ms |
+| c910_coremark | VTR | 0.23s | 0.38 ns | 70 MiB | 1.73 MiB | 0.71% | 8.82 MiB | 1,024–4,096 | 43% | 24% | 13.1 ns | 26.8 ms |
+| c910_coremark | FST zlib | 0.86s | 1.45 ns | 52 MiB | 4.77 MiB | 1.23% | 30.35 MiB | 128–2,048 | 49% | 21% | 25.5 ns | 19.1 ms |
+| scr1_x8 | VTR | 0.09s | 0.55 ns | 10 MiB | 10.1 KiB | 0.08% | 322.3 KiB | 32,768 | 31% | 21% | 3.2 ns | 8.0 ms |
+| scr1_x8 | FST zlib | 0.08s | 0.49 ns | 14 MiB | 30.1 KiB | 0.12% | 1.83 MiB | 8,192–16,384 | 34% | 20% | 10.7 ns | 4.8 ms |
+| long_sparse | VTR | 0.04s | 8.49 ns | 7 MiB | 174.5 KiB | 2.17% | 472.9 KiB | 134,217,728 | 19% | 100% | 2.8 ns | 9.3 ms |
+| long_sparse | FST zlib | 0.17s | 31.13 ns | 8 MiB | 226.2 KiB | 1.71% | 583.9 KiB | 67,108,864 | 16% | 99% | 4.8 ns | 22.7 ms |
+| many_active | VTR | 0.12s | 5.64 ns | 42 MiB | 1.24 MiB | 1.78% | 8.11 MiB | 32,768–65,536 | 25% | 85% | 7.0 ns | 74.3 ms |
+| many_active | FST zlib | 0.22s | 7.22 ns | 81 MiB | 1.09 MiB | 1.06% | 8.69 MiB | 512–32,768 | 35% | 98% | 7.6 ns | 36.7 ms |
+| wide_bus | VTR | 0.03s | 77.70 ns | 3 MiB | 43.1 KiB | 0.31% | 396.5 KiB | 8,192 | 35% | 73% | 132.3 ns | 7.6 ms |
+| wide_bus | FST zlib | 0.04s | 71.72 ns | 3 MiB | 30.9 KiB | 0.21% | 297.9 KiB | 4,096 | 50% | 90% | 99.7 ns | 5.4 ms |
 
 ## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
 

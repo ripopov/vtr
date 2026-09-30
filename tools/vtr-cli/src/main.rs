@@ -25,11 +25,11 @@ USAGE:
   vtr vcd-compare <a.vcd> <b.vcd>             compare value-change counts, total and per signal (JSON)
   vtr recover <in.vtr> <out.vtr>              rewrite a file whose writer never closed it as a complete
                                               one (exit status 3 when bytes were dropped)
-  vtr index <file.vtr> [--threads N] [--memory MiB]
-                                              build the activity index <file>.index (in the user cache
-                                              when the directory is read-only)
-  vtr index <file.vtr> --check                whether a valid activity index exists (exit status 1 if not)
-  vtr active <file.vtr> <t0> <t1> [--scope PATH] [--depth N] [--signals] [--build]
+  vtr index <trace> [--threads N] [--memory MiB]
+                                              build the activity index <trace>.index of a .vtr or .fst
+                                              (in the user cache when the directory is read-only)
+  vtr index <trace> --check                   whether a valid activity index exists (exit status 1 if not)
+  vtr active <trace> <t0> <t1> [--scope PATH] [--depth N] [--signals] [--build]
                                               scopes with the signals that change in [t0, t1] over their
                                               signals (to depth N below PATH, default 1), or the changing
                                               signals; exact, from the activity index and the trace
@@ -138,14 +138,72 @@ fn fmt_mib(bytes: u64) -> String {
     if m >= 100.0 { format!("{m:.0} MiB") } else if m >= 0.1 { format!("{m:.1} MiB") } else { format!("{:.1} KiB", bytes as f64 / 1024.0) }
 }
 
+/// A VTR or an FST trace opened for its activity index.
+enum Trace {
+    Vtr(Box<Reader>),
+    Fst(vtr_cli::fst::activity::FstTrace),
+}
+
+impl Trace {
+    /// Opens `path` by its magic: VTR, else FST.
+    fn open(path: &str) -> Trace {
+        let mut magic = [0u8; 8];
+        let _ = std::fs::File::open(path).and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic));
+        if magic == vtr::container::FILE_MAGIC {
+            Trace::Vtr(Box::new(open(path)))
+        } else {
+            Trace::Fst(vtr_cli::fst::activity::FstTrace::open(path).unwrap_or_else(|e| die(format!("{path}: {e}"))))
+        }
+    }
+
+    fn identity(&self, path: &str) -> vtr::activity::Identity {
+        match self {
+            Trace::Vtr(r) => vtr::activity::Identity::of(r).unwrap_or_else(|e| die(format!("{path}: {e}"))),
+            Trace::Fst(f) => f.identity(),
+        }
+    }
+
+    fn timescale(&self) -> i8 {
+        match self {
+            Trace::Vtr(r) => r.meta().timescale,
+            Trace::Fst(f) => f.timescale(),
+        }
+    }
+
+    fn signal_count(&self) -> u32 {
+        match self {
+            Trace::Vtr(r) => r.signal_count(),
+            Trace::Fst(f) => f.signal_count(),
+        }
+    }
+
+    fn build(&self, out: impl std::io::Write, opts: &vtr::activity::BuildOptions) -> vtr::Result<vtr::activity::Summary> {
+        match self {
+            Trace::Vtr(r) => vtr::activity::build(r, out, opts),
+            Trace::Fst(f) => f.build(out, opts),
+        }
+    }
+
+    fn resolve(&self, signals: &[vtr::SignalId], t0: u64, t1: u64) -> vtr::Result<Vec<vtr::SignalId>> {
+        match self {
+            Trace::Vtr(r) => vtr::activity::resolve(r, signals, t0, t1),
+            Trace::Fst(f) => f.resolve(signals, t0, t1),
+        }
+    }
+
+    /// The sidecar locations of the trace at `path`.
+    fn sidecar(&self, path: &str) -> vtr::activity::Sidecar {
+        vtr::activity::Sidecar::new(path.as_ref(), &self.identity(path), vtr::activity::default_cache_dir().as_deref())
+    }
+}
+
 /// `vtr index`: builds or checks the activity index (docs/hierarchy-activity.html).
 fn cmd_index(args: &[String]) {
-    use vtr::activity::{self, BuildOptions, Identity, Index, Sidecar};
+    use vtr::activity::{BuildOptions, Index};
     let p = positional(args);
     let path = p.first().unwrap_or_else(|| die(USAGE));
-    let r = open(path);
-    let id = Identity::of(&r).unwrap_or_else(|e| die(format!("{path}: {e}")));
-    let sidecar = Sidecar::new(path.as_ref(), &id, activity::default_cache_dir().as_deref());
+    let trace = Trace::open(path);
+    let (id, sidecar) = (trace.identity(path), trace.sidecar(path));
     if has(args, "--check") {
         for at in sidecar.paths() {
             match Index::open(at, &id) {
@@ -167,10 +225,10 @@ fn cmd_index(args: &[String]) {
     if let Some(m) = flag(args, "--memory") {
         opts.memory = m.parse::<u64>().unwrap_or_else(|_| die("--memory takes MiB")) << 20;
     }
-    let (at, s) = sidecar.write(|w| activity::build(&r, w, &opts)).unwrap_or_else(|e| die(format!("{path}: {e}")));
+    let (at, s) = sidecar.write(|w| trace.build(w, &opts)).unwrap_or_else(|e| die(format!("{path}: {e}")));
     let delta = match s.delta {
-        Some((a, b)) => format!("Δ {}", fmt_durations(a, b, r.meta().timescale)),
-        None => "no signal blocks".into(),
+        Some((a, b)) => format!("Δ {}", fmt_durations(a, b, trace.timescale())),
+        None => "no value-change blocks".into(),
     };
     println!(
         "{}: {} blocks, {delta}, {} ({:.2}% of {})",
@@ -225,85 +283,177 @@ fn thousands64(n: u64) -> String {
     out
 }
 
+/// Scopes in preorder with their parents, and the variables of each scope
+/// with their signals: the hierarchy `vtr active` prints, from either format.
+struct ScopeTree {
+    names: Vec<String>,
+    parent: Vec<u32>,
+    vars: Vec<Vec<(u32, String)>>,
+}
+
+impl ScopeTree {
+    fn from_vtr(r: &Reader) -> ScopeTree {
+        let h = r.hierarchy();
+        let mut t = ScopeTree { names: Vec::new(), parent: Vec::new(), vars: Vec::new() };
+        let mut stack: Vec<(NodeId, u32)> = h.roots().filter(|&n| h.kind(n) == vtr::NodeKind::Scope).map(|n| (n, u32::MAX)).collect();
+        stack.reverse();
+        while let Some((n, parent)) = stack.pop() {
+            let me = t.names.len() as u32;
+            t.names.push(r.name(n).to_string());
+            t.parent.push(parent);
+            let mut vars = Vec::new();
+            let mut kids = Vec::new();
+            for k in h.children(n) {
+                match (h.kind(k), h.signal_of(k)) {
+                    (vtr::NodeKind::Var, Some(s)) => vars.push((s.0, r.name(k).to_string())),
+                    (vtr::NodeKind::Scope, _) => kids.push((k, me)),
+                    _ => {}
+                }
+            }
+            t.vars.push(vars);
+            stack.extend(kids.into_iter().rev());
+        }
+        t
+    }
+
+    fn from_fst(path: &str) -> ScopeTree {
+        use fst_reader::FstHierarchyEntry;
+        let file = std::fs::File::open(path).unwrap_or_else(|e| die(format!("{path}: {e}")));
+        let mut fr = fst_reader::FstReader::open(std::io::BufReader::new(file)).unwrap_or_else(|e| die(format!("{path}: {e:?}")));
+        let mut t = ScopeTree { names: Vec::new(), parent: Vec::new(), vars: Vec::new() };
+        let mut open: Vec<u32> = Vec::new();
+        fr.read_hierarchy(|e| match e {
+            FstHierarchyEntry::Scope { name, .. } => {
+                t.parent.push(open.last().copied().unwrap_or(u32::MAX));
+                open.push(t.names.len() as u32);
+                t.names.push(name);
+                t.vars.push(Vec::new());
+            }
+            FstHierarchyEntry::UpScope => {
+                open.pop();
+            }
+            FstHierarchyEntry::Var { name, handle, .. } => {
+                if let Some(&s) = open.last() {
+                    t.vars[s as usize].push((handle.get_index() as u32, name));
+                }
+            }
+            _ => {}
+        })
+        .unwrap_or_else(|e| die(format!("{path}: {e:?}")));
+        t
+    }
+
+    /// Distinct signals `keep` accepts at or below every scope.
+    fn sizes(&self, keep: impl Fn(u32) -> bool) -> vtr::ScopeSizes {
+        let mut c = vtr::Census::new();
+        let mut open: Vec<u32> = Vec::new();
+        for (i, vars) in self.vars.iter().enumerate() {
+            while open.last().is_some_and(|&o| o != self.parent[i]) {
+                open.pop();
+                c.leave();
+            }
+            c.enter();
+            open.push(i as u32);
+            for (s, _) in vars.iter().filter(|v| keep(v.0)) {
+                c.var(*s);
+            }
+        }
+        c.finish()
+    }
+
+    /// The scope at a `.`-joined path from a root.
+    fn find(&self, path: &str) -> Option<usize> {
+        let mut at = u32::MAX;
+        for part in path.split('.') {
+            at = (0..self.names.len()).find(|&i| self.parent[i] == at && self.names[i] == part)? as u32;
+        }
+        Some(at as usize)
+    }
+
+    fn path(&self, mut i: u32) -> String {
+        let mut parts = Vec::new();
+        while i != u32::MAX {
+            parts.push(self.names[i as usize].as_str());
+            i = self.parent[i as usize];
+        }
+        parts.reverse();
+        parts.join(".")
+    }
+}
+
 /// `vtr active`: which scopes and signals change in a window, exactly. The
 /// activity index classifies every signal; the few it leaves undecided in a
 /// window narrower than its thresholds are read from the trace.
 fn cmd_active(args: &[String]) {
-    use vtr::activity::{self, BuildOptions, Identity, Sidecar};
+    use vtr::activity::BuildOptions;
     let p = positional(args);
     if p.len() < 3 {
         die(USAGE);
     }
-    let r = open(&p[0]);
-    let ts = r.meta().timescale;
+    let path = p[0].as_str();
+    let trace = Trace::open(path);
+    let ts = trace.timescale();
     let (t0, t1) = (parse_time_in(&p[1], ts, false), parse_time_in(&p[2], ts, true));
     if t0 > t1 {
         die(format!("the window {}..{} is empty", p[1], p[2]));
     }
-    let id = Identity::of(&r).unwrap_or_else(|e| die(format!("{}: {e}", p[0])));
-    let sidecar = Sidecar::new(p[0].as_ref(), &id, activity::default_cache_dir().as_deref());
+    let (id, sidecar) = (trace.identity(path), trace.sidecar(path));
     let index = match sidecar.load(&id) {
         Some((_, index)) => index,
         None if has(args, "--build") => {
-            let (at, _) = sidecar.write(|w| activity::build(&r, w, &BuildOptions::default())).unwrap_or_else(|e| die(format!("{}: {e}", p[0])));
+            let (at, _) = sidecar.write(|w| trace.build(w, &BuildOptions::default())).unwrap_or_else(|e| die(format!("{path}: {e}")));
             eprintln!("built {}", at.display());
             sidecar.load(&id).unwrap_or_else(|| die(format!("{}: the index just built does not load", at.display()))).1
         }
-        None => die(format!("{0}: no valid activity index; build one with `vtr index {0}` or pass --build", p[0])),
+        None => die(format!("{path}: no valid activity index; build one with `vtr index {path}` or pass --build")),
     };
     let c = index.classify(t0, t1);
     let mut active = c.active;
-    active.extend(activity::resolve(&r, &c.undecided, t0, t1).unwrap_or_else(|e| die(format!("{}: {e}", p[0]))));
-    let mut changing = vec![false; r.signal_count() as usize];
+    active.extend(trace.resolve(&c.undecided, t0, t1).unwrap_or_else(|e| die(format!("{path}: {e}"))));
+    let mut changing = vec![false; trace.signal_count() as usize];
     for s in &active {
         changing[s.0 as usize] = true;
     }
-    let h = r.hierarchy();
-    let top = flag(args, "--scope").map(|path| {
-        let parts: Vec<&str> = path.split('.').collect();
-        r.find_node(&parts).filter(|&n| h.kind(n) == vtr::NodeKind::Scope).unwrap_or_else(|| die(format!("scope {path} not found")))
-    });
+    let tree = match &trace {
+        Trace::Vtr(r) => ScopeTree::from_vtr(r),
+        Trace::Fst(_) => ScopeTree::from_fst(path),
+    };
+    let top = flag(args, "--scope").map(|s| tree.find(&s).unwrap_or_else(|| die(format!("scope {s} not found"))));
     let how = match c.undecided.len() {
         0 => "exact".to_string(),
         n => format!("{} undecided read from the trace", thousands(n as u32)),
     };
-    println!("{} · {} of {} signals change · {how}", fmt_window(t0, t1, ts), thousands(active.len() as u32), thousands(r.signal_count()));
+    println!("{} · {} of {} signals change · {how}", fmt_window(t0, t1, ts), thousands(active.len() as u32), thousands(trace.signal_count()));
+    // Depth of every scope below the top (or from the roots); None outside it.
+    let mut level: Vec<Option<usize>> = vec![None; tree.names.len()];
+    for i in 0..tree.names.len() {
+        let parent = Some(tree.parent[i]).filter(|&p| p != u32::MAX).map(|p| level[p as usize]);
+        level[i] = match (top, parent) {
+            (Some(t), _) if t == i => Some(0),
+            (Some(_), Some(Some(l))) | (None, Some(Some(l))) => Some(l + 1),
+            (None, None) => Some(0),
+            _ => None,
+        };
+    }
     if has(args, "--signals") {
         // Each changing signal once, by its first variable in preorder below the scope.
         let mut shown = vec![false; changing.len()];
-        let mut stack: Vec<NodeId> = match top {
-            Some(n) => vec![n],
-            None => h.roots().collect::<Vec<_>>().into_iter().rev().collect(),
-        };
-        while let Some(n) = stack.pop() {
-            if let Some(s) = h.signal_of(n).filter(|s| changing[s.0 as usize] && !shown[s.0 as usize]) {
-                shown[s.0 as usize] = true;
-                println!("{}", r.full_path(n, "."));
+        for i in (0..tree.names.len()).filter(|&i| level[i].is_some()) {
+            for (s, name) in &tree.vars[i] {
+                if changing[*s as usize] && !shown[*s as usize] {
+                    shown[*s as usize] = true;
+                    println!("{}.{name}", tree.path(i as u32));
+                }
             }
-            let kids: Vec<NodeId> = h.children(n).collect();
-            stack.extend(kids.into_iter().rev());
         }
         return;
     }
     let depth: usize = flag(args, "--depth").map_or(1, |d| d.parse().unwrap_or_else(|_| die("--depth takes a number")));
-    let (nodes, all) = h.scope_sizes();
-    let (_, moving) = h.scope_sizes_of(|s| changing[s.0 as usize]);
-    let mut level = vec![0usize; nodes.len()];
-    let mut rows = Vec::new();
-    let from = top.map(|n| nodes.iter().position(|&x| x == n).unwrap());
-    for i in 0..nodes.len() {
-        let parent = all.parent(i as u32).map(|p| p as usize);
-        level[i] = match (from, parent) {
-            (Some(f), _) if f == i => 0,
-            (Some(_), Some(p)) if level[p] != usize::MAX => level[p] + 1,
-            (Some(_), _) => usize::MAX,
-            (None, Some(p)) => level[p] + 1,
-            (None, None) => 0,
-        };
-        if level[i] <= depth {
-            rows.push((format!("{}{}", "  ".repeat(level[i]), r.name(nodes[i])), thousands(moving.signals(i as u32)), thousands(all.signals(i as u32))));
-        }
-    }
+    let (all, moving) = (tree.sizes(|_| true), tree.sizes(|s| changing[s as usize]));
+    let rows: Vec<_> = (0..tree.names.len())
+        .filter_map(|i| level[i].filter(|&l| l <= depth).map(|l| (i, l)))
+        .map(|(i, l)| (format!("{}{}", "  ".repeat(l), tree.names[i]), thousands(moving.signals(i as u32)), thousands(all.signals(i as u32))))
+        .collect();
     let w = rows.iter().fold([0; 3], |w, r| [w[0].max(r.0.chars().count()), w[1].max(r.1.len()), w[2].max(r.2.len())]);
     for (name, a, b) in rows {
         println!("{name:<0$}  {a:>1$} / {b:>2$}", w[0], w[1], w[2]);

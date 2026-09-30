@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use vtr::activity::{self, Budget, BuildOptions, Identity, Index, Sidecar};
+use vtr_cli::fst::activity::FstTrace;
 use vtr::{Direction, NodeId, NodeKind, Reader, ScopeType, SignalId, SignalKind, VarType, Writer, WriterOptions};
 
 fn put(out: &mut Vec<u8>, mut v: u64) {
@@ -71,17 +72,59 @@ fn quantiles(mut v: Vec<f64>) -> (f64, f64, f64) {
     (v[0], v[v.len() / 2], v[v.len() - 1])
 }
 
-/// Builds `path`'s index into a temporary file with the library and measures it.
+/// A VTR or FST trace, as the index sees it.
+enum Trace {
+    Vtr(Box<Reader>),
+    Fst(FstTrace),
+}
+
+impl Trace {
+    fn open(path: &str) -> Trace {
+        let mut magic = [0u8; 8];
+        let _ = std::fs::File::open(path).and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic));
+        if magic == vtr::container::FILE_MAGIC { Trace::Vtr(Box::new(Reader::open(path).unwrap())) } else { Trace::Fst(FstTrace::open(path).unwrap()) }
+    }
+
+    fn identity(&self) -> Identity {
+        match self {
+            Trace::Vtr(r) => Identity::of(r).unwrap(),
+            Trace::Fst(f) => f.identity(),
+        }
+    }
+
+    fn build(&self, out: impl std::io::Write, opts: &BuildOptions) -> activity::Summary {
+        match self {
+            Trace::Vtr(r) => activity::build(r, out, opts).unwrap(),
+            Trace::Fst(f) => f.build(out, opts).unwrap(),
+        }
+    }
+
+    fn resolve(&self, signals: &[SignalId], t0: u64, t1: u64) -> Vec<SignalId> {
+        match self {
+            Trace::Vtr(r) => activity::resolve(r, signals, t0, t1).unwrap(),
+            Trace::Fst(f) => f.resolve(signals, t0, t1).unwrap(),
+        }
+    }
+
+    /// Drops what the reader cached, so the next read is cold.
+    fn clear_cache(&mut self) {
+        if let Trace::Vtr(r) = self {
+            r.clear_cache();
+        }
+    }
+}
+
+/// Builds `path`'s index (VTR or FST) into a temporary file with the library and measures it.
 pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64) -> serde_json::Value {
-    let mut r = Reader::open(path).unwrap();
-    let id = Identity::of(&r).unwrap();
+    let mut r = Trace::open(path);
+    let id = r.identity();
     let file = id.length;
     let out = std::env::temp_dir().join(format!("vtr-bench-activity-{}.index", std::process::id()));
     let opts = BuildOptions { threads, budget, ..Default::default() };
     let base = rss_anon();
     let sampler = PeakSampler::start();
     let t = Instant::now();
-    let summary = activity::build(&r, std::io::BufWriter::new(std::fs::File::create(&out).unwrap()), &opts).unwrap();
+    let summary = r.build(std::io::BufWriter::new(std::fs::File::create(&out).unwrap()), &opts);
     let build_s = t.elapsed().as_secs_f64();
     let peak = sampler.stop().saturating_sub(base);
     let t = Instant::now();
@@ -121,10 +164,10 @@ pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64
 }
 
 /// Resolves `signals` on `threads` threads sharing the reader, each a contiguous share.
-fn resolve_on(r: &Reader, signals: &[SignalId], t0: u64, t1: u64, threads: usize) -> Vec<SignalId> {
+fn resolve_on(r: &Trace, signals: &[SignalId], t0: u64, t1: u64, threads: usize) -> Vec<SignalId> {
     let per = signals.len().div_ceil(threads.max(1)).max(1);
     std::thread::scope(|sc| {
-        let hs: Vec<_> = signals.chunks(per).map(|c| sc.spawn(move || activity::resolve(r, c, t0, t1).unwrap())).collect();
+        let hs: Vec<_> = signals.chunks(per).map(|c| sc.spawn(move || r.resolve(c, t0, t1))).collect();
         hs.into_iter().flat_map(|h| h.join().unwrap()).collect()
     })
 }
@@ -132,9 +175,9 @@ fn resolve_on(r: &Reader, signals: &[SignalId], t0: u64, t1: u64, threads: usize
 /// Random windows of log-uniform width, half placed uniformly and half
 /// centred on a change (a stretch's first or last), answered by the index
 /// and checked against the trace.
-fn check_windows(r: &mut Reader, index: &Index, n: usize, threads: usize, seed: u64) -> serde_json::Value {
+fn check_windows(r: &mut Trace, index: &Index, n: usize, threads: usize, seed: u64) -> serde_json::Value {
     let mut rng = StdRng::seed_from_u64(seed);
-    let (lo, hi) = r.time_range().unwrap();
+    let (lo, hi) = (index.blocks().first().map_or(0, |b| b.start), index.blocks().last().map_or(0, |b| b.end));
     let span = hi - lo + 1;
     let signals = index.signal_count();
     let every: Vec<SignalId> = (0..signals).map(SignalId).collect();
@@ -163,7 +206,7 @@ fn check_windows(r: &mut Reader, index: &Index, n: usize, threads: usize, seed: 
             und.push(c.undecided.len() as f64 / signals as f64);
             r.clear_cache();
             let t = Instant::now();
-            let one = activity::resolve(r, &c.undecided, t0, t1).unwrap();
+            let one = r.resolve(&c.undecided, t0, t1);
             read1.push(t.elapsed().as_secs_f64() * 1e3);
             r.clear_cache();
             let t = Instant::now();
@@ -173,7 +216,7 @@ fn check_windows(r: &mut Reader, index: &Index, n: usize, threads: usize, seed: 
             answer.extend(one);
             answer.sort();
         }
-        let truth = activity::resolve(r, &every, t0, t1).unwrap();
+        let truth = r.resolve(&every, t0, t1);
         assert!(c.active.iter().all(|s| truth.binary_search(s).is_ok()), "{t0}..{t1}: a quiet signal classified active");
         assert_eq!(answer, truth, "{t0}..{t1}: classify + resolve disagrees with the trace");
         if (t1 - t0 + 1) >= index.exact_width(t0, t1) {

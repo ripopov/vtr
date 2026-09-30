@@ -1,114 +1,74 @@
-//! The VTR front end: blocks scanned in parallel, stitched in time order.
+//! The VTR front end: every block's change times from its entry headers,
+//! and the undecided signals of a window from the reader.
 
-use super::{Block, BlockScan, BuildOptions, Builder, Identity, Summary};
+use super::{Block, BlockScan, Budget, BuildOptions, Identity, Source, Summary};
 use crate::block::{self, GroupView};
 use crate::codec::{self, Decompressor};
 use crate::error::{Error, Result};
 use crate::hierarchy::{SignalId, SignalKind};
 use crate::reader::Reader;
-use std::collections::BTreeMap;
 use std::io::Write;
-use std::sync::{mpsc, Condvar, Mutex};
 
-/// Builds the activity index of an open VTR file into `out`.
+/// Builds the activity index of an open VTR file into `out` (see
+/// [`build_from`](super::build_from) for threads and memory).
 ///
-/// Worker threads ([`BuildOptions::threads`]) scan blocks ahead of the
-/// stitch, at most two blocks per worker and [`BuildOptions::memory`] in
-/// flight. A scan decompresses one column run at a time and decodes only
-/// the entry headers, never values, so a 2,048-bit bus costs what a single
-/// bit does. Peak memory is the builder's 24 bytes per signal plus the scans
-/// in flight, independent of the length of the run. A file recovered without
-/// its trailer cannot be indexed ([`Identity::of`]).
+/// A scan decompresses one column run at a time and decodes only the entry
+/// headers, never values, so a 2,048-bit bus costs what a single bit does. A
+/// file recovered without its trailer cannot be indexed ([`Identity::of`]).
 pub fn build(reader: &Reader, out: impl Write, opts: &BuildOptions) -> Result<Summary> {
-    let id = Identity::of(reader)?;
-    let n = reader.block_count();
-    let blocks: Vec<Block> = (0..n)
-        .map(|i| {
-            let (start, end) = reader.block_range(i);
-            Block { start, end, bytes: reader.signal_block_bytes(i) }
-        })
-        .collect();
-    let t_min = blocks.first().map_or(0, |b| b.start);
-    let budget = opts.budget;
-    let mut cost = Vec::with_capacity(n);
-    for (i, &b) in blocks.iter().enumerate() {
-        let c = scan_cost(reader, i, b, opts)?;
-        if c > opts.memory {
-            return Err(Error::invalid(format!(
-                "block {i} ({}..{}) needs about {} MiB to scan, more than the memory limit of {} MiB",
-                b.start,
-                b.end,
-                c >> 20,
-                opts.memory >> 20
-            )));
-        }
-        cost.push(c);
-    }
-    let mut builder = Builder::new(out, id, reader.signal_count(), t_min, budget)?;
-    let threads = opts.worker_threads().clamp(1, n.max(1));
-    let depth = 2 * threads;
+    super::build_from(&VtrSource::new(reader)?, out, opts)
+}
 
-    struct Gate {
-        next: usize,
-        stitched: usize,
-        /// Estimated bytes of the scans claimed and not yet stitched.
-        held: u64,
-        stop: bool,
+/// A VTR file as a [`Source`].
+struct VtrSource<'a> {
+    reader: &'a Reader,
+    identity: Identity,
+    blocks: Vec<Block>,
+}
+
+impl<'a> VtrSource<'a> {
+    fn new(reader: &'a Reader) -> Result<Self> {
+        let identity = Identity::of(reader)?;
+        let blocks = (0..reader.block_count())
+            .map(|i| {
+                let (start, end) = reader.block_range(i);
+                Block { start, end, bytes: reader.signal_block_bytes(i) }
+            })
+            .collect();
+        Ok(VtrSource { reader, identity, blocks })
     }
-    let gate = Mutex::new(Gate { next: 0, stitched: 0, held: 0, stop: false });
-    let moved = Condvar::new();
-    std::thread::scope(|sc| {
-        let (tx, rx) = mpsc::channel::<(usize, Result<BlockScan>)>();
-        for _ in 0..threads {
-            let (tx, gate, moved, blocks, cost) = (tx.clone(), &gate, &moved, &blocks, &cost);
-            sc.spawn(move || {
-                let mut d = Decompressor::new();
-                loop {
-                    let i = {
-                        let mut g = gate.lock().unwrap();
-                        while !g.stop && g.next < n && (g.next >= g.stitched + depth || (g.held > 0 && g.held + cost[g.next] > opts.memory)) {
-                            g = moved.wait(g).unwrap();
-                        }
-                        if g.stop || g.next >= n {
-                            return;
-                        }
-                        g.held += cost[g.next];
-                        g.next += 1;
-                        g.next - 1
-                    };
-                    let scan = BlockScan::new(blocks[i], i.checked_sub(1).map(|p| blocks[p].end), t_min, budget);
-                    if tx.send((i, scan_block(reader, i, scan, &mut d))).is_err() {
-                        return;
-                    }
-                }
-            });
-        }
-        drop(tx);
-        let mut pending = BTreeMap::new();
-        let mut stitch = || -> Result<()> {
-            for (i, scan) in rx.iter() {
-                pending.insert(i, scan);
-                while let Some(scan) = pending.remove(&builder.blocks_added()) {
-                    builder.add(scan?)?;
-                    let mut g = gate.lock().unwrap();
-                    g.held -= cost[g.stitched];
-                    g.stitched += 1;
-                    moved.notify_all();
-                }
-            }
-            Ok(())
-        };
-        let done = stitch();
-        if done.is_err() {
-            gate.lock().unwrap().stop = true;
-            moved.notify_all();
-        }
-        done
-    })?;
-    if builder.blocks_added() != n {
-        return Err(Error::State("an activity scan worker stopped early"));
+}
+
+impl Source for VtrSource<'_> {
+    type Worker = Decompressor;
+
+    fn identity(&self) -> Identity {
+        self.identity
     }
-    builder.finish()
+
+    fn signal_count(&self) -> u32 {
+        self.reader.signal_count()
+    }
+
+    fn t_min(&self) -> u64 {
+        self.blocks.first().map_or(0, |b| b.start)
+    }
+
+    fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
+    fn cost(&self, i: usize, budget: Budget) -> Result<u64> {
+        scan_cost(self.reader, i, self.blocks[i], budget)
+    }
+
+    fn worker(&self) -> Decompressor {
+        Decompressor::new()
+    }
+
+    fn scan(&self, d: &mut Decompressor, i: usize, scan: &mut BlockScan) -> Result<()> {
+        scan_block(self.reader, i, scan, d)
+    }
 }
 
 /// The signals among `signals` that change in the window `[t0, t1]`, read
@@ -141,7 +101,7 @@ pub fn resolve(reader: &Reader, signals: &[SignalId], t0: u64, t1: u64) -> Resul
 /// What scanning block `i` holds at most: its rows and candidates, its
 /// time table, and its largest column run decompressed (64 KiB by default,
 /// larger for a single long column), all read from headers.
-fn scan_cost(reader: &Reader, i: usize, b: Block, opts: &BuildOptions) -> Result<u64> {
+fn scan_cost(reader: &Reader, i: usize, b: Block, budget: Budget) -> Result<u64> {
     let (p, h, kinds) = reader.signal_block(i)?;
     let (mut rows, mut run) = (0u64, 0u64);
     for (g, clen, off) in block::dirty_groups(p, &h) {
@@ -152,12 +112,12 @@ fn scan_cost(reader: &Reader, i: usize, b: Block, opts: &BuildOptions) -> Result
         }
     }
     let times = h.n_times as u64 * 8 + codec::raw_len(&p[h.tt_off()..h.index_off()])? as u64;
-    Ok(BlockScan::estimate(rows, b, opts.budget) + times + run)
+    Ok(BlockScan::estimate(rows, b, budget) + times + run)
 }
 
 /// Feeds every change time of block `i` to `scan`, one column at a time.
 /// Its buffers are the block's own, freed with it, as [`scan_cost`] counts them.
-fn scan_block(reader: &Reader, i: usize, mut scan: BlockScan, d: &mut Decompressor) -> Result<BlockScan> {
+fn scan_block(reader: &Reader, i: usize, scan: &mut BlockScan, d: &mut Decompressor) -> Result<()> {
     let (p, h, kinds) = reader.signal_block(i)?;
     let times = block::decode_time_table(p, &h, d)?;
     let mut run = Vec::new();
@@ -171,7 +131,7 @@ fn scan_block(reader: &Reader, i: usize, mut scan: BlockScan, d: &mut Decompress
             let first = view.first_sig + view.runs[ri].first_local;
             for (k, &(a, b)) in cols.iter().enumerate() {
                 let sig = first + k as u32;
-                feed(&mut scan, sig, &run[a as usize..b as usize], kinds[sig as usize], &times)?;
+                feed(scan, sig, &run[a as usize..b as usize], kinds[sig as usize], &times)?;
             }
         }
     }
@@ -192,9 +152,9 @@ fn scan_block(reader: &Reader, i: usize, mut scan: BlockScan, d: &mut Decompress
             decoded = Some((g, ri));
         }
         let (a, b) = cols[(target - view.first_sig - view.runs[ri].first_local) as usize];
-        feed(&mut scan, alias, &run[a as usize..b as usize], kinds[target as usize], &times)?;
+        feed(scan, alias, &run[a as usize..b as usize], kinds[target as usize], &times)?;
     }
-    Ok(scan)
+    Ok(())
 }
 
 fn feed(scan: &mut BlockScan, sig: u32, col: &[u8], kind: SignalKind, times: &[u64]) -> Result<()> {

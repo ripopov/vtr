@@ -29,7 +29,7 @@
 //! assert_eq!(s.signals(a), 2);
 //! ```
 
-use crate::hierarchy::{Hierarchy, NodeId, NodeKind, SignalId};
+use crate::hierarchy::{Hierarchy, NodeId, NodeKind};
 
 const NONE: u32 = u32::MAX;
 
@@ -201,13 +201,6 @@ impl Hierarchy {
     /// Requires [`build_index`](Self::build_index) (a [`crate::Reader`]'s
     /// hierarchy is indexed).
     pub fn scope_sizes(&self) -> (Vec<NodeId>, ScopeSizes) {
-        self.scope_sizes_of(|_| true)
-    }
-
-    /// [`scope_sizes`](Self::scope_sizes) counting only the variables of the
-    /// signals `keep` accepts, such as the signals that change in a window.
-    /// Scopes and their order are the same.
-    pub fn scope_sizes_of(&self, mut keep: impl FnMut(SignalId) -> bool) -> (Vec<NodeId>, ScopeSizes) {
         let mut c = Census::new();
         let mut nodes = Vec::new();
         // Preorder with explicit leave markers: `None` closes a scope.
@@ -224,12 +217,7 @@ impl Hierarchy {
             stack.push(None);
             for k in self.children(n) {
                 match self.kind(k) {
-                    NodeKind::Var => {
-                        let s = self.signal_of(k).expect("var has a signal");
-                        if keep(s) {
-                            c.var(s.0);
-                        }
-                    }
+                    NodeKind::Var => c.var(self.signal_of(k).expect("var has a signal").0),
                     NodeKind::Scope => kids.push(k),
                     _ => {}
                 }

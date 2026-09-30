@@ -170,10 +170,5 @@ fn trace_hierarchy_counts_aliases_once() {
         assert_eq!(nodes.len(), t.parent.len());
         assert!(nodes.iter().enumerate().all(|(i, &n)| r.name(n) == format!("s{i}")));
         assert_eq!(triples(&sizes), brute(&t));
-        // Counting a subset: the tree's even signals.
-        let even: HashSet<u32> = declared.iter().enumerate().filter(|(g, _)| g % 2 == 0).filter_map(|(_, s)| s.map(|s| s.0)).collect();
-        let (_, some) = r.hierarchy().scope_sizes_of(|s| even.contains(&s.0));
-        let kept = Tree { parent: t.parent.clone(), vars: t.vars.iter().map(|v| v.iter().copied().filter(|g| g % 2 == 0).collect()).collect() };
-        assert_eq!(triples(&some), brute(&kept));
     }
 }

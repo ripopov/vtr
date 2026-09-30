@@ -24,8 +24,10 @@
 //!   [`Builder`] stitches scans, in time order, into a sidecar written
 //!   section by section. Memory is 24 bytes per signal plus the scans in
 //!   flight, whatever the length of the run.
-//! * [`build`] is the VTR front end: it scans blocks in parallel and decodes
-//!   only entry headers, never values.
+//! * [`build_from`] scans the blocks of a [`Source`], a trace format's front
+//!   end, in parallel and stitches them. [`build`] is the VTR front end, which
+//!   decodes only entry headers, never values; `vtr_cli::fst::activity` is
+//!   the FST one.
 //! * [`Index`] is a loaded sidecar, valid for the trace whose [`Identity`]
 //!   it records.
 //! * [`Sidecar`] names where a trace's index lives (`<trace>.index`, else a
@@ -60,17 +62,19 @@
 //! ```
 
 mod builder;
+mod driver;
 mod format;
 mod index;
 mod scan;
 mod sidecar;
-mod source;
+mod vtr_source;
 
 pub use builder::Builder;
 pub use index::{Classification, Index, IndexBlock, Stretch};
 pub use scan::BlockScan;
 pub use sidecar::{default_cache_dir, Sidecar};
-pub use source::{build, resolve};
+pub use driver::{build_from, Source};
+pub use vtr_source::{build, resolve};
 
 use crate::container::Container;
 use crate::error::{Error, Result};

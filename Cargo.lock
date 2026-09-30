@@ -2396,6 +2396,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fst-writer"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77be37fdc968866fa4f0cee73e42185e6d4699a761a51a54e6ebc9a3d73ed537"
+dependencies = [
+ "lz4_flex 0.11.6",
+ "miniz_oxide 0.8.9",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "futf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8719,9 +8730,13 @@ dependencies = [
 name = "vtr-cli"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "flate2",
  "fst-reader",
+ "fst-writer",
  "lz4_flex 0.11.6",
+ "memmap2",
+ "rand 0.8.8",
  "serde_json",
  "tempfile",
  "vtr",

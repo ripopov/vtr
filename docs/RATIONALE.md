@@ -2924,3 +2924,33 @@ nearly all of 200,001 signals can be undecided; C910's is 28 ms.
 `Hierarchy::scope_sizes_of` gives `vtr active` exact per-scope counts by
 running the census over a subset of signals, 1 ms on C910. That is cheap for
 a command; meters need the per-frame lists of the scope-sizes design.
+
+**The FST front end.** `vtr_cli::fst::activity::FstTrace` maps the file and
+walks its blocks itself. `fst-reader` takes 124 s to stream C910's FST
+because it renders every value as text. Its `read_signals` also hides the
+block list, emits a frame for the first section of every read, and reads
+neighbouring sections when blocks share a boundary time. Instead, the scanner
+reads each value-change block's own time table and position table (both
+alias formats) and inflates one value chain at a time (zlib, lz4, FastLZ, or
+raw). It walks the entry headers for time indexes and skips values by length.
+C910's 408 MB FST indexes in 0.83 s on 16 threads and 10.6 s on one, with a
+48 MiB peak. It finds the same 596,558,867 changes as the VTR file, and `vtr
+active` prints the same lines for both. Its 134 blocks are short, so the
+quarter-span cap binds and the sidecar is 1.23% of the file; 49% of windows
+are exact and reads take at most 12 ms.
+The FST writer chose the block sizes, so a block's cost counts the writer's
+own figure for its decompressed chains. A gzip-wrapped file is streamed to a
+temporary file, is bound by all its bytes, and the copy is removed with the
+trace. Answers are checked against `fst-reader`'s full read of generated
+multi-block traces, of GTKWave fixtures packed each way, and of the
+benchmark's FST twins.
+
+A change is a recorded value, in both formats. `fstapi` keeps a value that
+an emitter records twice, while VTR's writer drops it by default, so a
+replay's FST can hold more changes than its VTR twin (long_sparse: 5.50 M
+against 4.50 M). Treating a repeat as quiet would mean comparing every value
+with the one before, and with each block's frame for its first entry; that
+would give up decoding headers only and would still need the hierarchy's
+event types, whose repeats are real. Verilator's FST writer records only
+changes, and an FST and a VTR that record the same values give the same
+answers, which a test checks through `vtr convert` with deduplication off.

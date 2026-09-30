@@ -333,6 +333,7 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
     if not reads_only or (os.path.exists(files["fstcpp-none"]) and os.path.exists(files["vtr-none"])):
         res["readers"]["uncompressed"] = json_out([VTR_BENCH, "read", files["fstcpp-none"], files["vtr-none"]], env=READ_ENV)
     res["activity"] = run_activity(vtr_file)
+    res["activity_fst"] = run_activity(files["fstapi-zlib"])
     plan = os.path.join(out_dir, f"{name}_plan.txt")
     with open(plan, "w") as f:
         f.write(sh([VTR_BENCH, "plan", vtr_file], capture=True).stdout)
@@ -354,7 +355,7 @@ def run_rtl(name, info, repeat, out_dir, reads_only=False, previous=None, sim_re
 
 
 def run_activity(vtr_file):
-    """Activity index (docs/hierarchy-activity.html) on 16 threads: best-of-3 build time, the
+    """Activity index (docs/hierarchy-activity.html) of a VTR or FST file on 16 threads: best-of-3 build time, the
     largest peak anonymous memory, sidecar size and thresholds, then 100 random windows answered
     by classify and resolve and checked against the trace."""
     runs = [json_out([VTR_BENCH, "activity", vtr_file, "--threads", "16"]) for _ in range(3)]
@@ -729,14 +730,18 @@ def render(results, path):
     if act:
         L.append("\n## Activity index: `vtr index`\n")
         L.append("The sidecar that answers which signals change in a window ([design](hierarchy-activity.html)), built from the VTR file above on 16 threads in one streaming pass: best-of-3 build time, largest peak anonymous memory (the mapped trace excluded), its size on disk and loaded, and the range of block thresholds Δ in time units. Then 100 random windows of log-uniform width are answered by `classify` and `resolve` and checked against the trace: the share answered with no undecided signal, the median undecided share of the others, `classify` time per signal on one thread, and the slowest `resolve` of the undecided signals on 16 threads.\n")
-        L.append("| workload | build | per change | peak memory | sidecar | share of trace | loaded | Δ | windows exact | undecided | classify | slowest read |")
-        L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        L.append("The FST rows index the workload's fstapi zlib file, whose blocks its writer chose; fstapi keeps values a replay records twice, which count as changes.\n")
+        L.append("| workload | trace | build | per change | peak memory | sidecar | share of trace | loaded | Δ | windows exact | undecided | classify | slowest read |")
+        L.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
         for r in act:
-            a = r["activity"]
-            q = a.get("queries") or {}
-            d = f"{a['delta_min']:,}" if a["delta_min"] == a["delta_max"] else f"{a['delta_min']:,}–{a['delta_max']:,}"
-            qs = f"{q['exact_share'] * 100:.0f}% | {q['undecided_median'] * 100:.0f}% | {q['classify_ns_per_signal']:.1f} ns | {q['resolve_ms_max']:.1f} ms" if q else "- | - | - | -"
-            L.append(f"| {r['workload']} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} | {qs} |")
+            for label, key in (("VTR", "activity"), ("FST zlib", "activity_fst")):
+                a = r.get(key)
+                if not a:
+                    continue
+                q = a.get("queries") or {}
+                d = f"{a['delta_min']:,}" if a["delta_min"] == a["delta_max"] else f"{a['delta_min']:,}–{a['delta_max']:,}"
+                qs = f"{q['exact_share'] * 100:.0f}% | {q['undecided_median'] * 100:.0f}% | {q['classify_ns_per_signal']:.1f} ns | {q['resolve_ms_max']:.1f} ms" if q else "- | - | - | -"
+                L.append(f"| {r['workload']} | {label} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} | {qs} |")
     if logs:
         L.extend(render_logs(logs))
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
@@ -941,6 +946,7 @@ def main():
         for r in results["rtl"]:
             if r["workload"] in rtl_names:
                 r["activity"] = run_activity(os.path.join(a.out, f"{r['workload']}.vtr"))
+                r["activity_fst"] = run_activity(os.path.join(a.out, f"{r['workload']}_fstapi_zlib.fst"))
                 print(f"{r['workload']}: activity index built in {r['activity']['build_s']:.2f}s", flush=True)
         json.dump(results, open(res_path, "w"), indent=1)
     if a.what in ("all", "run", "log"):

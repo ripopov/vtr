@@ -1,4 +1,7 @@
-//! FST -> VTR conversion (lossless with respect to the FST hierarchy and values).
+//! FST -> VTR conversion (lossless with respect to the FST hierarchy and values),
+//! and the FST front end of the activity index ([`activity`]).
+
+pub mod activity;
 
 use fst_reader::{FstFilter, FstHierarchyEntry, FstReader, FstSignalHandle, FstSignalValue};
 use std::collections::HashMap;

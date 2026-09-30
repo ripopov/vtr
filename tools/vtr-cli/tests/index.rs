@@ -83,3 +83,26 @@ fn active_scopes_and_signals() {
     let quiet = vtr(dir.path(), &["active", p, "3000000", "4000000", "--scope", "top"]);
     assert!(String::from_utf8_lossy(&quiet.stdout).contains("· 0 of 2 signals change · exact"));
 }
+
+/// Both commands take FST files: one VCD packed three ways gives the same lines.
+#[test]
+fn fst_traces_answer_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixtures = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/activity");
+    let mut outputs = Vec::new();
+    for name in ["lz4.fst", "fastlz.fst", "wrapped.fst"] {
+        let path = dir.path().join(name);
+        std::fs::copy(fixtures.join(name), &path).unwrap();
+        let p = path.to_str().unwrap();
+        let built = vtr(dir.path(), &["index", p]);
+        assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+        assert!(String::from_utf8_lossy(&built.stdout).starts_with(&format!("{p}.index: 1 blocks, Δ ")));
+        assert!(vtr(dir.path(), &["index", p, "--check"]).status.success());
+        let active = vtr(dir.path(), &["active", p, "100ns", "101ns", "--scope", "top", "--depth", "1"]);
+        assert!(active.status.success(), "{}", String::from_utf8_lossy(&active.stderr));
+        outputs.push(String::from_utf8_lossy(&active.stdout).into_owned());
+    }
+    assert!(outputs.windows(2).all(|w| w[0] == w[1]), "{outputs:?}");
+    let lines: Vec<&str> = outputs[0].lines().collect();
+    assert!(lines[0].starts_with("100,000–101,000 ps · ") && lines[1].starts_with("top ") && lines[2].starts_with("  unit "), "{lines:?}");
+}
