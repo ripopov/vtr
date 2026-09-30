@@ -41,6 +41,7 @@ use crate::clock::{self, ClockId};
 use crate::block::{self, BlockInput, ChunkEnc, ChunkInput, EncoderScratch, Record, COMPACT_FLAG, NO_BLOCK};
 use crate::codec::{Compression, Compressor};
 use crate::container::{self, DirEntry, SectionKind, SECTION_FLAG_OPTIONAL};
+use crate::ending::{self, Ending};
 use crate::error::{Error, Result};
 use crate::hierarchy::{self, Direction, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind, VarType};
 use crate::logblock::{self, LogArg, LogBlockInput, LogSiteEnc, LogSiteId, LogSiteSpec};
@@ -972,7 +973,15 @@ impl Writer {
     /// Declares a transaction stream under `parent`. `kind` is free form
     /// (`"TRANSACTOR"`, `"PIPELINE"`, ...); log streams use
     /// [`LOG_STREAM_KIND`](crate::LOG_STREAM_KIND).
+    /// The root stream [`ending::STREAM`] is reserved ([`Error::Invalid`]).
     pub fn add_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> Result<NodeId> {
+        if parent.is_none() && name == ending::STREAM {
+            return Err(Error::invalid(format!("the root stream {name:?} is reserved for the run's ending")));
+        }
+        self.push_stream(parent, name, kind)
+    }
+
+    fn push_stream(&mut self, parent: Option<NodeId>, name: &str, kind: &str) -> Result<NodeId> {
         self.check_parent(NodeKind::Stream, parent)?;
         let name = self.strings.intern(name);
         let kind = self.strings.intern(kind);
@@ -2087,8 +2096,23 @@ impl Writer {
     /// trailer. Idempotent. Also invoked by `Drop`, but errors are only
     /// reported here, including the first error of the background thread.
     pub fn close(&mut self) -> Result<()> {
+        self.close_with(Ending::Closed)
+    }
+
+    /// Like [`close`](Self::close), recording how the run ended. Any ending
+    /// but [`Ending::Closed`] is written as a FATAL log record at the current
+    /// time in the reserved root log stream [`ending::STREAM`], the last
+    /// record of the file (SPEC section 8.5); [`Reader::ending`](crate::Reader::ending) returns it.
+    pub fn close_with(&mut self, end: Ending) -> Result<()> {
         if self.closed {
             return Ok(());
+        }
+        if let Some((site, args)) = end.record() {
+            let stream = self.push_stream(None, ending::STREAM, logblock::STREAM_KIND)?;
+            let (fmt, names, types) = ending::SITES[site];
+            let spec = LogSiteSpec { names, ..LogSiteSpec::new(stream, logblock::Severity::Fatal, fmt, types) };
+            let site = self.add_log_site(&spec)?;
+            self.log(site, self.time, &args)?;
         }
         self.closed = true;
         // Open transactions are recorded with status Open.

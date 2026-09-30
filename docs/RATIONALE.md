@@ -2587,3 +2587,15 @@ recovery 22 ms on the 243 MiB C910 file (27.6 to 50.0 ms for `vtr info`);
 complete files open through the directory and are not affected. Rejected:
 verifying CRCs on every open (the same 22 ms for no gain on a complete file,
 whose sections are checked on demand with `verify_crc`).
+
+**How the run ended.** An abnormal ending is one FATAL record of the
+reserved root log stream `vtr.run` (SPEC 8.5), written last by
+`Writer::close_with(Ending)`, rather than a new section kind or a META
+field. Every log reader, the CLI's log listing, Volna's log view and the MCP
+tools already show it, with typed arguments a tool can filter; META is
+written at the first flush, long before the ending is known, and a new
+section would need its own reader support everywhere. A normal close writes
+nothing, so ordinary files are unchanged, and `Reader::ending()` reports
+`Closed` for a complete file and `Recovered` for a scanned one without a
+record. The reader looks for the record from the last log block backwards,
+so it decodes one block in the usual case.

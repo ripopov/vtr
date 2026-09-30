@@ -776,6 +776,27 @@ sites are all below the wanted severity or outside the wanted stream is
 skipped without decompression. *Record by id*: blocks whose
 `[min_id, max_id]` contains the id, after the TX_BLOCKs.
 
+### 8.5 Run ending
+
+A file records how its run ended when the run did not simply close. The
+root stream named `vtr.run` of kind `LOG` is reserved for this: producers
+must not declare it for anything else. A producer that ends a run in any
+other way than a normal close writes one record of one of these FATAL sites
+to it, at its current time, as the last log record of the file:
+
+| format | arguments (`log.names`: types) | ending |
+|---|---|---|
+| `run stopped by signal {}` | `signal`: i64 | a stop request (SIGTERM, SIGINT, ...), then a normal close |
+| `run exited with status {}` | `status`: i64 | the program called `exit()` without closing |
+| `run crashed by signal {} (code {}, address {}, thread {}, sealed {})` | `signal`, `code`: i64; `address`: pointer; `thread`: u64; `sealed`: bool | a fatal signal with its `si_code`, fault address and kernel thread id; `sealed` when the writer was interrupted mid-call and only what had reached its encoder was kept |
+| `run recovered by scanning, {} bytes dropped` | `dropped`: u64 | the file was recovered (2.3) and rewritten whole |
+
+Signal numbers are those of the producing platform (Linux numbering in the
+reference writer). A reader reports the last record of `vtr.run`; a file
+without one ended with a normal close when it has a directory, and was
+recovered otherwise. This is a convention over sections 8.1 to 8.3, not a
+format change: every log reader shows the record.
+
 ## 9. Extensibility and versioning
 
 The format is under definition and may change freely. The major and minor

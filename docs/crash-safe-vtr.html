@@ -119,7 +119,7 @@
     <p class="v-kicker">Design · VTR writer · Verilator fork</p>
     <h1 class="v-hero__title">A crash should cost the process, <em>not</em> the trace.</h1>
     <p class="v-hero__lede">Simulations die: a DPI model dereferences a null pointer, an assertion calls <code>abort()</code>, a job scheduler sends SIGTERM. Today a VTR file then keeps only its completed blocks. When SIGSEGV cut a 30-million-change run short, the file kept 56% of the value changes and none of the 396 log records, though the log is what explains a crash. This design makes the writer's accepted data survive every ending a process can observe. A tiny signal handler hands the work to a <strong>rescue thread</strong> that closes the file through the ordinary close path, within a hard deadline. It then ends the process with the original signal, so the exit status and core dump are unchanged. A prototype against today's <code>libvtr.a</code> kept 100% of the data in every catchable case, stack overflow included, in 0.21–0.69&nbsp;s. Heap corruption was saved only once VTR allocated from its own heap.</p>
-    <p class="v-hero__fine">Proposal · measured with <code>bench/crashlab</code> on a Core Ultra 7 265K, glibc 2.43 · stages 1–2 of 8 have landed</p>
+    <p class="v-hero__fine">Proposal · measured with <code>bench/crashlab</code> on a Core Ultra 7 265K, glibc 2.43 · stages 1–3 of 8 have landed</p>
   </div>
 </section>
 
@@ -386,7 +386,7 @@
         <tbody>
           <tr><td>1 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-1">The crash matrix in CI</a></td><td>Every ending tested headlessly on every push</td><td>—</td><td>unchanged</td></tr>
           <tr><td>2 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-2">Durable sections, verified recovery</a></td><td>Finished sections reach the kernel at once; torn tails are detected by CRC</td><td>1</td><td>SPEC recovery text</td></tr>
-          <tr><td>3</td><td><a class="v-link" href="#stage-3">How the run ended</a></td><td><code>vtr info</code> says crashed, stopped, exited, closed or recovered</td><td>1</td><td>reserved <code>vtr.run</code> stream</td></tr>
+          <tr><td>3 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-3">How the run ended</a></td><td><code>vtr info</code> says crashed, stopped, exited, closed or recovered</td><td>1</td><td>reserved <code>vtr.run</code> stream</td></tr>
           <tr><td>4</td><td><a class="v-link" href="#stage-4">A sealable writer</a></td><td>A writer interrupted mid-call can still be finished; panics become errors</td><td>1, 3</td><td>unchanged</td></tr>
           <tr><td>5</td><td><a class="v-link" href="#stage-5">VTR on its own heap</a></td><td>Heap corruption in the model no longer blocks VTR</td><td>1</td><td>unchanged</td></tr>
           <tr><td>6</td><td><a class="v-link" href="#stage-6">The guard</a></td><td><code>vtr_guard_install</code>: every catchable ending keeps the whole trace</td><td>2–5</td><td>unchanged</td></tr>
@@ -421,15 +421,15 @@
       </article>
 
       <article class="a-stagecard" id="stage-3" aria-labelledby="stage-3-h">
-        <p class="a-stage__n">Stage 3</p>
+        <p class="a-stage__n">Stage 3 <span class="v-chip v-chip--accent">Landed</span></p>
         <h3 id="stage-3-h">How the run ended</h3>
         <p>A file says whether its run closed normally, and if not, why. The record uses structures VTR already has: a log stream <code>vtr.run</code> under the root, with one FATAL site per kind of ending, whose typed arguments a tool can filter.</p>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd><code>Writer::close_with(Ending)</code>, where <code>Ending</code> is <code>Closed</code>, <code>Stopped { signal }</code>, <code>Exited { status }</code> or <code>Crashed { signal, code, address, thread, sealed }</code>, at the writer's current time. <code>Reader::ending()</code> returns the record, or <code>Recovered</code> for a scanned file without one.</dd></div>
-          <div><dt>C API</dt><dd><code>vtr_writer_close_ending</code>, <code>vtr_reader_ending</code>.</dd></div>
-          <div><dt>CLI</dt><dd><code>vtr info</code> prints "Ended: crashed by SIGSEGV (address 0x0, thread 41137) at t=25360".</dd></div>
-          <div><dt>Spec</dt><dd>The reserved stream name and site formats in SPEC.md, as a convention with no version change. RATIONALE.md: why a log record and not a new section, which is that every reader already shows it.</dd></div>
-          <div><dt>Tests</dt><dd>A round trip for each ending, and the record absent from a file closed the old way.</dd></div>
+          <div><dt>Core</dt><dd><code>Writer::close_with(Ending)</code>, where <code>Ending</code> is <code>Closed</code>, <code>Stopped { signal }</code>, <code>Exited { status }</code>, <code>Crashed { signal, code, address, thread, sealed }</code> or <code>Recovered { dropped }</code>, records the ending at the writer's current time; <code>close()</code> is <code>close_with(Closed)</code> and records nothing. <code>Reader::ending()</code> returns the record and its time, searching from the last log block, or <code>Closed</code> or <code>Recovered</code> for a file without one. <code>Ending</code> displays as "crashed by SIGSEGV (address 0x0, thread 41137)". A user stream named <code>vtr.run</code> at the root is rejected.</dd></div>
+          <div><dt>C API</dt><dd><code>vtr_writer_close_ending</code>, <code>vtr_reader_ending</code> and <code>vtr_ending_format</code> over a <code>vtr_ending</code> struct.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr info</code> prints "ended: crashed by SIGSEGV (address 0x0, thread 41137) at t=25360".</dd></div>
+          <div><dt>Spec</dt><dd>SPEC.md 8.5 Run ending: the reserved stream name and the four site formats, as a convention with no version change. RATIONALE.md: why a log record and not a new section, which is that every reader already shows it.</dd></div>
+          <div><dt>Tests</dt><dd><code>core/vtr/tests/ending.rs</code>: a round trip for each ending with the inline and background encoders, each ending's text, no record for a normal close, <code>Recovered</code> for a cut file, and the reserved name. <code>c_smoke.c</code> checks the C projection.</dd></div>
         </dl>
       </article>
 

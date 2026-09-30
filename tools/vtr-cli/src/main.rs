@@ -103,6 +103,11 @@ fn cmd_info(args: &[String]) {
         Some((a, b)) => println!("time range:  {a} .. {b}"),
         None => println!("time range:  (empty)"),
     }
+    match r.ending() {
+        Ok((end, Some(t))) => println!("ended:       {end} at t={t}"),
+        Ok((end, None)) => println!("ended:       {end}"),
+        Err(e) => println!("ended:       unknown ({e})"),
+    }
     if !m.comment.is_empty() {
         println!("comment:     {}", m.comment);
     }

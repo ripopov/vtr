@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::ptr;
 use vtr::{
-    ClockId, ClockTimeline, Direction, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
+    ClockId, ClockTimeline, Direction, Ending, Error, LogArg, LogArgType, LogQuery, LogRecord, LogSiteId, LogSiteSpec, NodeData, NodeId, Reader, ScopeType, Severity, SignalId,
     SignalKind, StrId, Transaction, TxKind, TxQuery, TxStatus, Value, VarType, Writer, WriterOptions,
 };
 
@@ -349,11 +349,98 @@ pub unsafe extern "C" fn vtr_writer_create(path: *const c_char, opts: *const vtr
 /// Finishes the file and frees the writer. Returns the close status.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_writer_close(w: *mut vtr_writer) -> c_int {
+    vtr_writer_close_ending(w, ptr::null())
+}
+
+pub const VTR_ENDING_CLOSED: u8 = 0;
+pub const VTR_ENDING_STOPPED: u8 = 1;
+pub const VTR_ENDING_EXITED: u8 = 2;
+pub const VTR_ENDING_CRASHED: u8 = 3;
+pub const VTR_ENDING_RECOVERED: u8 = 4;
+
+/// Mirrors `vtr::Ending` plus the record's time (see `vtr.h`).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct vtr_ending {
+    pub kind: u8,
+    pub signal: i32,
+    pub code: i32,
+    pub status: i32,
+    pub address: u64,
+    pub thread: u64,
+    pub dropped: u64,
+    pub sealed: c_int,
+    pub has_time: c_int,
+    pub time: u64,
+}
+
+fn from_ending(e: &vtr_ending) -> Result<Ending, Error> {
+    Ok(match e.kind {
+        VTR_ENDING_CLOSED => Ending::Closed,
+        VTR_ENDING_STOPPED => Ending::Stopped { signal: e.signal },
+        VTR_ENDING_EXITED => Ending::Exited { status: e.status },
+        VTR_ENDING_CRASHED => Ending::Crashed { signal: e.signal, code: e.code, address: e.address, thread: e.thread, sealed: e.sealed != 0 },
+        VTR_ENDING_RECOVERED => Ending::Recovered { dropped: e.dropped },
+        k => return Err(Error::Invalid(format!("unknown ending kind {k}"))),
+    })
+}
+
+fn to_ending(e: Ending, time: Option<u64>) -> vtr_ending {
+    let mut o = vtr_ending { has_time: time.is_some() as c_int, time: time.unwrap_or(0), ..Default::default() };
+    match e {
+        Ending::Closed => o.kind = VTR_ENDING_CLOSED,
+        Ending::Stopped { signal } => (o.kind, o.signal) = (VTR_ENDING_STOPPED, signal),
+        Ending::Exited { status } => (o.kind, o.status) = (VTR_ENDING_EXITED, status),
+        Ending::Crashed { signal, code, address, thread, sealed } => {
+            (o.kind, o.signal, o.code, o.address, o.thread, o.sealed) = (VTR_ENDING_CRASHED, signal, code, address, thread, sealed as c_int)
+        }
+        Ending::Recovered { dropped } => (o.kind, o.dropped) = (VTR_ENDING_RECOVERED, dropped),
+    }
+    o
+}
+
+/// Finishes the file recording how the run ended, and frees the writer.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_writer_close_ending(w: *mut vtr_writer, end: *const vtr_ending) -> c_int {
     if w.is_null() {
         return VTR_ERR_NULL;
     }
     let mut b = Box::from_raw(w);
-    status(b.0.close())
+    let end = match end.as_ref().map(from_ending).transpose() {
+        Ok(e) => e.unwrap_or(Ending::Closed),
+        Err(e) => {
+            let _ = b.0.close();
+            return status(Err(e));
+        }
+    };
+    status(b.0.close_with(end))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_reader_ending(r: *const vtr_reader, out: *mut vtr_ending) -> c_int {
+    let r = need_ref!(r);
+    let out = need!(out);
+    match r.0.ending() {
+        Ok((e, t)) => {
+            *out = to_ending(e, t);
+            VTR_OK
+        }
+        Err(e) => status(Err(e)),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_ending_format(end: *const vtr_ending, buf: *mut c_char, cap: usize) -> usize {
+    let s = match end.as_ref().map(from_ending) {
+        Some(Ok(e)) => e.to_string(),
+        _ => return 0,
+    };
+    if cap > 0 && !buf.is_null() {
+        let m = s.len().min(cap - 1);
+        ptr::copy_nonoverlapping(s.as_ptr(), buf as *mut u8, m);
+        *buf.add(m) = 0;
+    }
+    s.len()
 }
 
 #[no_mangle]

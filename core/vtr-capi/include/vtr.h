@@ -275,6 +275,30 @@ void        vtr_writer_options_default(vtr_writer_options *o);
 vtr_writer *vtr_writer_create(const char *path, const vtr_writer_options *opts /* nullable */);
 int         vtr_writer_close(vtr_writer *w);   /* finishes and frees; returns status */
 
+/* How a run ended (SPEC 8.5). close() records nothing; close_ending() with any
+ * other kind appends a FATAL log record at the current time to the reserved
+ * root log stream "vtr.run" and then closes like close(). reader_ending()
+ * returns the record, or CLOSED / RECOVERED for a complete / recovered file
+ * without one (has_time 0). Fields a kind does not use are 0. format() is
+ * snprintf-like: "crashed by SIGSEGV (address 0x0, thread 41137)". */
+enum {
+    VTR_ENDING_CLOSED = 0,
+    VTR_ENDING_STOPPED = 1,   /* signal: a stop request, then a normal close */
+    VTR_ENDING_EXITED = 2,    /* status: exit() without a close */
+    VTR_ENDING_CRASHED = 3,   /* signal, code (si_code), address, thread (kernel tid), sealed */
+    VTR_ENDING_RECOVERED = 4, /* dropped: bytes after the last verified section */
+};
+typedef struct vtr_ending {
+    uint8_t  kind;            /* VTR_ENDING_* */
+    int32_t  signal, code, status;
+    uint64_t address, thread, dropped;
+    int      sealed;          /* 1 when the writer was interrupted mid-call and sealed */
+    int      has_time;        /* reader_ending(): 1 when a record was found */
+    uint64_t time;            /* the record's time */
+} vtr_ending;
+int    vtr_writer_close_ending(vtr_writer *w, const vtr_ending *end); /* finishes and frees; NULL end = close() */
+size_t vtr_ending_format(const vtr_ending *end, char *buf, size_t cap);
+
 /* Metadata must be set before the first explicit or automatic flush.
  * time_zero is a display offset; stored event times are unchanged. File
  * attribute values are copied and keys are interned. */
@@ -427,6 +451,7 @@ typedef struct vtr_meta {
  * UTF-8 pointer/length pairs, not NUL-terminated. Indexed accessors return
  * NOT_FOUND when the index is out of range; output values are then unchanged. */
 int         vtr_reader_meta(const vtr_reader *r, vtr_meta *out);
+int         vtr_reader_ending(const vtr_reader *r, vtr_ending *out); /* see vtr_writer_close_ending */
 const char *vtr_reader_meta_string(const vtr_reader *r, int which /* VTR_META_* */, size_t *len_out);
 int         vtr_reader_file_attr(const vtr_reader *r, uint32_t i, uint32_t *key_out, vtr_value *v_out);
 const char *vtr_reader_str(const vtr_reader *r, uint32_t id, size_t *len_out); /* not NUL-terminated */

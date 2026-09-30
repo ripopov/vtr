@@ -26,6 +26,36 @@ static int tx_cb(void *user, const vtr_tx *tx) {
     return 0;
 }
 
+/* How the run ended: written by close_ending and read back. */
+static int ending_smoke(const char *path) {
+    vtr_writer *w = vtr_writer_create(path, NULL);
+    ASSERT(w != NULL);
+    CHECK(vtr_writer_set_time(w, 25360));
+    vtr_ending e; memset(&e, 0, sizeof e);
+    e.kind = VTR_ENDING_CRASHED; e.signal = 11; e.code = 1; e.thread = 41137;
+    CHECK(vtr_writer_close_ending(w, &e));
+    vtr_reader *r = vtr_reader_open(path);
+    ASSERT(r != NULL);
+    vtr_ending got;
+    CHECK(vtr_reader_ending(r, &got));
+    ASSERT(got.kind == VTR_ENDING_CRASHED && got.signal == 11 && got.code == 1 && got.address == 0 && got.thread == 41137 && !got.sealed);
+    ASSERT(got.has_time && got.time == 25360);
+    char text[128];
+    ASSERT(vtr_ending_format(&got, text, sizeof text) == strlen("crashed by SIGSEGV (address 0x0, thread 41137)"));
+    ASSERT(strcmp(text, "crashed by SIGSEGV (address 0x0, thread 41137)") == 0);
+    vtr_reader_close(r);
+    /* A plain close records nothing. */
+    w = vtr_writer_create(path, NULL);
+    CHECK(vtr_writer_close(w));
+    r = vtr_reader_open(path);
+    CHECK(vtr_reader_ending(r, &got));
+    ASSERT(got.kind == VTR_ENDING_CLOSED && !got.has_time);
+    vtr_reader_close(r);
+    e.kind = 99;
+    ASSERT(vtr_writer_close_ending(vtr_writer_create(path, NULL), &e) == VTR_ERR_INVALID);
+    return 0;
+}
+
 /* A clock that changes speed, written and read back through the C API. */
 static int clock_smoke(const char *path) {
     vtr_writer *w = vtr_writer_create(path, NULL);
@@ -318,6 +348,8 @@ int main(int argc, char **argv) {
     char clock_path[4096];
     snprintf(clock_path, sizeof clock_path, "%s.clock.vtr", path);
     if (clock_smoke(clock_path)) return 1;
+    snprintf(clock_path, sizeof clock_path, "%s.ending.vtr", path);
+    if (ending_smoke(clock_path)) return 1;
     /* error paths */
     ASSERT(vtr_reader_open("/nonexistent/file.vtr") == NULL);
     ASSERT(strlen(vtr_last_error()) > 0);

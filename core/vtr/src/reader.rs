@@ -33,6 +33,7 @@ use crate::block::{self, BlockHeader, ColumnIter, GroupView, NO_BLOCK};
 use crate::clock::{self, ClockId, ClockInfo, ClockTimeline};
 use crate::codec::Decompressor;
 use crate::container::{Container, DirEntry, SectionKind};
+use crate::ending::{self, Ending};
 use crate::error::{Error, Result};
 use crate::hierarchy::{Hierarchy, NodeId, NodeKind, SignalId, SignalKind};
 use crate::logblock::{self, LogArgType, LogBlockData, LogBlockHeader, LogRecord, LogSite, Severity};
@@ -636,6 +637,30 @@ impl Reader {
     /// complete file.
     pub fn recovered(&self) -> Option<u64> {
         self.container.recovered
+    }
+
+    /// How the run ended (SPEC section 8.5), with the time of the ending
+    /// record: the last record of the reserved stream [`ending::STREAM`], or
+    /// without a record [`Ending::Closed`] for a complete file and
+    /// [`Ending::Recovered`] for a recovered one. Decodes at most the log
+    /// blocks after the record.
+    pub fn ending(&self) -> Result<(Ending, Option<u64>)> {
+        let stream = self.find_node(&[ending::STREAM]).filter(|&n| self.log_sites.iter().any(|s| s.stream == n));
+        if let Some(stream) = stream {
+            for i in (0..self.log_blocks.len()).rev() {
+                if self.log_blocks[i].header.n_rec == 0 || !self.log_block_may_match(i, None, Some(stream), Severity::Trace)? {
+                    continue;
+                }
+                let d = self.log_block(i)?;
+                for rec in d.recs.iter().rev() {
+                    let Some(site) = self.log_site(NodeId(rec.gen)).filter(|s| s.stream == stream) else { continue };
+                    let args: Vec<_> = d.args(rec).collect();
+                    let end = Ending::from_record(self.str(site.fmt), &args).ok_or(Error::Corrupt("malformed vtr.run ending record"))?;
+                    return Ok((end, Some(rec.time)));
+                }
+            }
+        }
+        Ok((self.recovered().map_or(Ending::Closed, |dropped| Ending::Recovered { dropped }), None))
     }
 
     /// The string table (all strings validated UTF-8 at open).
