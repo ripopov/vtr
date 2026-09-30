@@ -345,6 +345,10 @@ impl Hierarchy {
     pub fn var(&self, id: VarId) -> VariableView<'_> {
         self.source.var(id)
     }
+    /// A variable's name without decoding the rest of it; panics out of range.
+    pub fn var_name(&self, id: VarId) -> &str {
+        self.source.var_name(id)
+    }
     /// Borrow a scope, returning `None` for an invalid identity.
     pub fn get_scope(&self, id: ScopeId) -> Option<ScopeView<'_>> {
         (id < self.scope_count()).then(|| self.scope(id))
@@ -415,7 +419,7 @@ impl Hierarchy {
 
     pub fn member_name(&self, member: Member) -> &str {
         match member {
-            Member::Var(id) => self.var(id).name,
+            Member::Var(id) => self.var_name(id),
             Member::Generator(id) => &self.generators[id].name,
             Member::Stream(id) => self.scope(id).name,
         }
@@ -502,7 +506,7 @@ impl Hierarchy {
             .scope(scope)
             .vars
             .iter()
-            .filter(|&id| self.source.var_name(id) == name.as_ref());
+            .filter(|&id| self.var_name(id) == name.as_ref());
         match nth {
             Some(n) => matches.nth(n).map_or(Lookup::Missing, Lookup::Found),
             None => unique(matches),
@@ -523,7 +527,7 @@ impl Hierarchy {
         let (mut before, mut total, mut seen) = (0, 0, false);
         for id in self.scope(v.scope).vars.iter() {
             seen |= id == var;
-            if self.source.var_name(id) == v.name {
+            if self.var_name(id) == v.name {
                 total += 1;
                 before += usize::from(!seen);
             }

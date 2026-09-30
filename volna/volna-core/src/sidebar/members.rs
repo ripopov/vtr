@@ -144,6 +144,21 @@ pub struct MemberKeyOutcome {
     pub focus_filter: bool,
 }
 
+/// Whether `name` lowercased contains `lower` (already lowercase). ASCII
+/// names, the usual HDL case, are compared in place without allocating.
+fn contains_folded(name: &str, lower: &str) -> bool {
+    if lower.is_empty() {
+        return true;
+    }
+    if name.is_ascii() && lower.is_ascii() {
+        return name
+            .as_bytes()
+            .windows(lower.len())
+            .any(|w| w.eq_ignore_ascii_case(lower.as_bytes()));
+    }
+    name.to_lowercase().contains(lower)
+}
+
 impl MemberListModel {
     /// Start over for a new set of traces.
     pub fn reset(&mut self, traces: &TraceSet) {
@@ -168,7 +183,7 @@ impl MemberListModel {
         self.anchor = None;
         self.truncated = false;
         let filter = self.filter.to_lowercase();
-        let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+        let matches = |name: &str| contains_folded(name, &filter);
         match self.scope.filter(|_| !self.search_everywhere) {
             Some(scope) => {
                 let Some(h) = traces.session(scope.trace).map(|s| s.hierarchy()) else {
@@ -178,7 +193,7 @@ impl MemberListModel {
                 self.rows.extend(
                     s.vars
                         .iter()
-                        .filter(|&v| matches(h.var(v).name))
+                        .filter(|&v| matches(h.var_name(v)))
                         .map(|v| scope.with(Member::Var(v))),
                 );
                 self.rows.extend(
@@ -421,5 +436,29 @@ pub fn direction_label(d: Direction) -> &'static str {
         Direction::Input => "in",
         Direction::Output => "out",
         Direction::InOut => "io",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_folded;
+
+    #[test]
+    fn folded_match_agrees_with_lowercasing() {
+        for (name, filter) in [
+            ("CPU_Core0", "core"),
+            ("cpu", "cpux"),
+            ("x", ""),
+            ("Straße", "ße"),
+            ("\u{212A}elvin", "kel"),
+            ("ab", "abc"),
+        ] {
+            let lower = filter.to_lowercase();
+            assert_eq!(
+                contains_folded(name, &lower),
+                name.to_lowercase().contains(&lower),
+                "{name} / {filter}"
+            );
+        }
     }
 }
