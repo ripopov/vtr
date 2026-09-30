@@ -119,7 +119,7 @@
     <p class="v-kicker">Design · VTR writer · Verilator fork</p>
     <h1 class="v-hero__title">A crash should cost the process, <em>not</em> the trace.</h1>
     <p class="v-hero__lede">Simulations die: a DPI model dereferences a null pointer, an assertion calls <code>abort()</code>, a job scheduler sends SIGTERM. Today a VTR file then keeps only its completed blocks. When SIGSEGV cut a 30-million-change run short, the file kept 56% of the value changes and none of the 396 log records, though the log is what explains a crash. This design makes the writer's accepted data survive every ending a process can observe. A tiny signal handler hands the work to a <strong>rescue thread</strong> that closes the file through the ordinary close path, within a hard deadline. It then ends the process with the original signal, so the exit status and core dump are unchanged. A prototype against today's <code>libvtr.a</code> kept 100% of the data in every catchable case, stack overflow included, in 0.21–0.69&nbsp;s. Heap corruption was saved only once VTR allocated from its own heap.</p>
-    <p class="v-hero__fine">Proposal · measured with <code>bench/crashlab</code> on a Core Ultra 7 265K, glibc 2.43 · stages 1–7 of 8 have landed</p>
+    <p class="v-hero__fine">Proposal · measured with <code>bench/crashlab</code> on a Core Ultra 7 265K, glibc 2.43 · all eight stages have landed</p>
   </div>
 </section>
 
@@ -377,7 +377,7 @@
     <p class="v-kicker">Plan</p>
     <h2 class="v-section__title">Eight commits, each useful on its own.</h2>
     <div class="a-body">
-      <p>Every commit builds, passes <code>cargo test</code> for the crates it touches and <code>bench/crashlab/run.py</code>, and updates its tests and documentation. Writer changes are A/B measured against the previous commit on the benchmark suite, reporting size, write time and read time together (AGENTS.md). The crash matrix moves into CI in stage 1 and tightens with every stage after it: each stage flips some expected outcomes from "blocks" to "full".</p>
+      <p>Every commit builds, passes <code>cargo test</code> for the crates it touches and <code>bench/crashlab/run.py</code>, and updates its tests and documentation. Writer changes are A/B measured against the previous commit on the benchmark suite, reporting size, write time and read time together (AGENTS.md). The crash matrix moves into CI in stage 1 and tightens with every stage after it: each stage flips some expected outcomes from "blocks" to "full". All eight stages have landed; each card below says what was built and measured.</p>
       <p><strong>Why this order.</strong> The test harness comes first, so each later stage proves its effect. Durable sections and the termination record change the file, so they come before anything writes a crash into one. The sealable pipeline and the private heap make the rescue safe. The guard can then be simple, and the Verilator fork is a thin caller of it. <code>vtr recover</code> and the commit interval come last because they only bound what the guard cannot save.</p>
     </div>
     <div class="v-table-wrap a-wide" role="region" aria-label="Stages" tabindex="0">
@@ -391,7 +391,7 @@
           <tr><td>5 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-5">VTR on its own heap</a></td><td>Heap corruption in the model no longer blocks VTR</td><td>1</td><td>unchanged</td></tr>
           <tr><td>6 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-6">The guard</a></td><td><code>vtr_guard_install</code>: every catchable ending keeps the whole trace</td><td>2–5</td><td>unchanged</td></tr>
           <tr><td>7 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-7">The Verilator fork</a></td><td><code>--trace-vtr</code> models are guarded by default</td><td>6</td><td>unchanged</td></tr>
-          <tr><td>8</td><td><a class="v-link" href="#stage-8">Bounded loss and <code>vtr recover</code></a></td><td>SIGKILL loses at most one block or interval; recovered files are made whole</td><td>2, 3</td><td>unchanged</td></tr>
+          <tr><td>8 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-8">Bounded loss and <code>vtr recover</code></a></td><td>SIGKILL loses at most one block or interval; recovered files are made whole</td><td>2, 3</td><td>unchanged</td></tr>
         </tbody>
       </table>
     </div>
@@ -480,14 +480,14 @@
       </article>
 
       <article class="a-stagecard" id="stage-8" aria-labelledby="stage-8-h">
-        <p class="a-stage__n">Stage 8</p>
+        <p class="a-stage__n">Stage 8 <span class="v-chip v-chip--accent">Landed</span></p>
         <h3 id="stage-8-h">Bounded loss and <code>vtr recover</code></h3>
         <p>What no handler can save is bounded, and a recovered file can be made whole.</p>
         <dl class="a-dl">
-          <div><dt>Core</dt><dd><code>WriterOptions::commit_interval</code> (10&nbsp;s by default; 0 turns it off). <code>set_time</code> and <code>log</code> check a coarse monotonic clock every 1,024 calls and flush when the interval has passed. Fast runs fill blocks sooner and never see it.</dd></div>
-          <div><dt>CLI</dt><dd><code>vtr recover in.vtr out.vtr</code> copies every verified section and appends a <code>Recovered</code> ending, a directory and a trailer. It exits 3 when data was dropped, as <code>mcap recover</code> does.</dd></div>
-          <div><dt>Tests</dt><dd>SIGKILL at random points of a slow run loses at most the interval; <code>recover</code> of every cut file of stage 2 round-trips.</dd></div>
-          <div><dt>Measure</dt><dd>Suite A/B with the default interval: fast workloads unchanged; file size of a slow log-only run over ten minutes.</dd></div>
+          <div><dt>Core</dt><dd><code>WriterOptions::commit_interval</code> (10&nbsp;s by default; 0 turns it off; <code>commit_interval_ms</code> in C). <code>set_time</code>, <code>log</code> and <code>end_tx</code> read the monotonic clock every 256 calls, fewer than planned so that a simulation of one step per second still checks every few minutes, and hand over a signal block, the pending transactions or the pending log records that have waited longer than the interval. The clock is read only when the interval is not zero. Fast runs fill blocks sooner and never see it. <code>vtr::recover(in, out)</code> (<code>vtr_recover</code> in C) rewrites a recovered file. The encoder reuses the ids of strings the file already holds when it writes an ending record. The reader accepts a <code>log.*</code> key that appears more than once in the string table, as SPEC 4 requires: <code>recover</code>'s tests found that an ending record written by the encoder, with its own copy of <code>log.args</code>, hid every earlier log site from the reader.</dd></div>
+          <div><dt>CLI</dt><dd><code>vtr recover in.vtr out.vtr</code> copies every verified section and appends a <code>Recovered</code> ending, a directory and a trailer. It exits 3 when data was dropped, as <code>mcap recover</code> does, and copies a complete file unchanged.</dd></div>
+          <div><dt>Tests</dt><dd>The crash matrix's slow runs (a time step every 500&nbsp;µs, a 100&nbsp;ms interval), killed with SIGKILL at 1.2 and 1.7&nbsp;s, keep everything emitted more than the interval plus 400&nbsp;ms before the kill (195,552 of 205,155 and 268,884 of 291,679 changes); with the interval off they keep nothing. <code>core/vtr/tests/recovery.rs</code> recovers every cut file of stage 2 and checks the result is complete, ends <code>Recovered</code> with the bytes dropped, keeps every section unchanged and reads the same data; a writer that is never closed keeps what is older than the interval; the CLI test checks exit statuses. The seal test now counts every log record of a sealed file.</dd></div>
+          <div><dt>Measure</dt><dd>Suite A/B with the default interval: write time within ±1.7% on every workload (C910 9.711 and 9.712&nbsp;s), sizes byte-identical, read time unchanged. A slow log-only run, scaled from ten minutes at the 10&nbsp;s interval to 60&nbsp;s at 1&nbsp;s (600,000 records at 10,000 per second, 60 commits), grows from 5,729,453 to 6,201,497 bytes (+8.2%, 60 log blocks instead of 4).</dd></div>
         </dl>
       </article>
     </div>

@@ -282,7 +282,9 @@ pub fn run_write_as_tx(n: u64, path: &str, opts: WriterOptions) -> serde_json::V
 }
 
 /// `vtr-bench log-write <n> <out.vtr> [--no-background] [--codec ..] [--level L]`
-pub fn run_write(n: u64, path: &str, opts: WriterOptions, label: &str) -> serde_json::Value {
+/// With `rate`, records are paced to that many per second: a slow simulation
+/// whose writer meets its commit interval before its blocks fill.
+pub fn run_write(n: u64, path: &str, opts: WriterOptions, label: &str, rate: Option<f64>) -> serde_json::Value {
     let mut w = Writer::create_with(path, opts).unwrap();
     w.set_timescale(-9).unwrap();
     let top = w.add_scope(None, "top", ScopeType::Generic, "sim").unwrap();
@@ -295,10 +297,16 @@ pub fn run_write(n: u64, path: &str, opts: WriterOptions, label: &str) -> serde_
     let mut a = [LogArg::Bool(false); 5];
     let cpu0 = cpu_seconds();
     let t0 = Instant::now();
-    for _ in 0..n {
+    for i in 0..n {
         gen.next(&mut m);
         let k = args(&m, &mut a);
         w.log(sites[m.kind], m.t, &a[..k]).unwrap();
+        if let Some(rate) = rate.filter(|_| i % 100 == 0) {
+            let due = std::time::Duration::from_secs_f64(i as f64 / rate);
+            if let Some(wait) = due.checked_sub(t0.elapsed()) {
+                std::thread::sleep(wait);
+            }
+        }
     }
     let loop_s = t0.elapsed().as_secs_f64();
     w.close().unwrap();

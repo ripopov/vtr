@@ -25,7 +25,9 @@ vtr-bench commands:
   tx-write <in.txr> <out.vtr> [--codec ..] [--no-background]
   kanata-write <in.log> <out.vtr> [--codec ..]
   tx-read <in.vtr> [--seed S]
-  log-write <n> <out.vtr> [--no-background] [--codec ..] [--level L]   synthetic simulator log through Writer::log (JSON)
+  log-write <n> <out.vtr> [--no-background] [--codec ..] [--level L] [--rate R] [--commit-ms C]
+                                                      synthetic simulator log through Writer::log (JSON);
+                                                      --rate paces it to R records/s
   log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
   activity <in.vtr> [--eps E] [--mem M] [--windows N] [--threads T]   range-activity index measurements (JSON)
   activity-export <in.vtr> <t0> <t1> <out.bin> [--eps E] [--mem M]   demo data for docs/hierarchy-activity.html
@@ -69,6 +71,9 @@ fn writer_opts(args: &[String]) -> WriterOptions {
     }
     if let Some(b) = flag(args, "--block-records") {
         o.block_records = b.parse().unwrap();
+    }
+    if let Some(ms) = flag(args, "--commit-ms") {
+        o.commit_interval = std::time::Duration::from_millis(ms.parse().unwrap());
     }
     o.background = !has(args, "--no-background");
     o.dedup = !has(args, "--no-dedup");
@@ -126,7 +131,8 @@ fn main() {
             if has(&args, "--as-tx") {
                 println!("{}", logw::run_write_as_tx(n, &pos[2], writer_opts(&args)));
             } else {
-                println!("{}", logw::run_write(n, &pos[2], writer_opts(&args), label));
+                let rate = flag(&args, "--rate").map(|r| r.parse().unwrap());
+                println!("{}", logw::run_write(n, &pos[2], writer_opts(&args), label, rate));
             }
         }
         "log-encode" => {

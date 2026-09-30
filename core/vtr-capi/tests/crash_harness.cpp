@@ -15,8 +15,11 @@
 //   exit      exit(3) from deep code
 //   kill      SIGKILL
 //   thread    a second thread faults while the owner keeps writing
+//   slowkill  a slow run (--pace-us per time step) that SIGKILLs itself after --kill-ms,
+//             printing "progress changes=N logs=M ms=T" as it goes
 //
 // usage: crash_harness <mode> <out.vtr> [--records N] [--signals S] [--block-records B] [--inline] [--guard]
+//                      [--commit-ms C] [--pace-us P] [--kill-ms K]
 //
 // With --guard the crash guard is installed and watches the writer; a stop
 // request ends the loop and closes the writer with the guard's ending.
@@ -110,6 +113,7 @@ int main(int argc, char **argv) {
     const char *path = argv[2];
     uint64_t target = 3000000, signals = 2000, block_records = 1 << 20;
     bool inline_encoder = false, guard = false;
+    uint64_t commit_ms = 10000, pace_us = 0, kill_ms = 0;
     for (int i = 3; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--records") target = strtoull(argv[++i], nullptr, 10);
@@ -117,12 +121,16 @@ int main(int argc, char **argv) {
         else if (a == "--block-records") block_records = strtoull(argv[++i], nullptr, 10);
         else if (a == "--inline") inline_encoder = true;
         else if (a == "--guard") guard = true;
+        else if (a == "--commit-ms") commit_ms = strtoull(argv[++i], nullptr, 10);
+        else if (a == "--pace-us") pace_us = strtoull(argv[++i], nullptr, 10);
+        else if (a == "--kill-ms") kill_ms = strtoull(argv[++i], nullptr, 10);
     }
     vtr_writer_options o;
     vtr_writer_options_default(&o);
     o.dedup = 0;  // as in the Verilator fork: every emit is a change
     o.block_records = block_records;
     o.background = inline_encoder ? 0 : 1;
+    o.commit_interval_ms = static_cast<uint32_t>(commit_ms);
     vtr_writer *w = vtr_writer_create(path, &o);
     if (!w) {
         fprintf(stderr, "create: %s\n", vtr_last_error());
@@ -149,7 +157,24 @@ int main(int argc, char **argv) {
     const uint64_t per_step = 97;
     uint64_t records = 0, logs = 0, t = 0;
     bool sent = false;
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    const uint64_t start_ms = static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000;
     for (;;) {
+        if (mode == "slowkill") {
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            const uint64_t ms = static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000 - start_ms;
+            if (t % 16 == 0) {
+                fprintf(stderr, "progress changes=%llu logs=%llu ms=%llu\n", static_cast<unsigned long long>(records),
+                        static_cast<unsigned long long>(logs), static_cast<unsigned long long>(ms));
+            }
+            if (ms >= kill_ms) {
+                emitted(records, logs, t);
+                fprintf(stderr, "killed at ms=%llu\n", static_cast<unsigned long long>(ms));
+                kill(getpid(), SIGKILL);
+            }
+            usleep(static_cast<useconds_t>(pace_us));
+        }
         if (guard && mode != "deaf" && vtr_guard_stop_requested()) break;
         if (records >= target && !sent) {
             sent = true;

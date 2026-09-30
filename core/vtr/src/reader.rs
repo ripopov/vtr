@@ -533,25 +533,26 @@ impl Reader {
             }
         }
         hier.build_index();
-        // Log sites: generators carrying `log.args`. Resolve the key ids with one pass over the strings.
+        // Log sites: generators carrying `log.args`. Resolve the key ids with one pass over the
+        // strings; a key may have several ids (SPEC 4: readers must not assume uniqueness).
         const KEYS: [&str; 6] = [logblock::KEY_SEVERITY, logblock::KEY_ARGS, logblock::KEY_NAMES, logblock::KEY_FILE, logblock::KEY_LINE, logblock::KEY_FUNC];
-        let mut keys: [Option<StrId>; 6] = [None; 6];
+        let mut keys: [Vec<StrId>; 6] = Default::default();
         for i in 0..strings.len() {
             let s = strings.get(StrId(i as u32));
             if s.starts_with("log.") {
                 for (k, n) in KEYS.iter().enumerate() {
                     if s == *n {
-                        keys[k] = Some(StrId(i as u32));
+                        keys[k].push(StrId(i as u32));
                     }
                 }
             }
         }
         let mut log_sites = Vec::new();
         let mut site_index = vec![u32::MAX; hier.len()];
-        if let Some(k_args) = keys[1] {
+        if !keys[1].is_empty() {
             for n in hier.nodes_of_kind(NodeKind::Generator) {
                 let attrs = hier.attrs(n);
-                let types = match attrs.iter().find(|(k, _)| *k == k_args) {
+                let types = match attrs.iter().find(|(k, _)| keys[1].contains(k)) {
                     Some((_, Value::List(t))) => t,
                     _ => continue,
                 };
@@ -562,24 +563,24 @@ impl Reader {
                         _ => return Err(Error::Corrupt("log.args entry is not an integer")),
                     }
                 }
-                let get = |k: Option<StrId>| k.and_then(|k| attrs.iter().find(|(kk, _)| *kk == k).map(|(_, v)| v));
-                let severity = match get(keys[0]) {
+                let get = |k: &[StrId]| attrs.iter().find(|(kk, _)| k.contains(kk)).map(|(_, v)| v);
+                let severity = match get(&keys[0]) {
                     Some(Value::U64(v)) => Severity::from_code(*v as u8),
                     _ => Severity::Info,
                 };
-                let names = match get(keys[2]) {
+                let names = match get(&keys[2]) {
                     Some(Value::List(l)) => l.iter().filter_map(|v| if let Value::Str(s) = v { Some(*s) } else { None }).collect(),
                     _ => Vec::new(),
                 };
-                let file = match get(keys[3]) {
+                let file = match get(&keys[3]) {
                     Some(Value::Str(s)) => Some(*s),
                     _ => None,
                 };
-                let line = match get(keys[4]) {
+                let line = match get(&keys[4]) {
                     Some(Value::U64(v)) => Some(*v as u32),
                     _ => None,
                 };
-                let func = match get(keys[5]) {
+                let func = match get(&keys[5]) {
                     Some(Value::Str(s)) => Some(*s),
                     _ => None,
                 };
@@ -645,15 +646,24 @@ impl Reader {
     /// [`Ending::Recovered`] for a recovered one. Decodes at most the log
     /// blocks after the record.
     pub fn ending(&self) -> Result<(Ending, Option<u64>)> {
-        let stream = self.find_node(&[ending::STREAM]).filter(|&n| self.log_sites.iter().any(|s| s.stream == n));
-        if let Some(stream) = stream {
+        // A file recovered by `vtr recover` after an ending was written holds two such streams.
+        let mut streams: Vec<NodeId> = self.log_sites.iter().map(|s| s.stream).filter(|&n| self.hierarchy().parent(n).is_none() && self.name(n) == ending::STREAM).collect();
+        streams.dedup();
+        if !streams.is_empty() {
             for i in (0..self.log_blocks.len()).rev() {
-                if self.log_blocks[i].header.n_rec == 0 || !self.log_block_may_match(i, None, Some(stream), Severity::Trace)? {
+                if self.log_blocks[i].header.n_rec == 0 {
+                    continue;
+                }
+                let mut may = false;
+                for &st in &streams {
+                    may |= self.log_block_may_match(i, None, Some(st), Severity::Trace)?;
+                }
+                if !may {
                     continue;
                 }
                 let d = self.log_block(i)?;
                 for rec in d.recs.iter().rev() {
-                    let Some(site) = self.log_site(NodeId(rec.gen)).filter(|s| s.stream == stream) else { continue };
+                    let Some(site) = self.log_site(NodeId(rec.gen)).filter(|s| streams.contains(&s.stream)) else { continue };
                     let args: Vec<_> = d.args(rec).collect();
                     let end = Ending::from_record(self.str(site.fmt), &args).ok_or(Error::Corrupt("malformed vtr.run ending record"))?;
                     return Ok((end, Some(rec.time)));
@@ -771,8 +781,19 @@ impl Reader {
 
     // ----- blocks and time -----
 
-    fn bytes(&self) -> &[u8] {
+    pub(crate) fn bytes(&self) -> &[u8] {
         self.data.bytes()
+    }
+
+    /// The largest transaction or log record id in the file (0 when none).
+    pub(crate) fn last_record_id(&self) -> u64 {
+        let tx = self.tx_blocks.iter().filter(|b| b.header.n_tx > 0).map(|b| b.header.max_id);
+        tx.chain(self.log_blocks.iter().filter(|b| b.header.n_rec > 0).map(|b| b.header.max_id)).max().unwrap_or(0)
+    }
+
+    /// The last time of the last signal block.
+    pub(crate) fn last_signal_time(&self) -> Option<u64> {
+        self.sig_blocks.iter().rev().find(|b| b.header.n_times > 0).map(|b| b.header.end_time)
     }
 
     /// Number of signal blocks.

@@ -57,6 +57,7 @@ use std::path::Path;
 use std::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 fn ensure_unique_key(keys: impl IntoIterator<Item = StrId>, key: StrId) -> Result<()> {
     if keys.into_iter().any(|existing| existing == key) {
@@ -113,6 +114,15 @@ pub struct WriterOptions {
     /// Store a CRC32 of every section payload; the reader checks it only with
     /// [`ReadOptions::verify_crc`](crate::ReadOptions::verify_crc). Default `true`.
     pub checksums: bool,
+    /// Longest time buffered data waits before it is handed to the encoder
+    /// and written, so that a process killed without a chance to close
+    /// (SIGKILL, the OOM killer) loses at most this much of a slow run. The
+    /// writer checks every 256 calls of [`set_time`](Writer::set_time),
+    /// [`log`](Writer::log) and [`end_tx`](Writer::end_tx), and ends a signal
+    /// block, or writes the pending transactions or log records, that has
+    /// waited this long. Fast runs fill their blocks sooner and never see it.
+    /// Zero turns it off. Default 10 s.
+    pub commit_interval: Duration,
 }
 
 /// Minimum average changes per signal in one chunk (see [`WriterOptions::chunk_records`]).
@@ -131,6 +141,7 @@ impl Default for WriterOptions {
             log_encoders: 2,
             dedup: true,
             checksums: true,
+            commit_interval: Duration::from_secs(10),
         }
     }
 }
@@ -227,6 +238,8 @@ struct FileSink {
     block_count: u32,
     // What the file holds so far, for an ending record written by the sink.
     meta_written: bool,
+    /// Ids of the strings an ending record uses (`ending::strings`) already in the file.
+    known: std::collections::HashMap<&'static str, u32>,
     next_string: u32,
     next_node: u32,
     signals: u32,
@@ -236,6 +249,51 @@ struct FileSink {
 }
 
 impl FileSink {
+    /// A sink appending to `file` at `offset`.
+    fn new(file: File, offset: u64, opts: &WriterOptions, group_size: u32) -> Result<FileSink> {
+        let log_encoders = if opts.background { opts.log_encoders } else { 0 };
+        Ok(FileSink {
+            log_pool: if log_encoders > 0 { Some(LogPool::start(log_encoders, opts.compression)?) } else { None },
+            file: BufWriter::with_capacity(1 << 20, file),
+            offset,
+            entries: Vec::new(),
+            comp: opts.compression,
+            checksums: opts.checksums,
+            compressor: Compressor::new(),
+            scratch: EncoderScratch::default(),
+            buf: Vec::new(),
+            recycle: None,
+            chunks: Vec::new(),
+            n_chunks: 0,
+            chunk_pool: Vec::new(),
+            group_size,
+            run_budget: opts.run_bytes,
+            block: BlockInput {
+                block_index: 0,
+                times: Vec::new(),
+                kinds: Arc::new(Vec::new()),
+                n_signals: 0,
+                group_size,
+                dirty_groups: Vec::new(),
+                frame: Vec::new(),
+                prev_dirty: Vec::new(),
+                run_budget: opts.run_bytes,
+            },
+            frame_parts: Vec::new(),
+            frame: Vec::new(),
+            last_dirty_block: Vec::new(),
+            block_count: 0,
+            meta_written: false,
+            known: Default::default(),
+            next_string: 0,
+            next_node: 0,
+            signals: 0,
+            max_id: 0,
+            signal_time: None,
+            max_time: 0,
+        })
+    }
+
     fn write_log_payload(&mut self, payload: &[u8]) -> Result<()> {
         let h = logblock::LogBlockHeader::parse(payload)?;
         self.saw_ids(h.max_id, h.t_max);
@@ -317,6 +375,21 @@ impl FileSink {
         Ok(())
     }
 
+    /// Remembers the ids of the strings an ending record would use, so that
+    /// it reuses them (producers intern each string once, SPEC 4).
+    fn note_strings(&mut self, payload: &[u8]) -> Result<()> {
+        let mut r = varint::Reader::new(payload);
+        let first = r.u32()?;
+        let count = r.u32()?;
+        for i in 0..count {
+            let s = r.blob()?;
+            if let Some(c) = ending::strings().find(|c| c.as_bytes() == s) {
+                self.known.entry(c).or_insert(first + i);
+            }
+        }
+        Ok(())
+    }
+
     /// Writes a STRINGS or HIERARCHY chunk, stored as one compressed blob.
     fn write_blob_section(&mut self, kind: SectionKind, payload: &[u8], aux0: u64, aux1: u64) -> Result<()> {
         self.buf.clear();
@@ -385,6 +458,7 @@ impl FileSink {
             Msg::Section { kind, payload, aux0, aux1 } => {
                 if kind == SectionKind::Strings {
                     self.next_string = (aux0 + aux1) as u32;
+                    self.note_strings(&payload)?;
                     self.write_blob_section(kind, &payload, aux0, aux1)?;
                 } else {
                     self.meta_written |= kind == SectionKind::Meta;
@@ -495,7 +569,11 @@ impl FileSink {
         let first = self.next_string;
         // String id 0 is the empty string.
         let mut strings: Vec<&str> = if first == 0 { vec![""] } else { Vec::new() };
+        let known = &self.known;
         let mut intern = |s: &'static str| {
+            if let Some(&id) = known.get(s) {
+                return StrId(id);
+            }
             let i = strings.iter().position(|&x| x == s).unwrap_or_else(|| {
                 strings.push(s);
                 strings.len() - 1
@@ -512,14 +590,16 @@ impl FileSink {
         })?;
         let site_node = Node { parent: Some(stream), name, data: NodeData::Generator, attrs };
         let mut payload = Vec::new();
-        varint::put_u64(&mut payload, first as u64);
-        varint::put_u64(&mut payload, strings.len() as u64);
-        for s in &strings {
-            varint::put_blob(&mut payload, s.as_bytes());
+        if !strings.is_empty() {
+            varint::put_u64(&mut payload, first as u64);
+            varint::put_u64(&mut payload, strings.len() as u64);
+            for s in &strings {
+                varint::put_blob(&mut payload, s.as_bytes());
+            }
+            self.next_string = first + strings.len() as u32;
+            self.write_blob_section(SectionKind::Strings, &payload, first as u64, strings.len() as u64)?;
+            payload.clear();
         }
-        self.next_string = first + strings.len() as u32;
-        self.write_blob_section(SectionKind::Strings, &payload, first as u64, strings.len() as u64)?;
-        payload.clear();
         varint::put_u64(&mut payload, stream.0 as u64);
         varint::put_u64(&mut payload, 2);
         stream_node.encode(stream.0, self.signals, &mut payload);
@@ -1004,6 +1084,13 @@ pub struct Writer {
     blackout: Vec<Blackout>,
     closed: bool,
     scratch: Vec<u8>,
+    // commit interval
+    ticks: u32,
+    /// When the current signal block began, the last transaction block and
+    /// the last log block were handed over (`None` without a commit interval).
+    block_at: Option<Instant>,
+    tx_at: Option<Instant>,
+    log_at: Option<Instant>,
 }
 
 impl Writer {
@@ -1018,49 +1105,9 @@ impl Writer {
         let mut file = File::create(path)?;
         container::write_file_header(&mut file)?;
         let offset = file.stream_position()?;
-        let comp = opts.compression;
         let (recycle_tx, recycle_rx) = sync_channel(16);
         let group_size = opts.group_size.max(1).next_power_of_two();
-        let log_encoders = if opts.background { opts.log_encoders } else { 0 };
-        let mut fsink = FileSink {
-            log_pool: if log_encoders > 0 { Some(LogPool::start(log_encoders, comp)?) } else { None },
-            file: BufWriter::with_capacity(1 << 20, file),
-            offset,
-            entries: Vec::new(),
-            comp,
-            checksums: opts.checksums,
-            compressor: Compressor::new(),
-            scratch: EncoderScratch::default(),
-            buf: Vec::new(),
-            recycle: None,
-            chunks: Vec::new(),
-            n_chunks: 0,
-            chunk_pool: Vec::new(),
-            group_size,
-            run_budget: opts.run_bytes,
-            block: BlockInput {
-                block_index: 0,
-                times: Vec::new(),
-                kinds: Arc::new(Vec::new()),
-                n_signals: 0,
-                group_size,
-                dirty_groups: Vec::new(),
-                frame: Vec::new(),
-                prev_dirty: Vec::new(),
-                run_budget: opts.run_bytes,
-            },
-            frame_parts: Vec::new(),
-            frame: Vec::new(),
-            last_dirty_block: Vec::new(),
-            block_count: 0,
-            meta_written: false,
-            next_string: 0,
-            next_node: 0,
-            signals: 0,
-            max_id: 0,
-            signal_time: None,
-            max_time: 0,
-        };
+        let mut fsink = FileSink::new(file, offset, &opts, group_size)?;
         let mut seal_tx = None;
         let sink = if opts.background {
             fsink.recycle = Some(recycle_tx);
@@ -1160,6 +1207,15 @@ impl Writer {
             blackout: Vec::new(),
             closed: false,
             scratch: Vec::new(),
+            ticks: 0,
+            block_at: None,
+            tx_at: None,
+            log_at: None,
+        })
+        .map(|mut w| {
+            let now = w.now();
+            (w.block_at, w.tx_at, w.log_at) = (now, now, now);
+            w
         })
     }
 
@@ -1419,6 +1475,38 @@ impl Writer {
             self.cur_tidx = self.times_sent + self.times.len() as u32 - 1;
         }
         self.time = t;
+        self.tick()
+    }
+
+    /// Counts a call that may start a commit ([`WriterOptions::commit_interval`]).
+    #[inline(always)]
+    fn tick(&mut self) -> Result<()> {
+        self.ticks = self.ticks.wrapping_add(1);
+        if self.ticks % 256 == 0 && !self.opts.commit_interval.is_zero() {
+            return self.commit_due();
+        }
+        Ok(())
+    }
+
+    fn now(&self) -> Option<Instant> {
+        (!self.opts.commit_interval.is_zero()).then(Instant::now)
+    }
+
+    /// Hands over whatever has waited longer than the commit interval.
+    #[cold]
+    fn commit_due(&mut self) -> Result<()> {
+        let (now, interval) = (Instant::now(), self.opts.commit_interval);
+        let due = |at: Option<Instant>| at.is_some_and(|at| now.saturating_duration_since(at) >= interval);
+        if due(self.block_at) && (!self.records.is_empty() || self.wide_bytes > 0 || self.block_pending > 0) {
+            self.flush_signals()?;
+        }
+        if due(self.tx_at) && (self.n_tx_rows > 0 || self.n_rel_rows > 0 || self.n_clock_rows > 0) {
+            self.flush_tx()?;
+            self.flush_clocks()?;
+        }
+        if due(self.log_at) && self.n_log_rows > 0 {
+            self.flush_log()?;
+        }
         Ok(())
     }
 
@@ -1919,6 +2007,7 @@ impl Writer {
 
     /// Starts a new block at the current time after the last chunk of one was handed over.
     fn end_block(&mut self) {
+        self.block_at = self.now();
         self.block_pending = 0;
         self.chunk_limit = self.chunk_target().min(self.opts.block_records).max(1);
         self.dirty_bits.fill(0);
@@ -2144,7 +2233,7 @@ impl Writer {
         if self.tx_rows.len() + self.rel_rows.len() >= self.opts.tx_block_bytes {
             self.flush_tx()?;
         }
-        Ok(())
+        self.tick()
     }
 
     /// Records a directed relation of kind `kind` (`"wakeup"`, `"follows_from"`,
@@ -2182,6 +2271,7 @@ impl Writer {
         });
         self.n_tx_rows = 0;
         self.n_rel_rows = 0;
+        self.tx_at = self.now();
         self.sink.send(Msg::Tx(input))
     }
 
@@ -2245,6 +2335,7 @@ impl Writer {
         if self.log_rows.len() >= self.opts.tx_block_bytes {
             self.flush_log()?;
         }
+        self.tick()?;
         Ok(id)
     }
 
@@ -2274,6 +2365,7 @@ impl Writer {
         if self.log_rows.len() >= self.opts.tx_block_bytes {
             self.flush_log()?;
         }
+        self.tick()?;
         Ok(id)
     }
 
@@ -2288,6 +2380,7 @@ impl Writer {
         let rows = std::mem::replace(&mut self.log_rows, Vec::with_capacity(self.opts.tx_block_bytes.min(1 << 26) + 1024));
         let input = Box::new(LogBlockInput { rows, n: self.n_log_rows, sites: self.log_sites_arc.clone().unwrap() });
         self.n_log_rows = 0;
+        self.log_at = self.now();
         self.sink.send(Msg::Log(input))
     }
 
@@ -2524,4 +2617,45 @@ pub struct WriterStats {
     pub signals: u32,
     /// Declared hierarchy nodes.
     pub nodes: u32,
+}
+
+/// Rewrites a file that was recovered by scanning (its writer never closed
+/// it) as a complete one, as `mcap recover` does: every complete, verified
+/// section is copied unchanged, then an [`Ending::Recovered`] record, a
+/// directory and a trailer are appended. Returns the bytes the scan dropped,
+/// or `None` for a file that was complete already, which is copied as is.
+/// `output` must be another path than `input`.
+pub fn recover(input: impl AsRef<Path>, output: impl AsRef<Path>) -> Result<Option<u64>> {
+    let r = crate::Reader::open(input.as_ref())?;
+    let Some(dropped) = r.recovered() else {
+        std::fs::copy(input.as_ref(), output.as_ref())?;
+        return Ok(None);
+    };
+    let data = r.bytes();
+    let mut file = File::create(output)?;
+    file.write_all(&data[..container::FILE_HEADER_LEN])?;
+    let opts = WriterOptions { background: false, ..WriterOptions::default() };
+    let mut sink = FileSink::new(file, container::FILE_HEADER_LEN as u64, &opts, r.meta().group_size)?;
+    for e in r.sections() {
+        let end = (e.payload_offset() + e.len) as usize;
+        sink.file.write_all(&data[e.offset as usize..end])?;
+        sink.entries.push(DirEntry { offset: sink.offset, ..*e });
+        sink.offset += (end - e.offset as usize) as u64;
+        sink.meta_written |= e.kind == SectionKind::Meta as u32;
+    }
+    sink.file.flush()?;
+    sink.next_string = r.strings().len() as u32;
+    for c in ending::strings() {
+        if let Some(id) = r.strings().find(c) {
+            sink.known.insert(c, id.0);
+        }
+    }
+    sink.next_node = r.hierarchy().len() as u32;
+    sink.signals = r.signal_count();
+    sink.max_id = r.last_record_id();
+    sink.signal_time = r.last_signal_time();
+    sink.max_time = r.time_range().map_or(0, |(_, b)| b);
+    sink.write_ending(Ending::Recovered { dropped })?;
+    sink.finish()?;
+    Ok(Some(dropped))
 }

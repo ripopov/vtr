@@ -374,6 +374,8 @@ pub struct vtr_writer_options {
     pub checksums: c_int,
     /// Helper threads encoding log blocks (background mode); 0 = on the sink thread.
     pub log_encoders: u32,
+    /// Longest wait before buffered data is written, in ms (0 = off).
+    pub commit_interval_ms: u32,
 }
 
 #[no_mangle]
@@ -392,6 +394,7 @@ pub unsafe extern "C" fn vtr_writer_options_default(o: *mut vtr_writer_options) 
                 dedup: d.dedup as c_int,
                 checksums: d.checksums as c_int,
                 log_encoders: d.log_encoders as u32,
+                commit_interval_ms: d.commit_interval.as_millis() as u32,
             };
         }
     })
@@ -421,6 +424,7 @@ pub unsafe extern "C" fn vtr_writer_create(path: *const c_char, opts: *const vtr
             o.group_size = c.group_size;
             o.block_records = c.block_records as usize;
             o.log_encoders = c.log_encoders as usize;
+            o.commit_interval = std::time::Duration::from_millis(c.commit_interval_ms as u64);
             o.chunk_records = c.chunk_records.max(1) as usize;
             o.tx_block_bytes = c.tx_block_bytes as usize;
             o.background = c.background != 0;
@@ -493,6 +497,24 @@ fn to_ending(e: Ending, time: Option<u64>) -> vtr_ending {
         Ending::Poisoned => o.kind = VTR_ENDING_POISONED,
     }
     o
+}
+
+/// Rewrites a recovered file as a complete one (`vtr::recover`).
+#[no_mangle]
+pub unsafe extern "C" fn vtr_recover(in_path: *const c_char, out_path: *const c_char, dropped_out: *mut i64) -> c_int {
+    ffi(|| {
+        let input = need_str!(in_path);
+        let output = need_str!(out_path);
+        match vtr::recover(input, output) {
+            Ok(d) => {
+                if let Some(o) = dropped_out.as_mut() {
+                    *o = d.map_or(-1, |d| d as i64);
+                }
+                VTR_OK
+            }
+            Err(e) => status(Err(e)),
+        }
+    })
 }
 
 /// Marks the owner as inside the writer until `vtr_writer_leave` (see `vtr.h`).

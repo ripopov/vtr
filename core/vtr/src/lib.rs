@@ -138,4 +138,4 @@ pub use signal::{OwnedSignalValue, SignalValue};
 pub use strings::StrId;
 pub use txblock::{Relation, Transaction, TxAttr, TxEvent, TxId, TxKind, TxStage, TxStatus};
 pub use value::Value;
-pub use writer::{CrashState, Sealer, Writer, WriterOptions, WriterStats};
+pub use writer::{recover, CrashState, Sealer, Writer, WriterOptions, WriterStats};

@@ -88,6 +88,14 @@ impl Ending {
     }
 }
 
+/// Every string an ending record uses: the stream, its kind, the sites'
+/// formats, attribute keys and argument names.
+pub(crate) fn strings() -> impl Iterator<Item = &'static str> {
+    [STREAM, crate::logblock::STREAM_KIND, crate::logblock::KEY_SEVERITY, crate::logblock::KEY_ARGS, crate::logblock::KEY_NAMES]
+        .into_iter()
+        .chain(SITES.iter().flat_map(|(fmt, names, _)| std::iter::once(*fmt).chain(names.iter().copied())))
+}
+
 /// Linux name of a signal number (`"SIGSEGV"`), or `None`.
 pub fn signal_name(signal: i32) -> Option<&'static str> {
     const NAMES: [&str; 31] = [

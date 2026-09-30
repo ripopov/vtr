@@ -252,6 +252,39 @@ fn cli_end_to_end() {
 }
 
 #[test]
+fn recover_rewrites_a_cut_file() {
+    use vtr::{Direction, Ending, SignalKind, VarType};
+    let exe = env!("CARGO_BIN_EXE_vtr");
+    let full = tmp("recover-full.vtr");
+    let opts = vtr::WriterOptions { block_records: 100, background: false, ..Default::default() };
+    let mut w = vtr::Writer::create_with(&full, opts).unwrap();
+    let (_, a) = w.add_var(None, "a", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 8, states: 2 }).unwrap();
+    for t in 0..1000u64 {
+        w.set_time(t).unwrap();
+        w.emit_u64(a, t).unwrap();
+    }
+    w.close().unwrap();
+    let bytes = std::fs::read(&full).unwrap();
+    let (cut, out) = (tmp("recover-cut.vtr"), tmp("recover-out.vtr"));
+    std::fs::write(&cut, &bytes[..bytes.len() - 700]).unwrap();
+    let run = |input: &Path| std::process::Command::new(exe).args(["recover", input.to_str().unwrap(), out.to_str().unwrap()]).output().unwrap();
+    // Bytes were dropped: exit status 3, and the output is complete.
+    let o = run(&cut);
+    assert_eq!(o.status.code(), Some(3), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = vtr::Reader::open(&out).unwrap();
+    assert_eq!(r.recovered(), None);
+    assert!(matches!(r.ending().unwrap().0, Ending::Recovered { dropped } if dropped > 0));
+    assert!(r.load_signal(a).unwrap().len() >= 800);
+    let info = std::process::Command::new(exe).args(["info", out.to_str().unwrap()]).output().unwrap();
+    assert!(String::from_utf8_lossy(&info.stdout).contains("ended:       recovered by scanning"));
+    // A complete file is copied, status 0; the input may not be the output.
+    assert_eq!(run(&full).status.code(), Some(0));
+    assert_eq!(std::fs::read(&out).unwrap(), bytes);
+    let o = std::process::Command::new(exe).args(["recover", out.to_str().unwrap(), out.to_str().unwrap()]).output().unwrap();
+    assert_eq!(o.status.code(), Some(2));
+}
+
+#[test]
 fn vcd_export_counts_every_change() {
     use vtr::{Direction, ScopeType, SignalKind, VarType};
     let out = tmp("vcdout.vtr");

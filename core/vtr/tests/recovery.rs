@@ -171,3 +171,95 @@ fn finished_sections_reach_the_file_at_once() {
     w.close().unwrap();
     assert_eq!(Reader::open(&path).unwrap().recovered(), None);
 }
+
+/// Every cut file of the tests above, as (label, bytes).
+fn cut_files(full: &[u8], sections: &[vtr::container::DirEntry]) -> Vec<(String, Vec<u8>)> {
+    let mut cuts = Vec::new();
+    let last_end = sections.last().unwrap().payload_offset() + sections.last().unwrap().len;
+    for (k, cut) in sections.iter().map(|e| e.offset).chain(std::iter::once(last_end)).enumerate() {
+        cuts.push((format!("boundary {k}"), full[..cut as usize].to_vec()));
+    }
+    for (k, e) in sections.iter().enumerate().filter(|(_, e)| e.len > 1) {
+        cuts.push((format!("inside {k}"), full[..(e.payload_offset() + e.len / 2) as usize].to_vec()));
+        let end = (e.payload_offset() + e.len) as usize;
+        let mut torn = full[..end].to_vec();
+        torn[(e.payload_offset() + e.len / 2) as usize..end].fill(0);
+        cuts.push((format!("zero-filled {k}"), torn));
+    }
+    cuts
+}
+
+#[test]
+fn recover_every_cut_file() {
+    let (full, a) = sample();
+    let rd = Reader::from_bytes(full.clone()).unwrap();
+    let sections = rd.sections().to_vec();
+    let (input, output) = (tmp("cut-in.vtr"), tmp("cut-out.vtr"));
+    for (label, bytes) in cut_files(&full, &sections) {
+        std::fs::write(&input, &bytes).unwrap();
+        let cut = Reader::from_bytes(bytes).unwrap();
+        let dropped = cut.recovered().unwrap();
+        assert_eq!(vtr::recover(&input, &output).unwrap(), Some(dropped), "{label}");
+        let r = Reader::open(&output).unwrap_or_else(|e| panic!("{label}: {e}"));
+        assert_eq!(r.recovered(), None, "{label}: the rewritten file is complete");
+        assert_eq!(r.ending().unwrap().0, Ending::Recovered { dropped }, "{label}");
+        // Every verified section is kept unchanged, then the ending's strings, nodes and record.
+        let kept: Vec<_> = r.sections()[..cut.sections().len()].iter().map(|e| (e.kind, e.offset, e.len, e.aux0, e.aux1)).collect();
+        let want: Vec<_> = cut.sections().iter().map(|e| (e.kind, e.offset, e.len, e.aux0, e.aux1)).collect();
+        assert_eq!(kept, want, "{label}");
+        if cut.signal_count() > 0 {
+            let (cv, ct, mut cl) = contents(&cut, a);
+            let (rv, mut rt, rl) = contents(&r, a);
+            // Log records are also zero-duration transactions; the ending record is the new one.
+            let end = *rl.last().unwrap();
+            rt.retain(|&id| id != end);
+            assert_eq!((rv, rt), (cv, ct), "{label}");
+            cl.push(end);
+            assert_eq!(rl, cl, "{label}: the same log records and the ending record");
+        }
+    }
+    // A complete file is copied as it is.
+    std::fs::write(&input, &full).unwrap();
+    assert_eq!(vtr::recover(&input, &output).unwrap(), None);
+    assert_eq!(std::fs::read(&output).unwrap(), full);
+}
+
+#[test]
+fn commit_interval_bounds_what_waits_in_memory() {
+    use std::time::{Duration, Instant};
+    // A slow run (a time step every 200 us) that is never closed, as when it is killed:
+    // with a commit interval the file keeps everything older than the interval.
+    for interval in [Duration::ZERO, Duration::from_millis(100)] {
+        let path = tmp(&format!("commit{}.vtr", interval.as_millis()));
+        let opts = WriterOptions { commit_interval: interval, ..Default::default() };
+        let mut w = Writer::create_with(&path, opts).unwrap();
+        let (_, a) = w.add_var(None, "a", VarType::Wire, Direction::Implicit, SignalKind::Bits { width: 32, states: 2 }).unwrap();
+        let log = w.add_stream(None, "log", LOG_STREAM_KIND).unwrap();
+        let site = w.add_log_site(&LogSiteSpec::new(log, Severity::Info, "step {}", &[LogArgType::U64])).unwrap();
+        let start = Instant::now();
+        let mut progress = Vec::new();
+        let mut t = 0u64;
+        while start.elapsed() < Duration::from_millis(1500) {
+            t += 1;
+            w.set_time(t).unwrap();
+            w.emit_u64(a, t).unwrap();
+            if t % 10 == 0 {
+                w.log(site, t, &[LogArg::U64(t)]).unwrap();
+            }
+            progress.push((start.elapsed(), t));
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        // What had been emitted half a second before the end must be in the file.
+        let settled = progress.iter().rev().find(|(at, _)| *at + Duration::from_millis(500) + interval <= start.elapsed()).unwrap().1;
+        std::thread::sleep(Duration::from_millis(100));
+        let on_disk = Reader::from_bytes(std::fs::read(&path).unwrap()).unwrap();
+        let kept = if on_disk.signal_count() > 0 { on_disk.load_signal(a).unwrap().len() as u64 } else { 0 };
+        if interval.is_zero() {
+            assert_eq!((kept, on_disk.log_count()), (0, 0), "without an interval everything waits for the block");
+        } else {
+            assert!(kept >= settled, "kept {kept} changes of the {settled} emitted {} ms before the end", 500 + interval.as_millis());
+            assert!(on_disk.log_count() >= settled / 10, "kept {} log records", on_disk.log_count());
+        }
+        drop(w);
+    }
+}

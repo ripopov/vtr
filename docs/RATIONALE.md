@@ -2678,3 +2678,20 @@ whose 1.2 s run makes 4 M dumps, the whole crash-safety series costs 2 to 3%
 the guard. The C910 model's 862 MB `Vtop.cpp` (the embedded VDB document)
 needs about 45 GB to compile; two model builds at once exhausted a 91 GB
 machine, so the measurement built one model, in a memory-capped scope.
+
+**Bounded loss and `vtr recover`.** SIGKILL runs no code, so what a slow run
+has buffered is what it loses. `WriterOptions::commit_interval` (10 s)
+bounds it: `set_time`, `log` and `end_tx` read the monotonic clock every 256
+calls and hand over whatever has waited longer. The plan said every 1,024
+calls; a simulation of one time step per second would then look only every
+17 minutes. Fast runs complete their blocks sooner and are unchanged (suite
+A/B within ±1.7%, byte-identical); a slow log-only run of sixty commits, 60
+s at 1 s standing in for ten minutes at 10 s, is 8.2% larger (60 log blocks
+instead of 4). `vtr recover` rewrites a recovered file as a complete one, as
+`mcap recover` does, and exits 3 when bytes were dropped. Writing its ending
+record exposed a reader bug: the reader resolved each `log.*` key to one
+string id, so an ending record written by the encoder, with its own copy of
+`log.args`, hid every earlier log site, including in sealed files. SPEC 4
+already said readers must not assume unique strings; the reader now accepts
+every id of a key, and the encoder reuses the ids of the strings the file
+already holds.

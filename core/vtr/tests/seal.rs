@@ -159,6 +159,9 @@ fn assert_sealed_prefix(sealed: &Reader, full: &Reader, what: &str) {
             true
         })
         .unwrap();
+    // Every record is readable: the ending record's strings must not hide the program's log sites.
+    assert_eq!(n as u64 + 1, sealed.log_count(), "{what}: log records readable");
+    assert_eq!(sealed.strings().find(vtr::LOG_STREAM_KIND).map(|_| (0..sealed.strings().len()).filter(|&i| sealed.str(StrId(i as u32)) == vtr::LOG_STREAM_KIND).count()), Some(1), "{what}: strings interned once");
 }
 
 #[test]

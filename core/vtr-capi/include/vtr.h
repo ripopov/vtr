@@ -264,6 +264,8 @@ typedef struct vtr_writer_options {
     int      dedup;          /* drop unchanged non-event values (default 1); events are never dropped */
     int      checksums;      /* store per-section CRC32 (default 1); C open does not verify it */
     uint32_t log_encoders;   /* helper threads encoding log blocks in background mode (default 2; 0 = sink thread) */
+    uint32_t commit_interval_ms; /* longest time buffered data waits before it is written, bounding what
+                                  * SIGKILL loses in a slow run (default 10000; 0 = off) */
 } vtr_writer_options;
 
 /* Initialize all fields before overriding individual options. NULL is ignored.
@@ -352,6 +354,12 @@ uint64_t vtr_guard_add_stop_callback(void (*cb)(void *user, int signal), void *u
 void     vtr_guard_remove_stop_callback(uint64_t id);
 void vtr_guard_ending(vtr_ending *out);          /* STOPPED after a stop request, else CLOSED */
 size_t vtr_ending_format(const vtr_ending *end, char *buf, size_t cap);
+
+/* Rewrites a file recovered by scanning (its writer never closed) as a
+ * complete one: every verified section, then a RECOVERED ending, a directory
+ * and a trailer. *dropped_out (nullable) is the bytes the scan dropped, or -1
+ * when in_path was complete and was copied unchanged. out_path must differ. */
+int vtr_recover(const char *in_path, const char *out_path, int64_t *dropped_out);
 
 /* Metadata must be set before the first explicit or automatic flush.
  * time_zero is a display offset; stored event times are unchanged. File

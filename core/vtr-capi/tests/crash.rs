@@ -33,6 +33,9 @@ enum Keeps {
     Blocks,
     /// `Blocks`, and every block completed before the end is in the file.
     Written,
+    /// Recovered by scanning, with everything emitted more than the commit
+    /// interval (ms, plus slack) before SIGKILL: a slow run loses at most the interval.
+    Committed(u64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,6 +60,9 @@ const fn crashed(signal: i32) -> Keeps {
 }
 
 const NO_ENV: &[(&str, &str)] = &[];
+const SLOW_1200: &[&str] = &["--records", "1000000000", "--pace-us", "500", "--commit-ms", "100", "--kill-ms", "1200"];
+const SLOW_1700: &[&str] = &["--records", "1000000000", "--pace-us", "500", "--commit-ms", "100", "--kill-ms", "1700"];
+const SLOW_OFF: &[&str] = &["--records", "1000000000", "--pace-us", "500", "--commit-ms", "0", "--kill-ms", "1200"];
 
 /// Without a guard only a normal close keeps everything; with it, every
 /// ending a process can observe does, and SIGKILL, a rescue past its
@@ -77,6 +83,10 @@ const CASES: &[Case] = &[
     // Small blocks on the simulation thread: each finished section is in the file at once.
     Case { name: "kill-inline", mode: "kill", args: &["--inline", "--block-records", "65536"], env: NO_ENV, ends: Ends::Signal(SIGKILL), keeps: Some(Keeps::Written), guarded: Keeps::Written },
     Case { name: "thread", mode: "thread", args: &[], env: NO_ENV, ends: Ends::Signal(SIGSEGV), keeps: Some(Keeps::Blocks), guarded: crashed(SIGSEGV) },
+    // SIGKILL at two points of a slow run: it loses at most the commit interval; without one, everything.
+    Case { name: "slowkill-1200", mode: "slowkill", args: SLOW_1200, env: NO_ENV, ends: Ends::Signal(SIGKILL), keeps: Some(Keeps::Committed(100)), guarded: Keeps::Committed(100) },
+    Case { name: "slowkill-1700", mode: "slowkill", args: SLOW_1700, env: NO_ENV, ends: Ends::Signal(SIGKILL), keeps: Some(Keeps::Committed(100)), guarded: Keeps::Committed(100) },
+    Case { name: "slowkill-off", mode: "slowkill", args: SLOW_OFF, env: NO_ENV, ends: Ends::Signal(SIGKILL), keeps: Some(Keeps::Blocks), guarded: Keeps::Blocks },
     // The crashed thread gives up at a 1 s deadline, not when the 5 s rescue would end.
     Case {
         name: "stall",
@@ -218,6 +228,11 @@ fn check(case: &Case, keeps: Keeps, ends: Ends, e: &Emitted, k: &Kept) -> Vec<St
                 problems.push(format!("expected every change and log record in a complete file ended {want:?}, kept {k:?} of {e:?}"));
             }
         }
+        Keeps::Committed(_) => {
+            if !k.recovered || k.changes > e.changes || k.logs > e.logs {
+                problems.push(format!("expected a recovered file, kept {k:?} of {e:?}"));
+            }
+        }
         Keeps::Blocks | Keeps::Written => {
             let block = case.args.iter().position(|a| *a == "--block-records").map_or(BLOCK_RECORDS, |i| case.args[i + 1].parse().unwrap());
             let fewer = grows || k.changes < e.changes;
@@ -247,6 +262,16 @@ fn crash_matrix() {
             let label = format!("{}{}", case.name, if guard { "/guard" } else { "" });
             eprintln!("{label:18} {ends:?} emitted {e:?} kept {k:?}");
             let mut problems = check(case, keeps, ends, &e, &k);
+            if let Keeps::Committed(interval) = keeps {
+                // The last progress report old enough to be committed when the process was killed.
+                let field = |l: &str, name: &str| -> u64 { l.split_whitespace().find_map(|w| w.strip_prefix(name)).unwrap().trim().parse().unwrap() };
+                let killed = lines.iter().find_map(|(_, l)| l.strip_prefix("killed at ms=")).map(|v| v.trim().parse::<u64>().unwrap()).unwrap();
+                let settled = lines.iter().map(|(_, l)| l).filter(|l| l.starts_with("progress ")).filter(|l| field(l, "ms=") + interval + 400 <= killed).last().unwrap();
+                let (changes, logs) = (field(settled, "changes="), field(settled, "logs="));
+                if k.changes < changes || k.logs < logs || changes == 0 {
+                    problems.push(format!("kept {} changes and {} log records; {changes} and {logs} were emitted {interval} ms + 400 ms before SIGKILL at {killed} ms", k.changes, k.logs));
+                }
+            }
             if case.name == "stall" {
                 match lines.iter().find(|(_, l)| l.contains("missed its deadline")) {
                     Some((at, _)) => {

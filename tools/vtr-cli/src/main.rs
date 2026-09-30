@@ -23,6 +23,8 @@ USAGE:
   vtr to-vcd <file.vtr> <out.vcd>             write the signals as VCD (also: vtr2vcd)
   vtr fst-to-vcd <file.fst> <out.vcd>         same for an FST file (through fst-reader)
   vtr vcd-compare <a.vcd> <b.vcd>             compare value-change counts, total and per signal (JSON)
+  vtr recover <in.vtr> <out.vtr>              rewrite a file whose writer never closed it as a complete
+                                              one (exit status 3 when bytes were dropped)
 
 Times are integers in the file's time unit. Paths use '.' as separator.";
 
@@ -80,6 +82,27 @@ fn fmt_value(r: &Reader, v: &Value) -> String {
         Value::List(l) => format!("[{}]", l.iter().map(|x| fmt_value(r, x)).collect::<Vec<_>>().join(", ")),
         Value::Map(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{}: {}", r.str(*k), fmt_value(r, x))).collect::<Vec<_>>().join(", ")),
         Value::Text(s) => format!("{s:?}"),
+    }
+}
+
+/// `vtr recover`: every verified section, then a Recovered ending, a directory
+/// and a trailer. Exits 3 when the scan dropped bytes, as `mcap recover` does.
+fn cmd_recover(args: &[String]) {
+    let p = positional(args);
+    let (Some(input), Some(output)) = (p.first(), p.get(1)) else { die(USAGE) };
+    if std::fs::canonicalize(input).ok().is_some_and(|a| std::fs::canonicalize(output).is_ok_and(|b| a == b)) {
+        die("the output must be another file than the input");
+    }
+    match vtr::recover(input, output) {
+        Ok(None) => println!("{input} is complete; copied to {output}"),
+        Ok(Some(dropped)) => {
+            let r = open(output);
+            println!("recovered {} sections into {output}; {dropped} bytes after the last verified section were dropped", r.sections().len());
+            if dropped > 0 {
+                exit(3);
+            }
+        }
+        Err(e) => die(format!("{input}: {e}")),
     }
 }
 
@@ -540,6 +563,7 @@ fn main() {
         "log" => cmd_log(rest),
         "clocks" => cmd_clocks(rest),
         "convert" => cmd_convert(rest),
+        "recover" => cmd_recover(rest),
         "--version" | "-V" => println!("vtr {}", env!("CARGO_PKG_VERSION")),
         _ => {
             eprintln!("{USAGE}");
