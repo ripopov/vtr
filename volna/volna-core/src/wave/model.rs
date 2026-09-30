@@ -12,6 +12,7 @@ use super::analog::{self, Analog, AnalogDraw, AnalogRange};
 use super::lane::{self, LaneGeometry, TxLane};
 use super::layout::{LayoutInput, MIN_COLUMN, WaveLayout};
 use super::overlay::SpanClocks;
+use super::stack;
 use super::tint::{self, Tint};
 use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
@@ -44,6 +45,9 @@ pub const ROW_EDGE_GRAB_PX: f32 = 3.0;
 const ROW_DRAG_EDGE_ROWS: f32 = 1.0;
 /// Auto-scroll speed in rows per second per row of depth into the edge zone.
 const ROW_DRAG_SCROLL_RATE: f32 = 12.0;
+/// Stepping through a stack's sum skips at most this many changes that
+/// cancel out before it gives up.
+const TOTAL_EDGE_TRIES: usize = 100_000;
 
 /// A row is either bound to a variable of an open trace or retains an
 /// unresolved durable locator in its trace.
@@ -208,8 +212,19 @@ impl ClockRow {
     }
 }
 
-/// A named group of rows. Folded, it hides its rows and draws their
-/// activity in its own row (`docs/wave_groups.html`).
+/// How a group's own row is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GroupStyle {
+    /// Folded, its members' merged activity (`docs/wave_groups.html`).
+    #[default]
+    Activity,
+    /// Folded or open, one stacked area whose layers are its members
+    /// (`docs/stacked-areas.html`).
+    Stack,
+}
+
+/// A named group of rows. Folded, it hides its rows; its own row draws
+/// their activity when folded, or their stacked area in either state.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupRow {
     pub name: String,
@@ -218,6 +233,10 @@ pub struct GroupRow {
     pub height: RowHeight,
     /// The colour its rows without their own are drawn in.
     pub tint: Option<Tint>,
+    pub style: GroupStyle,
+    /// The height stacking replaced; restored when the group is unstacked
+    /// while it still has [`RowHeight::ANALOG`]. An explicit resize clears it.
+    pub restore_height: Option<RowHeight>,
 }
 
 impl GroupRow {
@@ -227,7 +246,13 @@ impl GroupRow {
             collapsed: false,
             height: RowHeight::DEFAULT,
             tint: None,
+            style: GroupStyle::Activity,
+            restore_height: None,
         }
+    }
+
+    pub fn is_stacked(&self) -> bool {
+        self.style == GroupStyle::Stack
     }
 }
 
@@ -276,7 +301,10 @@ impl WaveRow {
                 l.auto_height = false;
             }
             Self::Clock(c) => c.height = height,
-            Self::Group(g) => g.height = height,
+            Self::Group(g) => {
+                g.height = height;
+                g.restore_height = None;
+            }
         }
     }
 
@@ -389,7 +417,9 @@ impl WaveRow {
             }
             (Self::Lane(a), Self::Lane(b)) => a.source == b.source && a.height == b.height,
             (Self::Clock(a), Self::Clock(b)) => a == b,
-            (Self::Group(a), Self::Group(b)) => a.name == b.name && a.height == b.height,
+            (Self::Group(a), Self::Group(b)) => {
+                a.name == b.name && a.height == b.height && a.style == b.style
+            }
             _ => false,
         }
     }
@@ -427,6 +457,9 @@ enum EdgeSource<'a> {
     Clock(Arc<crate::clock::ClockTimeline>),
     /// A folded or open group: every change of its loaded signals.
     Group(Vec<Arc<dyn SignalHistory>>),
+    /// A stacked group: it snaps to its layers' changes and steps through
+    /// the changes of their sum.
+    Stack(Vec<stack::Layer>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -504,6 +537,8 @@ pub enum MenuAction {
     Lane(crate::marker::LaneVerb),
     /// Colour the menu's rows; `None` is Default.
     Tint(Option<Tint>),
+    /// Draw the menu's groups as stacked areas (`true`) or as activity.
+    Stack(bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1790,6 +1825,108 @@ impl WaveModel {
         );
     }
 
+    // -- stacked areas --------------------------------------------------------------
+
+    /// Whether entry `i` is a stacked group.
+    pub fn is_stacked(&self, i: usize) -> bool {
+        self.items
+            .get(i)
+            .and_then(|e| e.group())
+            .is_some_and(GroupRow::is_stacked)
+    }
+
+    /// The layers of group `group` drawn as a stack: every loaded signal
+    /// below it that reads as a number, nested groups included, in list
+    /// order.
+    pub fn stack_layers(&self, group: usize) -> Vec<stack::Layer> {
+        tree::leaves(&self.items, group)
+            .filter_map(|entry| {
+                let s = self.items[entry].signal()?;
+                Some(stack::Layer {
+                    entry,
+                    reading: stack::Reading::of(s.shape, s.translator.as_ref())?,
+                    history: s.history.clone()?,
+                })
+            })
+            .collect()
+    }
+
+    /// The stacked group whose area entry `i` is a layer of, or would be
+    /// if it had a number: the nearest stacked group above it.
+    pub fn stack_of(&self, i: usize) -> Option<usize> {
+        let mut at = tree::parent(&self.items, i)?;
+        loop {
+            if self.is_stacked(at) {
+                return Some(at);
+            }
+            at = tree::parent(&self.items, at)?;
+        }
+    }
+
+    /// Draw the groups among `rows` as stacked areas, or as activity: one
+    /// step. A 1× group row grows to [`RowHeight::ANALOG`] and gets 1× back
+    /// when unstacked, unless it was resized in between. Returns whether
+    /// any group changed.
+    pub fn set_stacked(&mut self, rows: &[usize], stacked: bool) -> bool {
+        let style = if stacked {
+            GroupStyle::Stack
+        } else {
+            GroupStyle::Activity
+        };
+        let groups: Vec<usize> = rows
+            .iter()
+            .copied()
+            .filter(|&r| {
+                self.items
+                    .get(r)
+                    .and_then(|e| e.group())
+                    .is_some_and(|g| g.style != style)
+            })
+            .collect();
+        let verb = if stacked { "Stack" } else { "Unstack" };
+        let label = match groups.as_slice() {
+            [g] => format!("{verb} {}", self.items[*g].name()),
+            _ => format!("{verb} {}", count(groups.len(), "group", "groups")),
+        };
+        let before = self.anchor.map(|a| self.row_units_before(a));
+        let changed = self.rewrite_rows(label, None, groups, |e| {
+            let WaveRow::Group(g) = &mut e.row else {
+                return false;
+            };
+            g.style = style;
+            if stacked {
+                if g.height == RowHeight::DEFAULT {
+                    g.restore_height = Some(g.height);
+                    g.height = RowHeight::ANALOG;
+                }
+            } else if let Some(h) = g.restore_height.take()
+                && g.height == RowHeight::ANALOG
+            {
+                g.height = h;
+            }
+            true
+        });
+        // Keep the anchored row where it was on screen.
+        if let (true, Some(a), Some(before)) = (changed, self.anchor, before) {
+            let shift = self.row_units_before(a) as f32 - before as f32;
+            self.scroll_y = (self.scroll_y + shift * self.layout.row_h).max(0.0);
+        }
+        changed
+    }
+
+    /// `Shift+A`: draw the selected groups as stacked areas, or all of them
+    /// as activity again when every one is stacked already.
+    pub fn toggle_stack(&mut self) -> bool {
+        let groups: Vec<usize> = self
+            .selected
+            .iter()
+            .copied()
+            .filter(|&r| self.items.get(r).is_some_and(Entry::is_group))
+            .collect();
+        let on = groups.iter().any(|&g| !self.is_stacked(g));
+        self.set_stacked(&groups, on)
+    }
+
     /// Open the format menu for `row` at a panel position.
     pub fn open_format_menu(&mut self, doc: &Document, row: usize, position: Point) {
         let Some(item) = self.signal(row) else {
@@ -1935,6 +2072,27 @@ impl WaveModel {
         let group = self.items[row].group();
         let any_group = targets.iter().any(|&r| self.items[r].is_group());
         let menu = self.menu.as_mut().expect("just opened");
+        // How the groups draw: their activity, or a stacked area.
+        if any_group {
+            let groups: Vec<&GroupRow> = targets
+                .iter()
+                .filter_map(|&r| self.items[r].group())
+                .collect();
+            let all = |stacked: bool| groups.iter().all(|g| g.is_stacked() == stacked);
+            menu.entries.extend([
+                MenuEntry::Separator,
+                MenuEntry::Label("Draw".into()),
+                MenuEntry::Item(MenuItem {
+                    checked: all(false),
+                    ..MenuItem::plain(MenuAction::Stack(false), "Activity")
+                }),
+                MenuEntry::Item(MenuItem {
+                    badge: Some("⇧A".into()),
+                    checked: all(true),
+                    ..MenuItem::plain(MenuAction::Stack(true), "Stacked area")
+                }),
+            ]);
+        }
         menu.entries.extend([
             MenuEntry::Separator,
             MenuEntry::Item(MenuItem {
@@ -2096,6 +2254,7 @@ impl WaveModel {
                 self.start_rename();
             }
             MenuAction::Fold(collapsed) => _ = self.set_folded(menu.row, *collapsed, false),
+            MenuAction::Stack(stacked) => _ = self.set_stacked(&rows, *stacked),
             MenuAction::FoldAll(collapsed) => _ = self.fold_all(*collapsed),
             _ => {
                 let row = self.signal(menu.row)?;
@@ -2247,6 +2406,7 @@ impl WaveModel {
             WaveRow::Signal(s) => s.history.clone().map(EdgeSource::History),
             WaveRow::Lane(l) => l.generator(doc).map(EdgeSource::Lane),
             WaveRow::Clock(c) => c.timeline(doc).cloned().map(EdgeSource::Clock),
+            WaveRow::Group(g) if g.is_stacked() => Some(EdgeSource::Stack(self.stack_layers(row))),
             WaveRow::Group(_) => Some(EdgeSource::Group(self.group_histories(row))),
         }
     }
@@ -2277,6 +2437,9 @@ impl WaveModel {
             Some(EdgeSource::Group(hs)) => {
                 hs.iter().filter_map(|h| h.next_change_after(from)).min()
             }
+            Some(EdgeSource::Stack(layers)) => {
+                stack::total_edge(&layers, from, true, TOTAL_EDGE_TRIES)
+            }
             None => return,
         };
         if let Some(t) = next {
@@ -2295,6 +2458,9 @@ impl WaveModel {
             Some(EdgeSource::Clock(c)) => c.prev_edge(from),
             Some(EdgeSource::Group(hs)) => {
                 hs.iter().filter_map(|h| h.prev_change_before(from)).max()
+            }
+            Some(EdgeSource::Stack(layers)) => {
+                stack::total_edge(&layers, from, false, TOTAL_EDGE_TRIES)
             }
             None => return,
         };
@@ -2470,12 +2636,34 @@ impl WaveModel {
 
     /// The rows on screen for assistive technology, as a tree: each with its
     /// level, its expanded state (groups only) and its selection.
-    pub fn accessible_rows(&self) -> impl Iterator<Item = AccessibleRow> + '_ {
+    /// A stacked group says so, with its layers and the sum at the cursor.
+    pub fn accessible_rows<'a>(
+        &'a self,
+        doc: &Document,
+    ) -> impl Iterator<Item = AccessibleRow> + 'a {
         let layout = &self.layout;
+        let cursor = self.cursor(doc);
         layout.rows.clone().filter_map(move |pos| {
             let entry = layout.entry(pos)?;
             let e = &self.items[entry];
             let (label, expanded) = match &e.row {
+                WaveRow::Group(g) if g.is_stacked() => {
+                    let layers = self.stack_layers(entry);
+                    let n = layers.len();
+                    let sum = cursor.map(|c| {
+                        stack::total(&stack::values_at(&layers, c))
+                            .map_or_else(|| "X".to_owned(), stack::number)
+                    });
+                    (
+                        format!(
+                            "{}, stacked area, {n} layer{}{}",
+                            g.name,
+                            if n == 1 { "" } else { "s" },
+                            sum.map(|s| format!(", sum {s}")).unwrap_or_default()
+                        ),
+                        Some(!g.collapsed),
+                    )
+                }
                 WaveRow::Group(g) => {
                     let n = tree::leaves(&self.items, entry).count();
                     (
@@ -3090,11 +3278,12 @@ impl WaveModel {
                 } else {
                     self.clear_hover();
                 }
-                // A plot's hover readout follows the pointer.
+                // The hover readout of a plot or a group follows the pointer.
                 let reading = p.x >= self.layout.waves.left()
-                    && self
-                        .hover_row
-                        .is_some_and(|r| self.signal(r).is_some_and(|s| s.analog.is_some()));
+                    && self.hover_row.is_some_and(|r| {
+                        self.signal(r).is_some_and(|s| s.analog.is_some())
+                            || self.items.get(r).is_some_and(Entry::is_group)
+                    });
                 self.hover_row != prev_row
                     || self.badge_hover != prev_badge
                     || self.split_hover != prev_split
@@ -3227,6 +3416,10 @@ fn row_edge(edges: &EdgeSource<'_>, raw: f64, exact: f64, tol: f64) -> Option<u6
         EdgeSource::Group(hs) => hs
             .iter()
             .filter_map(|h| history_edge(h.as_ref(), raw, tol))
+            .min_by(|a, b| (*a as f64 - raw).abs().total_cmp(&(*b as f64 - raw).abs())),
+        EdgeSource::Stack(layers) => layers
+            .iter()
+            .filter_map(|l| history_edge(l.history.as_ref(), raw, tol))
             .min_by(|a, b| (*a as f64 - raw).abs().total_cmp(&(*b as f64 - raw).abs())),
     }
 }

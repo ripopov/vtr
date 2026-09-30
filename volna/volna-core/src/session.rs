@@ -409,6 +409,13 @@ pub enum LoadRequest {
         range: (u64, u64),
         budget: crate::remote::memory::MemoryBudget,
     },
+    /// Walk a stacked group's layers once for its whole-trace scale
+    /// (client-side work).
+    StackTotal {
+        generation: u64,
+        layers: Vec<crate::wave::stack::Layer>,
+        budget: crate::remote::memory::MemoryBudget,
+    },
 }
 
 impl LoadRequest {
@@ -420,7 +427,8 @@ impl LoadRequest {
             Self::Open { .. }
             | Self::Sizes { .. }
             | Self::Summary { .. }
-            | Self::GroupSummary { .. } => None,
+            | Self::GroupSummary { .. }
+            | Self::StackTotal { .. } => None,
         }
     }
 
@@ -487,6 +495,13 @@ impl LoadRequest {
             } => LoadResult::GroupSummary {
                 generation,
                 key: crate::wave::group::key(&members),
+                result: Err(error),
+            },
+            Self::StackTotal {
+                generation, layers, ..
+            } => LoadResult::StackTotal {
+                generation,
+                key: crate::wave::stack::key(&layers),
                 result: Err(error),
             },
         }
@@ -566,6 +581,18 @@ impl LoadRequest {
                     result: summary.account(&budget).map(Arc::new),
                 }
             }
+            LoadRequest::StackTotal {
+                generation,
+                layers,
+                budget,
+            } => {
+                let summary = crate::wave::stack::TotalSummary::build(&layers);
+                LoadResult::StackTotal {
+                    generation,
+                    key: summary.key().clone(),
+                    result: summary.account(&budget).map(Arc::new),
+                }
+            }
         }
     }
 }
@@ -607,5 +634,11 @@ pub enum LoadResult {
         /// Identity of the summarized signals ([`crate::wave::group::key`]).
         key: Vec<usize>,
         result: anyhow::Result<Arc<crate::wave::group::GroupSummary>>,
+    },
+    StackTotal {
+        generation: u64,
+        /// Identity of the stacked layers ([`crate::wave::stack::key`]).
+        key: crate::wave::stack::Key,
+        result: anyhow::Result<Arc<crate::wave::stack::TotalSummary>>,
     },
 }

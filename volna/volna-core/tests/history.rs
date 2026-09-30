@@ -525,7 +525,11 @@ impl Driver {
                     volna_core::wave::Tint::ALL.get(pick).copied(),
                 ))
             }
-            46 => action(Action::ToggleAnalog),
+            46 => action(if self.rng.chance(2) {
+                Action::ToggleAnalog
+            } else {
+                Action::ToggleStack
+            }),
             47 => action(Action::IncreaseRowHeight),
             48 => action(Action::DecreaseRowHeight),
             49 => action(Action::ResetRowHeight),
@@ -811,6 +815,10 @@ fn random_commands_undo_and_redo_to_every_earlier_cockpit() {
     assert!(
         labels.iter().any(|l| l.starts_with("Color ")),
         "no colour step in {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l.starts_with("Stack ")),
+        "no stack step in {labels:?}"
     );
 }
 

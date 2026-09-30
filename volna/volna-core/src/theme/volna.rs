@@ -253,6 +253,24 @@ impl Theme<Color> {
         }
     }
 
+    /// Layer `k` of `n` of a stacked area, counted in list order: the stage
+    /// ladder's hue walk with lightness alternating from the first pair, so
+    /// neighbouring layers never look alike (`docs/stacked-areas.html`).
+    pub fn layer_fill(&self, k: usize, n: usize) -> Color {
+        match self.stages {
+            StageLadder::Hsl => {
+                let steps = n.saturating_sub(1).max(1) as f32;
+                Color {
+                    h: (250.0 - k as f32 * (250.0 / steps)).rem_euclid(360.0) / 360.0,
+                    s: 0.52,
+                    l: if k % 2 == 1 { 0.70 } else { 0.58 },
+                    a: 1.0,
+                }
+            }
+            StageLadder::Oklch { .. } => self.stage_style(k, n).fill,
+        }
+    }
+
     /// Grey, for stage names outside the ladder and transactions without stages.
     pub fn stage_fallback(&self) -> StageStyle {
         match self.stages {

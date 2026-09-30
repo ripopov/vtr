@@ -13,7 +13,9 @@ use crate::wave::{
     Tint,
     analog::{Analog, AnalogDraw, AnalogRange},
     lane::TxLane,
-    model::{DisplayedSignal, GroupRow, Link, RowHeight, RowSource, WaveModel, WaveRow},
+    model::{
+        DisplayedSignal, GroupRow, GroupStyle, Link, RowHeight, RowSource, WaveModel, WaveRow,
+    },
     tree::{self, Entry},
     viewport::Viewport,
 };
@@ -161,8 +163,43 @@ enum Row {
             with = "crate::wave::tint::serde_name"
         )]
         tint: Option<Tint>,
+        #[serde(default, skip_serializing_if = "SavedStyle::is_activity")]
+        style: SavedStyle,
         rows: Vec<Row>,
     },
+}
+
+/// How a group draws: activity, the default and not written, or `"stack"`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SavedStyle {
+    #[default]
+    Activity,
+    Stack,
+}
+
+impl SavedStyle {
+    fn is_activity(&self) -> bool {
+        *self == Self::Activity
+    }
+}
+
+impl From<GroupStyle> for SavedStyle {
+    fn from(style: GroupStyle) -> Self {
+        match style {
+            GroupStyle::Activity => Self::Activity,
+            GroupStyle::Stack => Self::Stack,
+        }
+    }
+}
+
+impl From<SavedStyle> for GroupStyle {
+    fn from(style: SavedStyle) -> Self {
+        match style {
+            SavedStyle::Activity => Self::Activity,
+            SavedStyle::Stack => Self::Stack,
+        }
+    }
 }
 
 /// Rows as the tree a workspace stores: each group holds its rows.
@@ -177,6 +214,7 @@ fn nest(items: &[Entry], row: &dyn Fn(&WaveRow) -> Row) -> Vec<Row> {
                 collapsed: g.collapsed,
                 height: g.height,
                 tint: g.tint,
+                style: g.style.into(),
                 rows: nest(&items[i + 1..end], row),
             },
             other => row(other),
@@ -201,6 +239,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                 collapsed,
                 height,
                 tint,
+                style,
                 rows,
             } => {
                 ensure!(!name.trim().is_empty(), "empty group name");
@@ -211,6 +250,7 @@ fn flatten(rows: Vec<Row>, depth: u8, out: &mut Vec<(u8, Row)>) -> Result<()> {
                         collapsed,
                         height,
                         tint,
+                        style,
                         rows: Vec::new(),
                     },
                 ));
@@ -232,8 +272,9 @@ struct SavedAnalog {
 /// The wave panel format: version 2 added transaction lanes as typed rows,
 /// version 3 analog rows, version 4 groups (rows as a tree; `selected`
 /// counts rows in pre-order, groups included), version 5 row colours
-/// (`tint`, a name; an unknown one reads as Default).
-const WAVES_VERSION: u32 = 5;
+/// (`tint`, a name; an unknown one reads as Default), version 6 stacked
+/// groups (`"style": "stack"`; activity is not written).
+const WAVES_VERSION: u32 = 6;
 
 // RawValue distinguishes an omitted local cursor from an explicitly saved null.
 #[derive(Serialize, Deserialize)]
@@ -1174,6 +1215,7 @@ impl Workspace {
                         collapsed,
                         height,
                         tint,
+                        style,
                         ..
                     } => {
                         items.push(Entry::new(
@@ -1183,6 +1225,8 @@ impl Workspace {
                                 collapsed,
                                 height,
                                 tint,
+                                style: style.into(),
+                                restore_height: None,
                             }),
                         ));
                         continue;

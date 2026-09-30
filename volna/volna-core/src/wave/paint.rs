@@ -26,6 +26,7 @@ use crate::wave::model::{
     DisplayedSignal, Drag, GroupRow, RowSource, WaveModel, WaveRow, ZOOM_RANGE_MIN_PX,
 };
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
+use crate::wave::stack;
 use crate::wave::timeline::format_time;
 use crate::wave::tree;
 use crate::wave::viewport::Viewport;
@@ -36,6 +37,12 @@ use crate::wave::viewport::Viewport;
 const TRACE_PAD: f32 = 5.0;
 /// Segments narrower than this are drawn as a dense band instead of a hexagon.
 const MIN_SEGMENT_PX: usize = 5;
+/// Room a layer's colour swatch takes before its row's name.
+const SWATCH_W: f32 = 14.0;
+/// Layers other than the one under the pointer fade to this opacity.
+const STACK_DIM: f32 = 0.35;
+/// A stack's hover readout lists at most this many layers.
+const STACK_READOUT_LAYERS: usize = 16;
 
 /// A trace's letter, centred in `cell` on its badge colour, clipped to `clip`.
 pub(crate) fn trace_letter(
@@ -194,6 +201,8 @@ pub fn paint(
     // their full height.
     let row_h = layout.row_h;
     let mut inks = crate::wave::tint::InkWalk::default();
+    let stacks = Stacks::of(model, &layout.visible, theme);
+    let mut stack_rows: Vec<StackRow> = Vec::new();
     for pos in layout.rows.clone() {
         let Some(ix) = layout.entry(pos) else {
             continue;
@@ -270,6 +279,7 @@ pub fn paint(
             cursor,
             text: colors.text,
             muted: colors.text_placeholder,
+            left_out: stacks.left_out.contains(&ix),
         };
         let item = match row {
             WaveRow::Signal(item) => item,
@@ -287,8 +297,9 @@ pub fn paint(
                     Rect::from_xywh(bounds.left(), snap(y), bounds.width(), 1.0),
                     t.border_variant,
                 );
-                // Only a folded group draws its members' activity.
-                let members = if g.collapsed {
+                // A folded group draws its members' activity, unless it is
+                // stacked: then it draws their area, folded or not.
+                let members = if g.collapsed && !g.is_stacked() {
                     model.group_histories(ix)
                 } else {
                     Vec::new()
@@ -304,8 +315,32 @@ pub fn paint(
                     .flatten(),
                 };
                 paint_group_row(&group, model, doc, &cells, char_w, &mut p);
+                if let Some((layers, colors)) = stacks.groups.get(&ix) {
+                    stack_rows.extend(paint_stack_row(
+                        layers,
+                        colors,
+                        doc,
+                        &cells,
+                        group.reading,
+                        &mut p,
+                    ));
+                }
                 continue;
             }
+        };
+
+        // A layer of a stacked group shows its colour before its name.
+        let name_x = match stacks.swatches.get(&ix) {
+            Some(&color) => {
+                let side = z(9.0);
+                let swatch =
+                    Rect::from_xywh(snap(name_x), snap(y + (row_h - side) / 2.0), side, side);
+                p.scene.clipped(layout.names, |scene| {
+                    scene.quad(swatch, color, z(2.0), 0.0, Color::TRANSPARENT);
+                });
+                name_x + z(SWATCH_W)
+            }
+            None => name_x,
         };
 
         // Name column: the leaf name in the interface face, then a muted
@@ -383,6 +418,7 @@ pub fn paint(
                 .unwrap_or(layout.values.right() - pad);
             let avail = text_right - layout.values.left() - pad;
             let (value_text, color) = match (&item.history, cursor) {
+                _ if cells.left_out => ("not stacked".to_string(), colors.text_placeholder),
                 (Some(h), Some(c)) => {
                     let index = h.index_at(c);
                     let value = if item.shape == SignalShape::Event {
@@ -734,6 +770,7 @@ pub fn paint(
     );
     overlay::cursor(&mut p, &column, cursor, base, focused, z(SCROLLBAR_W));
     paint_analog_overlays(model, doc, &layout, &viewport, cursor, &mut p);
+    paint_stack_overlays(&stack_rows, model, doc, &layout, &viewport, cursor, &mut p);
 
     // -- borders --------------------------------------------------------------
     let drag = model.drag;
@@ -1789,6 +1826,8 @@ struct LaneCells<'a> {
     cursor: Option<u64>,
     text: Color,
     muted: Color,
+    /// A stacked group above it leaves it out: it has no number.
+    left_out: bool,
 }
 
 /// A clock row: its name, its cycle at the cursor in the values column, and
@@ -1826,6 +1865,7 @@ fn paint_clock_row(
         );
     });
     let value = match (timeline, doc.clocks.find(&row.key)) {
+        _ if cells.left_out => Some("not stacked".into()),
         (Some(tl), _) => cells
             .cursor
             .and_then(|c| tl.cycle_at(c))
@@ -2080,7 +2120,7 @@ fn paint_group_row(
             );
         });
     }
-    if !g.collapsed {
+    if !g.collapsed || g.is_stacked() {
         return;
     }
 
@@ -2361,6 +2401,506 @@ fn paint_group_summary(
     });
 }
 
+/// The stacked groups of one frame (`docs/stacked-areas.html`): each
+/// visible stack's layers and their colours, the swatch of every layer's
+/// row, and the rows a stack leaves out because they have no number.
+#[derive(Default)]
+struct Stacks {
+    groups: std::collections::HashMap<usize, (Vec<stack::Layer>, Vec<Color>)>,
+    /// A layer's colour by its entry, from the nearest stacked group above.
+    swatches: std::collections::HashMap<usize, Color>,
+    left_out: std::collections::HashSet<usize>,
+}
+
+impl Stacks {
+    fn of(model: &WaveModel, visible: &[u32], t: &Theme) -> Self {
+        let mut stacks = Self::default();
+        let items = model.items();
+        // Pre-order: an inner stack comes after the outer one and wins.
+        for i in visible.iter().map(|&i| i as usize) {
+            if !model.is_stacked(i) {
+                continue;
+            }
+            let layers = model.stack_layers(i);
+            let n = layers.len();
+            // A member with its own colour keeps it; the rest walk the ladder.
+            let colors: Vec<Color> = layers
+                .iter()
+                .enumerate()
+                .map(|(k, l)| match items[l.entry].row.tint() {
+                    Some(tint) => t.ink(Some(tint)),
+                    None => t.layer_fill(k, n),
+                })
+                .collect();
+            for (l, c) in layers.iter().zip(&colors) {
+                stacks.swatches.insert(l.entry, *c);
+            }
+            for j in tree::leaves(items, i) {
+                let counts = items[j]
+                    .signal()
+                    .is_some_and(|s| stack::Reading::of(s.shape, s.translator.as_ref()).is_some());
+                if !counts {
+                    stacks.left_out.insert(j);
+                }
+            }
+            stacks.groups.insert(i, (layers, colors));
+        }
+        stacks
+    }
+}
+
+/// What a painted stacked row hands to the overlays drawn above the cursor.
+struct StackRow {
+    plot: Plot,
+    clip: Rect,
+    /// The layers' entries and colours, in list order.
+    entries: Vec<usize>,
+    colors: Vec<Color>,
+    frame: stack::Frame,
+    /// The sum at the cursor, when it is defined.
+    at_cursor: Option<f64>,
+    /// The pointer and what it reads.
+    readout: Option<(Point, stack::Readout)>,
+}
+
+/// A horizontal run of one band, merged over spans while its pixels agree.
+#[derive(Clone, Copy, PartialEq)]
+struct Band {
+    x0: f32,
+    x1: f32,
+    top: f32,
+    bottom: f32,
+    /// A positive part, whose gap is at its top; a negative one has it at
+    /// its bottom.
+    up: bool,
+}
+
+impl Band {
+    /// Extend `run` with `next` when it continues it, else flush `run`.
+    fn push(run: &mut Option<Band>, next: Band, out: &mut Vec<Band>) {
+        match run {
+            Some(r) if r.x1 == next.x0 && r.top == next.top && r.bottom == next.bottom => {
+                r.x1 = next.x1;
+            }
+            _ => out.extend(run.replace(next)),
+        }
+    }
+}
+
+/// A stacked group's own row: under its name what it stacks, the sum at
+/// the cursor in its value cell and, in its waves cell, every layer in
+/// list order with the last on the baseline. Positive parts go up from
+/// zero and negative ones down, a one-pixel gap between layers; where a
+/// layer is undefined the rest of the column is hatched; when the scale
+/// holds both signs, zero and the net sum are lines. The scale is the whole
+/// trace's (the visible window's while it is walked), from two rows up
+/// labelled at the top and bottom.
+fn paint_stack_row(
+    layers: &[stack::Layer],
+    colors: &[Color],
+    doc: &Document,
+    cells: &LaneCells<'_>,
+    reading: Option<Point>,
+    p: &mut TextPainter<'_>,
+) -> Option<StackRow> {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let layout = cells.layout;
+    let (names, values, waves) = (layout.names, layout.values, layout.waves);
+    let row_h = layout.row_h;
+    let y = layout.row_y(cells.pos);
+    let full_h = layout.row_height(cells.pos);
+    let n = layers.len();
+    if full_h >= 2.0 * row_h - 0.5 {
+        let label = format!("stacked · {n} layer{}", if n == 1 { "" } else { "s" });
+        p.scene.clipped(names, |scene| {
+            scene.text(
+                point(cells.name_x + z(CHEVRON_W), y + row_h - z(4.0)),
+                row_h,
+                label,
+                FontRole::Ui,
+                t.ui_size_small,
+                cells.muted,
+            );
+        });
+    }
+    let at_cursor = cells
+        .cursor
+        .filter(|_| n > 0)
+        .map(|c| stack::total(&stack::values_at(layers, c)));
+    if let Some(sum) = at_cursor {
+        let (text, color) = match sum {
+            Some(v) => (format!("Σ {}", stack::number(v)), cells.text),
+            None => ("Σ X".to_owned(), t.value_color(ValueKind::Undef)),
+        };
+        p.scene.clipped(values, |scene| {
+            scene.text(
+                point(values.left() + z(8.0), y),
+                row_h,
+                text,
+                FontRole::Mono,
+                t.mono_size,
+                color,
+            );
+        });
+    }
+    let wave_row = Rect::from_xywh(waves.left(), y, waves.width(), full_h);
+    let clip = intersect(wave_row, waves);
+    let width = wave_row.width().floor().max(0.0) as usize;
+    if n == 0 || width == 0 {
+        return None;
+    }
+    let vp = &cells.viewport;
+    let frame = stack::frame(layers, vp, width);
+    let (lo, hi) = match doc.stack_total(&stack::key(layers)) {
+        Some(stack::TotalLoad::Ready(s)) => stack::clean_range(s.range()),
+        _ => stack::clean_range(frame.extent()),
+    };
+    let plot = Plot {
+        left: wave_row.left(),
+        width: width as f32,
+        top: y + TRACE_PAD * t.zoom,
+        bottom: y + full_h - TRACE_PAD * t.zoom,
+        lo,
+        hi,
+    };
+    if plot.bottom - plot.top < 2.0 {
+        return None;
+    }
+    let readout = reading.filter(|pt| clip.contains(*pt)).and_then(|pt| {
+        let f = f64::from((plot.bottom - pt.y) / (plot.bottom - plot.top));
+        let value = plot.lo + f * (plot.hi - plot.lo);
+        stack::readout(&frame, f64::from(pt.x - plot.left), value).map(|r| (pt, r))
+    });
+    let hot = readout.as_ref().and_then(|(_, r)| r.hot);
+    let right = plot.left + plot.width;
+    let mut bands: Vec<(usize, Band)> = Vec::new();
+    let mut undefined: Vec<Band> = Vec::new();
+    let mut net: Vec<[Point; 2]> = Vec::new();
+    {
+        let mut runs: Vec<Option<Band>> = vec![None; n];
+        let mut out: Vec<Vec<Band>> = vec![Vec::new(); n];
+        let mut drawn = vec![false; n];
+        let (mut undef_up, mut undef_down) = (None, None);
+        let mut last_net: Option<(f32, f32)> = None;
+        for s in 0..frame.spans.len() {
+            let (a, b) = frame.spans[s];
+            let x0 = (plot.left + a as f32).round().max(plot.left);
+            let x1 = (plot.left + b as f32).round().min(right);
+            if x1 <= x0 {
+                continue;
+            }
+            drawn.fill(false);
+            let values = frame.values(s);
+            let c = stack::compose(values, |k, low, high| {
+                let (top, bottom) = (plot.y_of(high).round(), plot.y_of(low).round());
+                if bottom <= top {
+                    return;
+                }
+                let band = Band {
+                    x0,
+                    x1,
+                    top,
+                    bottom,
+                    up: low >= 0.0,
+                };
+                Band::push(&mut runs[k], band, &mut out[k]);
+                drawn[k] = true;
+            });
+            for k in (0..n).filter(|&k| !drawn[k]) {
+                out[k].extend(runs[k].take());
+            }
+            let rest = |from: f32, to: f32| Band {
+                x0,
+                x1,
+                top: from.min(to),
+                bottom: from.max(to),
+                up: true,
+            };
+            if c.undefined {
+                Band::push(
+                    &mut undef_up,
+                    rest(plot.top, plot.y_of(c.top).round()),
+                    &mut undefined,
+                );
+                if plot.lo < 0.0 {
+                    Band::push(
+                        &mut undef_down,
+                        rest(plot.y_of(c.bottom).round(), plot.bottom),
+                        &mut undefined,
+                    );
+                }
+            } else {
+                undefined.extend(undef_up.take());
+                undefined.extend(undef_down.take());
+            }
+            // The net sum, where the scale holds both signs.
+            match stack::total(values).filter(|_| plot.lo < 0.0) {
+                Some(sum) => {
+                    let ny = snap(plot.y_of(sum)) + 0.5;
+                    if let Some((px, py)) = last_net
+                        && px == x0
+                        && py != ny
+                    {
+                        net.push([point(x0, py), point(x0, ny)]);
+                    }
+                    net.push([point(x0, ny), point(x1, ny)]);
+                    last_net = Some((x1, ny));
+                }
+                None => last_net = None,
+            }
+        }
+        for (k, (run, out)) in runs.into_iter().zip(&mut out).enumerate() {
+            out.extend(run);
+            bands.extend(out.drain(..).map(|b| (k, b)));
+        }
+        undefined.extend(undef_up);
+        undefined.extend(undef_down);
+    }
+    p.scene.clipped(clip, |scene| {
+        scene.fill(
+            Rect::from_xywh(plot.left, snap(plot.top), plot.width, 1.0),
+            t.wave_tick,
+        );
+        scene.fill(
+            Rect::from_xywh(plot.left, snap(plot.bottom), plot.width, 1.0),
+            t.wave_tick,
+        );
+        for (k, b) in &bands {
+            let color = match hot {
+                Some(h) if h != *k => colors[*k].with_alpha(STACK_DIM),
+                _ => colors[*k],
+            };
+            // A pixel of canvas between layers, when a layer has room for it.
+            let (top, bottom) = match (b.bottom - b.top >= 3.0, b.up) {
+                (true, true) => (b.top + 1.0, b.bottom),
+                (true, false) => (b.top, b.bottom - 1.0),
+                (false, _) => (b.top, b.bottom),
+            };
+            scene.fill(Rect::from_xywh(b.x0, top, b.x1 - b.x0, bottom - top), color);
+        }
+        for b in &undefined {
+            let r = Rect::from_xywh(b.x0, b.top, b.x1 - b.x0, b.bottom - b.top);
+            scene.fill(r, t.wave_undef_fill);
+            marks::hatch(scene, t, r, plot.left);
+        }
+        if plot.lo < 0.0 && plot.hi > 0.0 {
+            let zy = snap(plot.y_of(0.0));
+            scene.fill(
+                Rect::from_xywh(plot.left, zy, plot.width, 1.0),
+                t.wave_tick_text.with_alpha(0.5),
+            );
+        }
+        scene.lines(std::mem::take(&mut net), t.editor.text, z(1.25).max(1.0));
+    });
+    // The scale at the top and bottom from 2× up.
+    if full_h >= 2.0 * row_h - 0.5 {
+        let size = t.ui_size_small;
+        let label_h = z(14.0);
+        for (v, ly) in [
+            (plot.hi, plot.top + z(1.0)),
+            (plot.lo, plot.bottom - label_h - z(1.0)),
+        ] {
+            let text = stack::number(v);
+            let w = p.width(&text, FontRole::Mono, size) + z(8.0);
+            let chip = Rect::from_xywh(plot.left + z(4.0), ly, w, label_h);
+            p.scene.clipped(clip, |scene| {
+                scene.quad(
+                    chip,
+                    t.editor.bg.with_alpha(0.82),
+                    z(3.0),
+                    0.0,
+                    Color::TRANSPARENT,
+                );
+                scene.text(
+                    point(chip.left() + z(4.0), chip.top()),
+                    label_h,
+                    text,
+                    FontRole::Mono,
+                    size,
+                    t.editor.text_placeholder,
+                );
+            });
+        }
+    }
+    Some(StackRow {
+        plot,
+        clip,
+        entries: layers.iter().map(|l| l.entry).collect(),
+        colors: colors.to_vec(),
+        frame,
+        at_cursor: at_cursor.flatten(),
+        readout,
+    })
+}
+
+/// Over every painted stack: a dot on the sum at the cursor and, under the
+/// pointer, every layer top to bottom with its value and share, then the
+/// sum; in a dense column the values are means over the column.
+fn paint_stack_overlays(
+    rows: &[StackRow],
+    model: &WaveModel,
+    doc: &Document,
+    layout: &WaveLayout,
+    vp: &Viewport,
+    cursor: Option<u64>,
+    p: &mut TextPainter<'_>,
+) {
+    let t = p.theme;
+    let z = |v: f32| v * t.zoom;
+    let waves = layout.waves;
+    for row in rows {
+        let plot = &row.plot;
+        if let (Some(c), Some(sum)) = (cursor, row.at_cursor)
+            && (c as f64) >= vp.start
+            && (c as f64) <= vp.end
+        {
+            let x = snap(plot.left + vp.x_of(c as f64, f64::from(plot.width)) as f32) + 0.5;
+            let y = plot.y_of(sum).clamp(plot.top, plot.bottom);
+            let r = z(3.25);
+            p.scene.clipped(row.clip, |scene| {
+                scene.quad(
+                    Rect::from_xywh(x - r, y - r, 2.0 * r, 2.0 * r),
+                    t.editor.text,
+                    r,
+                    z(1.5),
+                    t.editor.bg,
+                );
+            });
+        }
+        let Some((pointer, read)) = &row.readout else {
+            continue;
+        };
+        let value = |v: &analog::Sample| match v {
+            analog::Sample::Value(v) => stack::number(*v),
+            _ => "X".to_owned(),
+        };
+        let n = row.entries.len();
+        let mut lines: Vec<(Option<Color>, String, String, String, bool)> = (0..n)
+            .take(STACK_READOUT_LAYERS)
+            .map(|k| {
+                let share = read
+                    .share(k)
+                    .map_or(String::new(), |s| format!("{:.0}%", s * 100.0));
+                (
+                    Some(row.colors[k]),
+                    model.items()[row.entries[k]].name().to_owned(),
+                    value(&read.values[k]),
+                    share,
+                    read.hot == Some(k),
+                )
+            })
+            .collect();
+        if n > STACK_READOUT_LAYERS {
+            lines.push((
+                None,
+                format!("+{} more", n - STACK_READOUT_LAYERS),
+                String::new(),
+                String::new(),
+                false,
+            ));
+        }
+        lines.push((
+            None,
+            format!("Σ {n} layer{}", if n == 1 { "" } else { "s" }),
+            read.total.map_or_else(|| "X".to_owned(), stack::number),
+            String::new(),
+            false,
+        ));
+        let footer = {
+            let (a, b) = row.frame.spans[read.span];
+            let w = f64::from(plot.width);
+            if row.frame.changes(read.span) == 0 {
+                let at = vp.time_at(f64::from(pointer.x - plot.left), w).max(0.0);
+                format_time(at.floor(), doc.time_base())
+            } else {
+                let span = vp.time_at(b, w) - vp.time_at(a, w);
+                format!("means over {}", format_time(span, doc.time_base()))
+            }
+        };
+        let line_h = z(18.0);
+        let (mut name_w, mut value_w, mut share_w) = (0.0f32, 0.0f32, 0.0f32);
+        for (_, name, v, share, _) in &lines {
+            name_w = name_w.max(p.width(name, FontRole::Mono, t.mono_size));
+            value_w = value_w.max(p.width(v, FontRole::Mono, t.mono_size));
+            share_w = share_w.max(p.width(share, FontRole::Mono, t.mono_size));
+        }
+        let footer_w = p.width(&footer, FontRole::Ui, t.ui_size_small);
+        let swatch = z(SWATCH_W);
+        let body_w = swatch + name_w + z(14.0) + value_w + z(10.0) + share_w;
+        let w = body_w.max(footer_w) + z(14.0);
+        let h = line_h * (lines.len() + 1) as f32 + z(8.0);
+        let x = (pointer.x + z(14.0))
+            .min(waves.right() - w - z(4.0))
+            .max(waves.left());
+        let top = (pointer.y + z(14.0))
+            .min(waves.bottom() - h - z(4.0))
+            .max(waves.top());
+        let chip = Rect::from_xywh(snap(x), snap(top), w, h);
+        p.scene.clipped(waves, |scene| {
+            scene.quad(chip, t.tooltip.bg, z(4.0), 1.0, t.border);
+            let left = chip.left() + z(7.0);
+            let mut ly = chip.top() + z(4.0);
+            for (color, name, v, share, is_hot) in lines {
+                if is_hot {
+                    scene.fill(
+                        Rect::from_xywh(chip.left() + 1.0, ly, chip.width() - 2.0, line_h),
+                        t.hover.bg,
+                    );
+                }
+                if let Some(color) = color {
+                    let side = z(9.0);
+                    scene.quad(
+                        Rect::from_xywh(left, snap(ly + (line_h - side) / 2.0), side, side),
+                        color,
+                        z(2.0),
+                        0.0,
+                        Color::TRANSPARENT,
+                    );
+                }
+                let text = if is_hot {
+                    t.tooltip.text
+                } else {
+                    t.editor.text_placeholder
+                };
+                scene.text(
+                    point(left + swatch, ly),
+                    line_h,
+                    name,
+                    FontRole::Mono,
+                    t.mono_size,
+                    text,
+                );
+                scene.text(
+                    point(left + swatch + name_w + z(14.0), ly),
+                    line_h,
+                    v,
+                    FontRole::Mono,
+                    t.mono_size,
+                    t.tooltip.text,
+                );
+                scene.text(
+                    point(left + swatch + name_w + z(14.0) + value_w + z(10.0), ly),
+                    line_h,
+                    share,
+                    FontRole::Mono,
+                    t.mono_size,
+                    t.editor.text_placeholder,
+                );
+                ly += line_h;
+            }
+            scene.text(
+                point(left, ly),
+                line_h,
+                footer,
+                FontRole::Ui,
+                t.ui_size_small,
+                t.editor.text_placeholder,
+            );
+        });
+    }
+}
+
 /// A bar prepared for painting: its lifetime, the solid stage spans inside
 /// it, and a caption when one fits.
 struct Bar {
@@ -2468,6 +3008,7 @@ fn paint_lane_row(lane: &TxLane, doc: &Document, cells: &LaneCells<'_>, p: &mut 
 
     // Values column: the records open at the cursor.
     let (value, value_color) = match data {
+        _ if cells.left_out => ("not stacked".into(), cells.muted),
         LaneData::Ready(g) => match cells.cursor {
             Some(c) => {
                 let (text, failed) = lane::value_text(g, c);

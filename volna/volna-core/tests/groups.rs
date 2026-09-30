@@ -799,7 +799,7 @@ fn workspaces_store_groups_as_a_tree_and_refuse_deeper_nesting() {
     )
     .unwrap();
     let panel = &saved["panels"][0];
-    assert_eq!(panel["version"], 5);
+    assert_eq!(panel["version"], 6);
     let rows = &panel["rows"];
     assert_eq!(rows.as_array().unwrap().len(), 4);
     assert_eq!(rows[2]["type"], "group");
@@ -1050,7 +1050,7 @@ fn rows_are_a_tree_for_assistive_technology_and_group_names_take_a_double_click(
     select(&mut app, id, &[6]);
     app.handle(Command::Action(Action::PanLeft));
     frame(&mut app, id);
-    let rows: Vec<_> = waves(&app, id).accessible_rows().collect();
+    let rows: Vec<_> = waves(&app, id).accessible_rows(&app.doc).collect();
     let summary: Vec<(String, usize, Option<bool>, bool)> = rows
         .iter()
         .map(|r| (r.label.clone(), r.level, r.expanded, r.selected))

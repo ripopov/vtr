@@ -339,6 +339,17 @@ summaries. Rows on screen are exposed as an AccessKit tree
 (`WaveModel::accessible_rows`). The design is
 [docs/wave_groups.html](../../docs/wave_groups.html).
 
+A group can be drawn as a stacked area instead (`GroupStyle::Stack`,
+`wave::stack`, `Shift+A` or the group menu's Draw section): its row draws
+every signal below it that reads as a number as a layer, folded or open,
+with the sum at the cursor in its value cell, a swatch before each member's
+name and a hover readout of every layer. Zoomed in it draws the layers'
+merged steps, zoomed out each layer's time-weighted mean per pixel column.
+The whole-trace walk that sets its scale is a `TotalSummary` held by the
+`Document` for the visible stacked groups and built by
+`LoadRequest::StackTotal` on the load worker for long layers. The design is
+[docs/stacked-areas.html](../../docs/stacked-areas.html).
+
 Pointer commands name a panel; keyboard actions and sidebar additions resolve
 focus when handled. Deliveries fan out shared history Arcs to all matching
 panels. Adding a loaded signal in another panel reuses the history without

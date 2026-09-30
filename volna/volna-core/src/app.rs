@@ -92,6 +92,9 @@ pub enum Action {
     CycleFormat,
     /// Draw the selected rows as plots, or back to digital.
     ToggleAnalog,
+    /// `Shift+A`: draw the selected groups as stacked areas, or back as
+    /// activity (`docs/stacked-areas.html`).
+    ToggleStack,
     /// Colour the selected rows and groups, or clear their own colour with
     /// `None` (`docs/RATIONALE.md`, "Volna row colours"); the menu, palette and agents use it.
     SetTint(Option<crate::wave::Tint>),
@@ -2006,6 +2009,27 @@ impl App {
         }
         let budget = self.table_memory_budget();
         self.doc.sync_group_summaries(wanted, &budget);
+        self.sync_stack_totals();
+    }
+
+    /// Hold the whole-trace walk of every visible stacked group's layers
+    /// (`docs/stacked-areas.html`), which sets its scale, and release the
+    /// others.
+    pub(crate) fn sync_stack_totals(&mut self) {
+        let mut wanted = std::collections::HashMap::new();
+        for waves in self.panels.iter().filter_map(|panel| panel.kind.waves()) {
+            for &i in waves.visible().iter() {
+                if !waves.is_stacked(i as usize) {
+                    continue;
+                }
+                let layers = waves.stack_layers(i as usize);
+                if !layers.is_empty() {
+                    wanted.insert(crate::wave::stack::key(&layers), layers);
+                }
+            }
+        }
+        let budget = self.table_memory_budget();
+        self.doc.sync_stack_totals(wanted, &budget);
     }
 
     pub(crate) fn sync_lane_tracks(&mut self) {
@@ -2294,6 +2318,7 @@ impl App {
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::ToggleAnalog
+                | Action::ToggleStack
                 | Action::SetTint(_)
                 | Action::IncreaseRowHeight
                 | Action::DecreaseRowHeight
@@ -2360,6 +2385,7 @@ impl App {
                 Action::ClearSelection => w.clear_selection(doc),
                 Action::CycleFormat => w.cycle_format(doc),
                 Action::ToggleAnalog => w.toggle_analog(),
+                Action::ToggleStack => _ = w.toggle_stack(),
                 Action::SetTint(tint) => _ = w.tint_selected(tint),
                 Action::IncreaseRowHeight => w.step_row_height(1),
                 Action::DecreaseRowHeight => w.step_row_height(-1),
@@ -2420,6 +2446,7 @@ impl App {
                 | Action::SelectAll
                 | Action::CycleFormat
                 | Action::ToggleAnalog
+                | Action::ToggleStack
                 | Action::SetTint(_)
                 | Action::GroupSelection
                 | Action::Ungroup

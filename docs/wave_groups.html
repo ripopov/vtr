@@ -350,7 +350,7 @@ pub fn leaves(items: &amp;[Entry], i: usize) -&gt; impl Iterator&lt;Item = usize
     <tr><td>6 · Workspace</td><td><span class="st done">done</span></td><td>Waves panel version 4 with nested rows and the depth and row limits on load; unresolved rows stay in their group. Tests in <code>tests/groups.rs</code>, including a version 3 panel kept as unsupported and a ninth level refused.</td></tr>
     <tr><td>7 · GPUI</td><td><span class="st done">done</span></td><td>The hosted name editor over <code>rename_rect</code>, double-click rename, the key bindings and menu entries, and an AccessKit tree for wave rows. The browser assertion of the tree was replaced by core and node-mapping tests (see Accessibility). <code>volna-egui</code> builds.</td></tr>
     <tr><td>8 · Sidebar</td><td><span class="st done">done</span></td><td><em>Add to Waves as Group</em> and <em>…, This Scope Only</em> in the scope tree's menu (<code>Command::AddScopeAsGroup { scope, recursive }</code>). Child scopes with variables become folded subgroups.</td></tr>
-    <tr><td>9 · Group styles</td><td><span class="st deferred">deferred</span></td><td>A <code>draw</code> setting on groups for the stacked area, heat lanes and horizon group styles of the C910 counters proposal, in the order that document gives.</td></tr>
+    <tr><td>9 · Group styles</td><td><span class="st deferred">deferred</span></td><td>Group styles from the C910 counters proposal. The stacked area has landed from its own plan (<a href="stacked-areas.html#plan">stacked-areas.html</a>, <code>GroupRow::style</code>); heat lanes and horizon remain deferred.</td></tr>
     </tbody></table></div>
   <div class="prose">
   <h3>Open questions</h3>

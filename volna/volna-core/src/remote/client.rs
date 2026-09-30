@@ -107,7 +107,8 @@ impl RemoteClient {
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. } => {
+            | LoadRequest::GroupSummary { .. }
+            | LoadRequest::StackTotal { .. } => {
                 unreachable!("open requests have no remote identity")
             }
         }
@@ -183,7 +184,8 @@ impl RemoteClient {
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. } => {
+            | LoadRequest::GroupSummary { .. }
+            | LoadRequest::StackTotal { .. } => {
                 unreachable!("only object loads are queued")
             }
         };
@@ -224,7 +226,8 @@ impl RemoteClient {
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. } => {
+            | LoadRequest::GroupSummary { .. }
+            | LoadRequest::StackTotal { .. } => {
                 unreachable!("only object loads are queued")
             }
         });
@@ -277,7 +280,8 @@ impl RemoteClient {
                 LoadResult::Track { .. }
                 | LoadResult::Sizes { .. }
                 | LoadResult::Summary { .. }
-                | LoadResult::GroupSummary { .. } => {}
+                | LoadResult::GroupSummary { .. }
+                | LoadResult::StackTotal { .. } => {}
             }
         }
         let complete = match self.active.as_ref() {

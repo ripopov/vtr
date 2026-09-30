@@ -1231,6 +1231,108 @@ fn color_submenu_and_palette_commands_colour_the_selection(cx: &mut TestAppConte
         .unwrap();
 }
 
+/// Stacked areas from the keyboard and the group menu
+/// (`docs/stacked-areas.html`): `Shift+A` stacks a selected group as one
+/// step, the stacked row paints, the menu's Draw section shows it checked
+/// and its Activity entry unstacks it, and the palette lists the command.
+#[gpui_kit::test]
+fn shift_a_and_the_group_menu_stack_and_unstack_a_group(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::wave::model::MenuAction;
+    use volna_core::wave::{GroupStyle, MenuEntry};
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.dispatch(Command::AddVars(a_all(vec![0, 1, 2])), Some(window), cx);
+            let w = ws.app.panels.focused_waves_mut().unwrap();
+            w.selected = [0, 1, 2].into();
+            w.anchor = Some(0);
+            ws.dispatch(Command::Action(Action::GroupSelection), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    // Escape keeps the name "Group 1"; the group stays selected.
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    let style = |vcx: &mut VisualTestContext| {
+        window
+            .update(vcx, |ws, _, _| {
+                let g = ws.app.panels.focused_waves().unwrap().items()[0]
+                    .group()
+                    .unwrap()
+                    .clone();
+                (g.style, g.height.multiple())
+            })
+            .unwrap()
+    };
+    assert_eq!(style(&mut vcx), (GroupStyle::Activity, 1));
+    vcx.simulate_keystrokes("shift-a");
+    vcx.run_until_parked();
+    assert_eq!(style(&mut vcx), (GroupStyle::Stack, 3));
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert_eq!(ws.app.undo_label(), Some("Stack Group 1"));
+            let panel = ws.app.panels.focused_id();
+            ws.dispatch(Command::OpenSignalMenu(panel), Some(window), cx);
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            assert!(ws.wave_menu.is_some(), "the popup is hosted");
+            let menu = ws.app.panels.focused_waves().unwrap().menu.clone().unwrap();
+            let stacked = menu
+                .items()
+                .find(|i| i.action == MenuAction::Stack(true))
+                .unwrap();
+            assert_eq!(
+                (stacked.label.as_str(), stacked.checked),
+                ("Stacked area", true)
+            );
+            assert!(
+                menu.entries
+                    .iter()
+                    .any(|e| matches!(e, MenuEntry::Label(l) if l == "Draw"))
+            );
+            // The popup answers a choice with the command it carries.
+            let panel = ws.app.panels.focused_id();
+            ws.dispatch(
+                Command::MenuSelect(panel, MenuAction::Stack(false)),
+                Some(window),
+                cx,
+            );
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    assert_eq!(style(&mut vcx), (GroupStyle::Activity, 1));
+    let labels = window
+        .update(&mut vcx, |ws, _, _| {
+            crate::palette::commands(&ws.app, "stacked")
+                .into_iter()
+                .map(|(label, _)| label)
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert!(
+        labels.iter().any(|l| l == "Toggle Stacked Area"),
+        "{labels:?}"
+    );
+}
+
 /// Groups from the keyboard: `G` groups the selection and opens the name
 /// editor over the group, typing and Enter rename it, `F2` and Escape leave
 /// the name, `Alt+←`/`Alt+→` fold and unfold, and `Shift+G` dissolves it.

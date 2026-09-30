@@ -2044,9 +2044,9 @@ the core query and the node mapping instead.
 
 Scopes add as groups from the scope tree's menu (`Command::AddScopeAsGroup`),
 with child scopes that have variables as folded subgroups, or this scope only.
-Not implemented: group row styles (stacked area, heat lanes, horizon; the
-proposal's step 9, deferred until plain groups exist) and VDB profile group
-templates (postponed).
+Not implemented: the heat lane and horizon group styles (the proposal's step
+9; the stacked area has landed, see "Volna stacked areas") and VDB profile
+group templates (postponed).
 
 ## Volna row colours
 
@@ -2099,6 +2099,79 @@ Storage: the waves workspace panel moved to version 5 with an optional
 workspace written with a later palette still opens. The checked-in example
 workspace moved to version 5. Colours never reach VTR or the protocol. A later
 VDB profile may suggest colours by path, and the workspace wins.
+
+## Volna stacked areas
+
+Any group can be drawn as one stacked area
+([docs/stacked-areas.html](stacked-areas.html)). The style is a setting of the
+group row (`GroupRow::style`, `GroupStyle::{Activity, Stack}`), not a new row
+kind, so selection, moves, the clipboard, heights, removal and workspaces need
+no new case; the members stay ordinary rows and moving one is the row move
+that exists. Everything comes from the trace: a bit counts 0 or 1, a vector
+or real the number its row's format reads (`stack::Reading`, through
+`Translator::numeric_kind`, the number its plot would draw), and rows without
+one (text, events, lanes, clocks) are left out and say so. The proposal's
+first revision checked units and capacities from VDB declarations and refused
+some groups; that was dropped because Volna cannot tell from values whether a
+sum means anything, and a stack that refuses nothing is simpler to learn.
+List order is stack order and never changes by size (Byron and Wattenberg,
+TVCG 2008; Thudt et al., GI 2016); colours walk the stage ladder with
+lightness alternating from the first pair (`Theme::layer_fill`), so the One
+Dark HSL ladder, which alternates only past eight stages, gets its own rule
+here. Positive parts stack up from zero and negative ones down, as d3's and
+Vega-Lite's diverging offsets do; a net line appears when the scale holds both
+signs. An undefined or missing layer stops the stack at that instant: the
+layers below it are drawn and the rest is hatched, and the sum reads X,
+because stacking by sample index (ECharts) or inferring zeros (Plotly) would
+invent values.
+
+Zoomed out, a pixel column shows each layer's time-weighted mean over it. Means
+over one span add up, so the stack's top is the column's mean total; per-layer
+extremes do not (the maximum of a sum is not the sum of maxima), so the M4
+columns of analog rows cannot be stacked. A layer undefined for any part of a
+column is undefined in it, so a short X survives any zoom, as it does in
+folded groups. The exact path draws every step of the layers' merged changes
+when they are at most a quarter of the plot width, the analog rule. Both paths
+are one `stack::Frame` of spans and per-layer values; `compose` turns a span
+into bands and the painter merges equal bands across spans into one quad.
+The frame also counts the changes inside each column, and the readout calls
+its values means only where there are some: columns narrower than a tick hold
+the same values as the steps.
+
+The scale is the whole trace's lowest bottom and highest top, rounded to 1,
+1.2, 1.5, 2, 2.5, 3, 4, 5, 6 or 8 times a power of ten (`clean_range`), so the
+plot does not move while panning. It needs one merged walk over every change
+(`TotalSummary`, a heap over the layers with incremental sums recomposed
+every 256 instants): up to 16,384 changes in all it runs on the UI thread when
+the app reconciles, beyond on the load worker (`LoadRequest::StackTotal`);
+`Document` holds walks for exactly the visible stacked groups, keyed by the
+layers' histories and readings in order, and while one builds the scale fits
+the visible frame. Deviations from the plan: the hover readout and the
+swatches are painted by the core like the analog and group readouts, not as a
+GPUI tooltip, so every frontend shows them; the group menu's Draw section has
+both choices (Activity, Stacked area); `accessible_rows` takes the document
+for the cursor's sum; stepping with Shift ← → skips changes that cancel out
+(a bit rising as another falls), up to 100,000 of them.
+
+Stacking is an undoable row rewrite (`Stack top`, `Unstack top`); folding
+stays navigation and a folded stacked group keeps its area. The waves
+workspace panel moved to version 6 with `"style": "stack"` on groups;
+activity is not written, and version 5 panels are refused.
+
+Measurements (`stack_cost`; Intel Core Ultra 7 265K pinned to P-cores,
+release, best of 5; core layout and `Scene` painting of a folded stack of
+eight one-bit members, 1,400 px wide; each member changes at random ticks):
+
+| Changes per member | Zoomed out, ms | 1/100 of the trace, ms | 200 ticks, ms | Whole-trace walk (worker), ms |
+|---:|---:|---:|---:|---:|
+| 10⁴ | 0.74 | 0.16 | 0.15 | 1.9 |
+| 10⁵ | 4.4 | 0.28 | 0.15 | 19 |
+| 10⁶ | 41 | 0.69 | 0.15 | 175 |
+| 10⁷ | 409 | 4.3 | 0.15 | 1,773 |
+
+A zoomed-out frame walks every visible change, about 5 ns per change, and
+passes the 4 ms budget the analog painter was held to at about 10⁵ changes
+per member: the long-history summary of stage 2 is needed.
 
 ## Volna themes
 

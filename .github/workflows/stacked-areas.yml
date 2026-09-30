@@ -1,18 +1,28 @@
-name: Stacked areas HTML demo
+name: Stacked areas
 on:
   push:
     paths:
       - 'docs/stacked-areas.html'
       - 'docs/tests/stacked-areas.test.mjs'
       - 'docs/c910-perf-counters.html'
+      - 'docs/tests/design-system-lib.mjs'
+      - 'docs/design-system/**'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-core/**'
+      - 'volna/volna/src/**'
+      - 'volna/volna/examples/feature_showcase.vtr'
       - '.github/workflows/stacked-areas.yml'
   pull_request:
     paths:
       - 'docs/stacked-areas.html'
       - 'docs/tests/stacked-areas.test.mjs'
       - 'docs/c910-perf-counters.html'
+      - 'docs/tests/design-system-lib.mjs'
+      - 'docs/design-system/**'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-core/**'
+      - 'volna/volna/src/**'
+      - 'volna/volna/examples/feature_showcase.vtr'
       - '.github/workflows/stacked-areas.yml'
   workflow_dispatch:
 permissions:
@@ -30,5 +40,37 @@ jobs:
           node-version: 22
       - name: Verify headless browser prerequisite
         run: google-chrome --version
-      - name: Test the proposal demo
+      - name: Test the design demo
         run: node --test --test-concurrency=1 docs/tests/stacked-areas.test.mjs
+  # The stacks in the headless core: arithmetic over random histories,
+  # stacking and its undo steps, workspaces, painting and the showcase.
+  core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # Cargo reads the manifests of path dependencies in these submodules to
+      # resolve the workspace.
+      - name: Check out the elkrs and Surfer submodules
+        run: git submodule update --init --depth 1 ext/elkrs ext/surfer
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test stacked areas in the headless viewer core
+        run: cargo test --locked -p volna-core --test stack --test history
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the elkrs submodule
+        run: git submodule update --init --depth 1 ext/elkrs
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfontconfig1-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-xinput-dev
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Test Shift+A and the group menu in the GPUI frontend
+        run: cargo test --locked -p volna --lib shift_a_and_the_group_menu

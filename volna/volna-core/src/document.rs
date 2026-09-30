@@ -131,6 +131,8 @@ pub struct Document {
     summaries: HashMap<(Traced<SignalRef>, NumericKind), SummaryLoad>,
     /// Activity summaries of folded groups, by their signals' identity.
     group_summaries: HashMap<Vec<usize>, crate::wave::group::SummaryLoad>,
+    /// Whole-trace walks of stacked groups, by their layers' identity.
+    stack_totals: HashMap<crate::wave::stack::Key, crate::wave::stack::TotalLoad>,
     /// Every open trace's declared clocks; their stretches load when the
     /// trace opens.
     pub clocks: crate::clock::Clocks,
@@ -199,6 +201,7 @@ impl Document {
             copied_rows: Vec::new(),
             summaries: HashMap::new(),
             group_summaries: HashMap::new(),
+            stack_totals: HashMap::new(),
             clocks: crate::clock::Clocks::default(),
         }
     }
@@ -444,6 +447,7 @@ impl Document {
         self.copied_rows.clear();
         self.summaries.clear();
         self.group_summaries.clear();
+        self.stack_totals.clear();
         self.clocks = crate::clock::Clocks::default();
     }
 
@@ -521,6 +525,7 @@ impl Document {
             .retain(|r| !matches!(r, LoadRequest::Signals { .. }));
         self.summaries.clear();
         self.group_summaries.clear();
+        self.stack_totals.clear();
         self.retime(Rescale::Finer(factor));
         factor
     }
@@ -588,7 +593,7 @@ impl Document {
             | LoadRequest::Signals { trace: t, .. }
             | LoadRequest::Track { trace: t, .. } => *t != trace,
             LoadRequest::Summary { signal, .. } => signal.trace != trace,
-            LoadRequest::GroupSummary { .. } => true,
+            LoadRequest::GroupSummary { .. } | LoadRequest::StackTotal { .. } => true,
         });
         self.summaries.retain(|(s, _), _| s.trace != trace);
         if self.selection.is_some_and(|s| s.track.trace == trace) {
@@ -732,6 +737,45 @@ impl Document {
                 generation: self.epoch,
                 members,
                 range: self.limits(),
+                budget: budget.clone(),
+            });
+        }
+    }
+
+    /// The whole-trace walk of the stacked layers whose identity is `key`.
+    pub fn stack_total(
+        &self,
+        key: &crate::wave::stack::Key,
+    ) -> Option<&crate::wave::stack::TotalLoad> {
+        self.stack_totals.get(key)
+    }
+
+    /// Hold walks for exactly the `wanted` stacks (by the key of their
+    /// layers): short ones are walked at once, long ones queued for the load
+    /// worker, and the others are released.
+    pub(crate) fn sync_stack_totals(
+        &mut self,
+        wanted: HashMap<crate::wave::stack::Key, Vec<crate::wave::stack::Layer>>,
+        budget: &crate::remote::memory::MemoryBudget,
+    ) {
+        use crate::wave::stack::{self, TotalLoad, TotalSummary};
+        self.stack_totals.retain(|key, _| wanted.contains_key(key));
+        for (key, layers) in wanted {
+            if self.stack_totals.contains_key(&key) {
+                continue;
+            }
+            if stack::changes(&layers) <= stack::WALK_MAX {
+                let load = match TotalSummary::build(&layers).account(budget) {
+                    Ok(summary) => TotalLoad::Ready(Arc::new(summary)),
+                    Err(_) => TotalLoad::Failed,
+                };
+                self.stack_totals.insert(key, load);
+                continue;
+            }
+            self.stack_totals.insert(key, TotalLoad::Building);
+            self.requests.push(LoadRequest::StackTotal {
+                generation: self.epoch,
+                layers,
                 budget: budget.clone(),
             });
         }
@@ -1097,6 +1141,22 @@ impl Document {
                 *load = match result {
                     Ok(summary) => SummaryLoad::Ready(summary),
                     Err(_) => SummaryLoad::Failed { history },
+                };
+                Some(Delivered::Summary)
+            }
+            LoadResult::StackTotal {
+                generation,
+                key,
+                result,
+            } => {
+                use crate::wave::stack::TotalLoad;
+                let load = self.stack_totals.get_mut(&key)?;
+                if generation != self.epoch || !matches!(load, TotalLoad::Building) {
+                    return None;
+                }
+                *load = match result {
+                    Ok(summary) => TotalLoad::Ready(summary),
+                    Err(_) => TotalLoad::Failed,
                 };
                 Some(Delivered::Summary)
             }

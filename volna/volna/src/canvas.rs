@@ -437,12 +437,10 @@ impl Element for PanelCanvas {
                 .unwrap_or_default(),
             table_status: table.map(|table| format!("Table rows. {}", table.status())),
             wave_rows: if self.waves && window.is_a11y_active() {
-                self.ws
-                    .read(cx)
-                    .app
-                    .panels
+                let app = &self.ws.read(cx).app;
+                app.panels
                     .waves(self.panel)
-                    .map(|w| w.accessible_rows().collect())
+                    .map(|w| w.accessible_rows(&app.doc).collect())
                     .unwrap_or_default()
             } else {
                 Vec::new()
