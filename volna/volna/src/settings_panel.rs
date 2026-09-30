@@ -78,6 +78,11 @@ impl SettingsPanelView {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn search_focus(&self, cx: &gpui_kit::App) -> gpui_kit::FocusHandle {
+        self.search.read(cx).focus_handle(cx)
+    }
+
     pub(crate) fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = self.search.read(cx).focus_handle(cx);
         window.focus(&handle, cx);

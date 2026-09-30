@@ -2794,3 +2794,57 @@ fn volna_mixed_is_a_light_window_with_dark_waves_whatever_the_system(cx: &mut Te
     assert_eq!(panel_theme(cx).editor.bg, light.editor.bg);
     assert_eq!(chrome(cx).editor.bg, light.editor.bg);
 }
+
+/// With a trace open the Settings tab sits in the dock; its search box
+/// still receives letters the wave keymap binds (`m`, `f`, `s`).
+#[gpui_kit::test]
+fn settings_search_takes_wave_keys_while_a_trace_is_open(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::app::SettingsCommand;
+    init(cx);
+    let mut workspace = None;
+    let root = cx.add_window(|window, cx| {
+        let ws = cx.new(|cx| Workspace::new(window, cx));
+        workspace = Some(ws.clone());
+        gpui_kit::component::Root::new(ws, window, cx)
+    });
+    let window = RootWindow {
+        root,
+        workspace: workspace.unwrap(),
+    };
+    window
+        .update(cx, |ws, window, cx| {
+            ws.set_session(Arc::new(ProceduralTrace::new(100)), cx);
+            ws.app.settings_loaded("{}\n");
+            ws.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(root.into(), cx);
+    vcx.run_until_parked();
+    window
+        .update(&mut vcx, |ws, window, cx| {
+            ws.dispatch(Command::Settings(SettingsCommand::Open), Some(window), cx);
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    let focused = window
+        .update(&mut vcx, |ws, window, cx| {
+            let id = ws.app.panels.settings_id().unwrap();
+            let view = ws.settings_view(id, window, cx);
+            view.read(cx).search_focus(cx).is_focused(window)
+        })
+        .unwrap();
+    assert!(focused, "opening Settings focuses its search");
+    vcx.simulate_keystrokes("m f s");
+    vcx.run_until_parked();
+    let (query, markers) = window
+        .update(&mut vcx, |ws, _, _| {
+            (
+                ws.app.settings_view.query.clone(),
+                ws.app.doc.markers().len(),
+            )
+        })
+        .unwrap();
+    assert_eq!(query, "mfs");
+    assert_eq!(markers, 0, "`m` did not drop a marker");
+}

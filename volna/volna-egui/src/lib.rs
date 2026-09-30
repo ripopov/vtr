@@ -538,7 +538,7 @@ impl VolnaApp {
                 scroll = scroll.vertical_scroll_offset(offset.max(0.0));
             }
             ui.spacing_mut().item_spacing.y = 0.0;
-            let visible = self.app.scopes.visible.clone();
+            let visible = &self.app.scopes.visible;
             // This frontend shows one trace: it never adds another.
             let Some(h) = self.app.doc.hierarchy(TraceId::A) else {
                 return;
@@ -691,7 +691,7 @@ impl VolnaApp {
                 scroll = scroll.vertical_scroll_offset(offset.max(0.0));
             }
             ui.spacing_mut().item_spacing.y = 0.0;
-            let rows = self.app.variables.rows.clone();
+            let rows = &self.app.variables.rows;
             let mono = font_id(volna_core::FontRole::Mono, self.core_theme.mono_size);
             let small = font_id(volna_core::FontRole::Ui, self.core_theme.ui_size_small);
             scroll.show_rows(ui, row_h, count, |ui, range| {

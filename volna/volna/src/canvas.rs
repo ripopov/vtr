@@ -2,8 +2,6 @@
 //! pipeline). It asks the core for the frame's layout (for hitboxes), paints
 //! the display list the core produces, and forwards pointer input as commands.
 
-use std::collections::HashMap;
-
 use gpui_kit::{
     App, Bounds, ContentMask, CursorStyle, DispatchPhase, Element, ElementId, Entity, Font,
     FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior, Hsla, InspectorElementId,
@@ -17,7 +15,7 @@ use volna_core::geometry::{CursorIcon, Point as CPoint, Rect as CRect};
 use volna_core::scene::{Prim, TextMeasure};
 use volna_core::wave::PointerEvent;
 
-use crate::app::{TextKey, Workspace, to_modifiers};
+use crate::app::{ShapedCache, TextStyleKey, Workspace, to_modifiers};
 use crate::theme::{Theme, canvas_theme, core_theme, hsla, theme};
 
 pub struct PanelCanvas {
@@ -208,7 +206,7 @@ fn paint_prims(
     prims: &[Prim],
     i: &mut usize,
     t: &Theme,
-    shaped: &mut HashMap<TextKey, ShapedLine>,
+    shaped: &mut ShapedCache,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -260,18 +258,14 @@ fn paint_prims(
                 color,
             } => {
                 let color = hsla(*color);
-                let key = TextKey {
-                    text: text.clone(),
+                let style = TextStyleKey {
                     font: *role,
                     size: size.to_bits(),
                     color: [color.h, color.s, color.l, color.a].map(f32::to_bits),
                 };
-                if shaped.len() >= SHAPED_CACHE_LIMIT {
-                    shaped.clear();
-                }
-                let line = shaped
-                    .entry(key)
-                    .or_insert_with(|| shape(window, t, text, *role, *size, color));
+                let line = shaped.line(style, text, SHAPED_CACHE_LIMIT, || {
+                    shape(window, t, text, *role, *size, color)
+                });
                 line.paint(
                     point(px(origin.x), px(origin.y)),
                     px(*height),

@@ -227,13 +227,48 @@ pub(crate) fn pipeline_streams(app: &CoreApp) -> Vec<(String, Traced<TrackRef>)>
     app.pipeline_streams()
 }
 
-/// Key of the shaped-text cache used by the wave painter.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub(crate) struct TextKey {
-    pub text: String,
+/// Style half of the shaped-text cache's key: font, size and colour bits.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct TextStyleKey {
     pub font: FontRole,
     pub size: u32,
     pub color: [u32; 4],
+}
+
+/// Shaped lines of the wave painter by style, then by text, so a hit looks
+/// up the borrowed text without allocating a key. Bounded: cleared when it
+/// reaches `limit` lines.
+#[derive(Default)]
+pub(crate) struct ShapedCache {
+    lines: HashMap<TextStyleKey, HashMap<String, ShapedLine>>,
+    len: usize,
+}
+
+impl ShapedCache {
+    pub(crate) fn line(
+        &mut self,
+        style: TextStyleKey,
+        text: &str,
+        limit: usize,
+        shape: impl FnOnce() -> ShapedLine,
+    ) -> &ShapedLine {
+        let hit = self
+            .lines
+            .get(&style)
+            .is_some_and(|lines| lines.contains_key(text));
+        if !hit {
+            if self.len >= limit {
+                self.lines.clear();
+                self.len = 0;
+            }
+            self.len += 1;
+            self.lines
+                .entry(style)
+                .or_default()
+                .insert(text.to_owned(), shape());
+        }
+        &self.lines[&style][text]
+    }
 }
 
 /// The document generation, undo history revision, recent-list revision and
@@ -274,7 +309,7 @@ pub struct Workspace {
     pub(crate) rename: Option<HostedRename>,
     /// Display list buffer and shaped-text cache, reused across frames.
     pub(crate) scene: Scene,
-    pub(crate) shaped: HashMap<TextKey, ShapedLine>,
+    pub(crate) shaped: ShapedCache,
     /// Hide the native-style title bar (used inside the VS Code webview).
     pub embedded: bool,
     /// The command line chose the workspace policy; `workspace.autosave` is ignored.
@@ -449,8 +484,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("f", ZoomFit, Some("Waves")),
         KeyBinding::new("shift-f", ZoomFit, Some("Waves")),
         KeyBinding::new("shift-z", ZoomToCursor, Some("Waves")),
-        KeyBinding::new("pageup", PanPageRight, Some("Waves")),
-        KeyBinding::new("pagedown", PanPageLeft, Some("Waves")),
+        KeyBinding::new("pageup", PanPageRight, Some("Waves && !Table")),
+        KeyBinding::new("pagedown", PanPageLeft, Some("Waves && !Table")),
         KeyBinding::new("home", GoToStart, Some("Waves")),
         KeyBinding::new("s", GoToStart, Some("Waves")),
         KeyBinding::new("end", GoToEnd, Some("Waves")),
@@ -780,7 +815,7 @@ impl Workspace {
             trace_rename: None,
             on_waves: None,
             scene: Scene::default(),
-            shaped: HashMap::new(),
+            shaped: ShapedCache::default(),
             embedded: false,
             cli_policy: false,
             menu_generation: None,
@@ -825,6 +860,13 @@ impl Workspace {
     pub(crate) fn after(&mut self, mut window: Option<&mut Window>, cx: &mut Context<Self>) {
         #[cfg(not(target_family = "wasm"))]
         self.check_recent();
+        // Focus moved to another panel: keep the name typed so far. Before
+        // the event loop, so the commit's events are handled with the rest.
+        let panel = self.app.panels.focused_id();
+        if let Some(h) = self.rename.as_ref().filter(|h| h.target.panel() != panel) {
+            let text = h.input.read(cx).text().to_owned();
+            self.app.handle(Command::CommitText(h.target, Some(text)));
+        }
         loop {
             let events = self.app.take_events();
             if events.is_empty() {
@@ -1092,16 +1134,19 @@ impl Workspace {
     /// finishes or cancels, close it and give the keys back to the panel.
     fn sync_rename(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
         let panel = self.app.panels.focused_id();
-        // Focus moved to another panel: keep the text typed so far.
-        if let Some(h) = self.rename.as_ref().filter(|h| h.target.panel() != panel) {
-            let text = h.input.read(cx).text().to_owned();
-            self.app.handle(Command::CommitText(h.target, Some(text)));
-        }
         let want = self.app.text_edit();
         if self.rename.as_ref().map(|h| h.target) == want.as_ref().map(|e| e.target) {
             return;
         }
-        let Some(window) = window else { return };
+        let Some(window) = window else {
+            // Close a finished field now, so its text is never committed
+            // twice; the panel takes the keys back at the next render.
+            if self.rename.take().is_some() {
+                self.panel_focus_pending = true;
+                cx.notify();
+            }
+            return;
+        };
         if self.rename.take().is_some() {
             let focus = self
                 .dock
@@ -1738,11 +1783,9 @@ impl Workspace {
     /// The dock of canvas panels: the focusable, action-handling host of the
     /// `PanelCanvas` elements.
     fn render_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let el = div()
-            .id("wave-view")
-            .key_context("Waves")
-            .size_full()
-            .relative();
+        // No key context here: each canvas sets its own, so the wave keys
+        // never reach the Settings, Transaction or Table text fields.
+        let el = div().id("wave-view").size_full().relative();
         let mut dock = self
             .dock
             .take()

@@ -166,7 +166,10 @@ pub trait TextMeasure {
 /// stream of unique labels (tick labels while panning), all cheap to remeasure.
 #[derive(Default)]
 pub struct TextCache {
-    map: HashMap<(FontRole, u32, String), f32>,
+    /// By font and size bits, then by text, so a hit looks up the borrowed
+    /// text without allocating a key.
+    map: HashMap<(FontRole, u32), HashMap<Box<str>, f32>>,
+    len: usize,
 }
 
 const TEXT_CACHE_LIMIT: usize = 8192;
@@ -179,15 +182,17 @@ impl TextCache {
         font: FontRole,
         size: f32,
     ) -> f32 {
-        let key = (font, size.to_bits(), text.to_owned());
-        if let Some(w) = self.map.get(&key) {
+        let style = (font, size.to_bits());
+        if let Some(w) = self.map.get(&style).and_then(|m| m.get(text)) {
             return *w;
         }
-        if self.map.len() >= TEXT_CACHE_LIMIT {
+        if self.len >= TEXT_CACHE_LIMIT {
             self.map.clear();
+            self.len = 0;
         }
         let w = measure.text_width(text, font, size);
-        self.map.insert(key, w);
+        self.map.entry(style).or_default().insert(text.into(), w);
+        self.len += 1;
         w
     }
 }
