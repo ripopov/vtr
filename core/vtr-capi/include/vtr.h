@@ -620,10 +620,22 @@ vtr_activity_control *vtr_activity_control_new(void);
 void                  vtr_activity_control_free(vtr_activity_control *c);
 int                   vtr_activity_control_cancel(const vtr_activity_control *c);
 int                   vtr_activity_control_is_cancelled(const vtr_activity_control *c);
+/* Claims completion of a non-file result against cancellation. Returns 1 on
+ * success (later cancel returns 0), 0 if cancelled or NULL. File writers mark
+ * completion themselves during publication; repeated completion is harmless. */
+int                   vtr_activity_control_complete(const vtr_activity_control *c);
 void                  vtr_activity_control_progress(const vtr_activity_control *c, size_t *completed, size_t *total);
 int                   vtr_activity_write_controlled(const vtr_reader *r, const char *trace_path, const char *cache_dir,
                                          uint32_t threads, uint64_t memory, const vtr_activity_control *control, vtr_activity_summary *out);
 vtr_activity_index   *vtr_activity_load(const vtr_reader *r, const char *trace_path, const char *cache_dir);
+/* Decode sidecar bytes received or read by the caller for this VTR reader.
+ * Bytes are borrowed only for the call. memory bounds table/temporary Rust
+ * allocations before they occur (0 = unlimited); excludes the caller's image
+ * and codec-native scratch. Optional control supplies cancellation; decoding
+ * is blocking, does not publish files, and does not update build progress.
+ * Returns NULL on identity/version/checksum, admission or cancellation failure. */
+vtr_activity_index   *vtr_activity_decode(const vtr_reader *r, const uint8_t *data, size_t len,
+                                         uint64_t memory, const vtr_activity_control *control);
 void                  vtr_activity_free(vtr_activity_index *x);
 uint64_t              vtr_activity_exact_width(const vtr_activity_index *x, uint64_t t0, uint64_t t1);
 vtr_activity_classes *vtr_activity_classify(const vtr_activity_index *x, uint64_t t0, uint64_t t1);

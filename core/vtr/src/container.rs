@@ -211,8 +211,8 @@ impl Container {
         if t[16..24] != END_MAGIC {
             return None;
         }
-        let dir_off = le_u64(&t[0..8]) as usize;
-        let file_len = le_u64(&t[8..16]) as usize;
+        let dir_off = usize::try_from(le_u64(&t[0..8])).ok()?;
+        let file_len = usize::try_from(le_u64(&t[8..16])).ok()?;
         if file_len != data.len() || dir_off.checked_add(SECTION_HEADER_LEN)? > data.len() {
             return None;
         }
@@ -240,7 +240,7 @@ impl Container {
         let version = (u16::from_le_bytes([data[8], data[9]]), u16::from_le_bytes([data[10], data[11]]));
         let entries = Self::trailer_directory(data).ok_or(Error::Corrupt("no valid trailer"))??;
         for e in &entries {
-            if e.offset.checked_add(SECTION_HEADER_LEN as u64 + e.len).map_or(true, |end| end > data.len() as u64) {
+            if e.offset.checked_add(SECTION_HEADER_LEN as u64).and_then(|start| start.checked_add(e.len)).map_or(true, |end| end > data.len() as u64) {
                 return Err(Error::Corrupt("section extends past end of file"));
             }
         }
@@ -251,10 +251,11 @@ impl Container {
         if p.len() < 8 {
             return Err(Error::Corrupt("directory too short"));
         }
-        let n = le_u64(&p[0..8]) as usize;
-        if p.len() < 8 + n * DIR_ENTRY_LEN {
+        let count = le_u64(&p[0..8]);
+        if count > ((p.len() - 8) / DIR_ENTRY_LEN) as u64 {
             return Err(Error::Corrupt("directory truncated"));
         }
+        let n = count as usize;
         let mut entries = Vec::with_capacity(n);
         for i in 0..n {
             let e = &p[8 + i * DIR_ENTRY_LEN..8 + (i + 1) * DIR_ENTRY_LEN];

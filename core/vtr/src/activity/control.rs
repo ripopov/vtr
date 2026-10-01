@@ -29,7 +29,7 @@ struct State {
 }
 
 impl BuildControl {
-    /// Cancels unless publication has already succeeded. Returns whether
+    /// Cancels unless publication or non-file completion has already succeeded. Returns whether
     /// cancellation was accepted. Repeated cancellation is harmless.
     pub fn cancel(&self) -> bool {
         let mut state = self.state.lock().unwrap();
@@ -38,6 +38,17 @@ impl BuildControl {
         }
         state.cancelled = true;
         true
+    }
+
+    /// Claims completion of a non-file result, serialized against cancellation.
+    /// After success, cancellation is refused. A previously accepted
+    /// cancellation returns an error. File writers use the same terminal state
+    /// when they publish their sidecar. Repeated completion is harmless.
+    pub fn complete(&self) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.cancelled { return Err(Error::State("activity index build cancelled")) }
+        state.published = true;
+        Ok(())
     }
 
     /// Whether cancellation was accepted.

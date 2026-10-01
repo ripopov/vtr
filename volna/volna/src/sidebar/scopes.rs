@@ -71,11 +71,15 @@ impl Workspace {
                     .flex_col()
                     .gap_1()
                     .text_size(px(t.ui_size_small))
-                    .child(SharedString::from(format!(
-                        "{}: {}",
-                        view.name,
-                        view.message()
-                    )));
+                    .child(
+                        div()
+                            .debug_selector(move || format!("activity-message-{trace}"))
+                            .child(SharedString::from(format!(
+                                "{}: {}",
+                                view.name,
+                                view.message()
+                            ))),
+                    );
                 match view.state {
                     ActivityBuildState::Offer { .. } | ActivityBuildState::Failed { .. } => {
                         banner = banner.child(

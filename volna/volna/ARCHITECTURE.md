@@ -1005,9 +1005,22 @@ honoured through the configuration path.
 All trace data is reached through the `Session` trait: resident `info()`,
 `hierarchy()` and `activity()` (the immutable activity index, found at open or
 built later), and expensive `load_signal()`/`load_signals()` and
-`resolve_activity()` queries. `activity_build_info()` identifies buildable local
-paths; `build_activity()` builds and installs their index through the same
-loader. Byte-backed and remote sessions do not offer local builds.
+`resolve_activity()` queries. `activity_build_info()` identifies a local or
+remote reader with a stable sidecar source; `build_activity()` builds local
+indexes, and `LoadRequest::BuildActivity` routes remote work through the existing
+connection. Byte-backed and recovered traces have no stable sidecar source.
+Protocol 6 advertises activity identity, availability and reader host. Existing
+indexes are fetched once regardless of build policy; missing ones follow
+`hierarchy.activityIndex`. The server builds/caches with the same library,
+coordinated by a persistent sibling file lock across clients and processes.
+The client validates and admits a complete raw sidecar before installing its
+immutable `ActivityIndex`, whose reservation follows its last shared owner.
+Classification and census remain client-side. Remote exact reads use batches
+of complete signal histories, excluding the initial time step, and deliver one
+window-tagged result through the same load seam. Build offers name the server.
+Cancel stops client installation and drains its response; a server build already
+authorized may finish and cache for other clients. These actions do not change
+workspace or undo state.
 VTR sessions read undecided signals through `vtr::activity::resolve`; FST
 sessions through `vtr_cli::fst::activity::FstTrace`, mapped on the first read.
 `LocalSession` derives event shapes from `Reader::signal_var_type`, using the

@@ -2745,6 +2745,41 @@ pub unsafe extern "C" fn vtr_activity_load(r: *const vtr_reader, trace_path: *co
     })
 }
 
+/// Atomically complete a non-file activity result against cancellation.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_control_complete(c: *const vtr_activity_control) -> c_int {
+    ffi(|| match c.as_ref() {
+        Some(c) => match c.0.complete() { Ok(()) => 1, Err(error) => { set_error(&error.to_string()); 0 } },
+        None => { set_error("null activity control"); 0 }
+    })
+}
+
+/// Decode a raw sidecar image for this reader with allocation admission and
+/// optional cancellation. Bytes are borrowed only for this blocking call.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_decode(r: *const vtr_reader, data: *const u8, len: usize, memory: u64, control: *const vtr_activity_control) -> *mut vtr_activity_index {
+    ffi(|| {
+        let Some(r) = r.as_ref() else { set_error("null reader"); return ptr::null_mut() };
+        if (data.is_null() && len != 0) || len > isize::MAX as usize { set_error("invalid image pointer or length"); return ptr::null_mut() }
+        let bytes = if len == 0 { &[] } else { std::slice::from_raw_parts(data, len) };
+        let id = match vtr::activity::Identity::of(&r.0) {
+            Ok(id) => id,
+            Err(error) => { set_error(&error.to_string()); return ptr::null_mut() }
+        };
+        let mut decode = std::pin::pin!(vtr::activity::Index::decode_with(bytes, &id,
+            |peak| if memory == 0 || peak <= memory { Ok(()) } else { Err(Error::Invalid("activity decode exceeds memory limit".into())) },
+            || std::future::ready(if control.as_ref().is_some_and(|c| c.0.is_cancelled()) { Err(Error::State("activity decode cancelled")) } else { Ok(()) })));
+        struct Wake;
+        impl std::task::Wake for Wake { fn wake(self: std::sync::Arc<Self>) {} }
+        let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
+        match std::future::Future::poll(decode.as_mut(), &mut std::task::Context::from_waker(&waker)) {
+            std::task::Poll::Ready(Ok(index)) => Box::into_raw(Box::new(vtr_activity_index(index))),
+            std::task::Poll::Ready(Err(error)) => { set_error(&error.to_string()); ptr::null_mut() }
+            std::task::Poll::Pending => unreachable!("blocking decode never yields"),
+        }
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn vtr_activity_free(x: *mut vtr_activity_index) {
     ffi(|| {

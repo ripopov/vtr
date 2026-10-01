@@ -18,6 +18,8 @@ pub struct Metadata {
     pub hierarchy: Hierarchy,
     pub capabilities: Capabilities,
     pub tracks: Vec<Track>,
+    pub activity: Option<super::activity::Descriptor>,
+    pub server: String,
 }
 
 impl Metadata {
@@ -27,6 +29,8 @@ impl Metadata {
             hierarchy: session.hierarchy().clone(),
             capabilities: session.capabilities(),
             tracks: session.tracks().to_vec(),
+            activity: super::activity::Descriptor::from_session(session),
+            server: session.activity_host().unwrap_or("remote server").into(),
         }
     }
 
@@ -47,6 +51,9 @@ impl Metadata {
         &self,
         mut checkpoint: impl FnMut() -> F,
     ) -> anyhow::Result<()> {
+        if let Some(activity) = &self.activity {
+            activity.identity()?;
+        }
         anyhow::ensure!(
             self.info.time_range.0 <= self.info.time_range.1,
             "reversed trace time range"

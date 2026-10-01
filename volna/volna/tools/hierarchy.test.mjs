@@ -2,7 +2,7 @@
 // cargo build -p volna-server --profile viewer --example hierarchy_fixture;
 // node --test volna/volna/tools/hierarchy.test.mjs
 // Owns temporary fixtures, a production child, loopback server and headless
-// browser. The same WASM viewer opens VTR/FST locally and through protocol v5.
+// browser. The same WASM viewer opens VTR/FST locally and through protocol v6.
 import assert from 'node:assert/strict';
 import {spawn, execFile} from 'node:child_process';
 import {mkdtemp, readdir, readFile, rm, stat} from 'node:fs/promises';

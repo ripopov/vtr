@@ -745,6 +745,10 @@ def render(results, path):
     activity_memory = os.path.join(ROOT, "bench", "results", "activity-memory", "results.json")
     if os.path.exists(activity_memory):
         L.extend(render_activity_memory(json.load(open(activity_memory))))
+    activity_remote = os.path.join(ROOT, "bench", "results", "activity-remote")
+    if os.path.exists(os.path.join(activity_remote, "current.json")):
+        L.extend(render_activity_remote(json.load(open(os.path.join(activity_remote, "baseline.json"))),
+                                        json.load(open(os.path.join(activity_remote, "current.json")))))
     if logs:
         L.extend(render_logs(logs))
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
@@ -764,6 +768,29 @@ def render(results, path):
         f.write("\n".join(L) + "\n")
 
 
+def render_activity_remote(before, after):
+    L = ["### Activity sidecar decoding for remote traces\n"]
+    n = after['samples_per_trace']
+    L.append(f"Stage 6 of [hierarchy activity](hierarchy-activity.html#stage-6) adds cooperative sidecar decoding and admission before table allocation. The same reader serves native opens and remote installation. `bench/activity-memory.py` interleaves the unchanged `3ad43ab` binary and the new reader on the full 23-trace activity cohort, pinned to CPUs {after['cpus']}, best of {n} builds and fresh-process loads. Sidecar SHA-256, size and retained bytes agree for every trace. Raw samples: `bench/results/activity-remote/baseline.json` and `current.json`. This isolates native sidecar decoding; it does not measure network latency or WASM execution.\n")
+    L.extend(["| trace | sidecar (unchanged) | build s, before → after | load ms, before → after | peak load RSS MiB, before → after |",
+              "|---|---:|---:|---:|---:|"])
+    base = {r['trace']: r for r in before['runs']}
+    for row in after['runs']:
+        old = base[row['trace']]
+        assert old['sidecar_sha256'] == row['sidecar_sha256']
+        assert old['sidecar_bytes'] == row['sidecar_bytes']
+        assert old['loaded_bytes'] == row['loaded_bytes']
+        L.append(f"| {os.path.basename(row['trace'])} | {fmt_bytes(row['sidecar_bytes'])} | {old['build_s']:.3f} → {row['build_s']:.3f} | {old['load_ms']:.2f} → {row['load_ms']:.2f} | {old['peak_rss_bytes']/2**20:.2f} → {row['peak_rss_bytes']/2**20:.2f} |")
+    largest = max(after['runs'], key=lambda r: r['loaded_bytes'])
+    old = base[largest['trace']]
+    delta = (largest['load_ms'] / old['load_ms'] - 1) * 100
+    build_ratios = [r['build_s'] / base[r['trace']]['build_s'] for r in after['runs']]
+    peak = max(r['peak_rss_bytes'] for report in (before, after) for r in report['runs']) / 2**20
+    retained = largest['loaded_bytes'] / 2**20
+    L.append(f"\nThe largest retained index ({os.path.basename(largest['trace'])}) loads in {old['load_ms']:.2f} → {largest['load_ms']:.2f} ms ({delta:+.1f}%). Building ranges from {min(build_ratios):.2f}–{max(build_ratios):.2f}× of the baseline. Peak loading RSS reaches {peak:.2f} MiB and retained bytes reach {retained:.2f} MiB. These are one-time index loads: panning uses the already resident immutable tables. The tradeoff buys allocation admission, cancellation and yielding between signal rows and stretches. Shared container checks also reject overflowing malformed directory lengths. Trace and sidecar encodings, waveform value decoding and the writer are unchanged.\n")
+    return L
+
+
 def render_activity_memory(report):
     L = ["\n### Activity reader memory: paging gate\n"]
     n = report['samples_per_trace']
@@ -773,7 +800,7 @@ def render_activity_memory(report):
     L.extend(["| trace | source | signals | sidecar | retained index | peak load RSS | load |", "|---|---:|---:|---:|---:|---:|---:|"])
     for row in report['runs']:
         L.append(f"| {os.path.basename(row['trace'])} | {fmt_bytes(row['trace_bytes'])} | {row['signals']:,} | {fmt_bytes(row['sidecar_bytes'])} | {fmt_bytes(row['loaded_bytes'])} | {row['peak_rss_bytes'] / 2**20:.2f} MiB | {row['load_ms']:.2f} ms |")
-    L.append("\nThe gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). Trace bytes and production encoding, build and decode paths are unchanged.\n")
+    L.append("\nThe gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). These measurements use the resident version-1 index; the current cooperative decoder’s A/B measurements follow.\n")
     return L
 
 

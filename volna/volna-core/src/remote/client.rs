@@ -2,6 +2,7 @@
 //! commands, drives bounded steps, and delivers results to the ordinary App.
 
 use super::ClientStep;
+use super::activity::ActivityTransfer;
 use super::memory::MemoryBudget;
 use super::open::OpenTransfer;
 use super::signals::SignalTransfer;
@@ -10,6 +11,19 @@ use super::transport::{Body, Command, MAX_BATCH, Packet};
 use crate::session::{LoadRequest, LoadResult};
 use crate::trace::TraceId;
 use std::collections::VecDeque;
+
+struct Queued {
+    job: LoadRequest,
+    reservation: Option<super::memory::Reservation>,
+}
+impl Queued {
+    fn new(job: LoadRequest) -> Self {
+        Self {
+            job,
+            reservation: None,
+        }
+    }
+}
 
 enum Active {
     Open {
@@ -25,6 +39,17 @@ enum Active {
         job: LoadRequest,
         transfer: TrackTransfer,
     },
+    Activity {
+        transfer: ActivityTransfer,
+    },
+    Resolve {
+        job: LoadRequest,
+        transfer: Option<SignalTransfer>,
+        next: usize,
+        changed: Vec<crate::data::SignalRef>,
+        error: Option<String>,
+        _reservation: super::memory::Reservation,
+    },
 }
 
 /// Queues Open, signal and track loads for one connection and runs one
@@ -37,7 +62,7 @@ pub struct RemoteClient {
     limit: u64,
     budget: MemoryBudget,
     active: Option<Active>,
-    queued: VecDeque<LoadRequest>,
+    queued: VecDeque<Queued>,
     opening: Option<Packet>,
     connected: bool,
 }
@@ -95,21 +120,36 @@ impl RemoteClient {
                     .filter(|id| unique.insert(*id))
                     .collect();
                 for ids in signals.chunks(MAX_BATCH) {
-                    self.queued.push_back(LoadRequest::Signals {
+                    self.queued.push_back(Queued::new(LoadRequest::Signals {
                         trace,
                         generation,
                         session: session.clone(),
                         signals: ids.to_vec(),
-                    });
+                    }));
                 }
             }
-            request @ LoadRequest::Track { .. } => self.queued.push_back(request),
-            // Remote sessions have no activity index until the server sends one.
             request @ LoadRequest::ResolveActivity { .. } => {
-                return Err(request.fail(anyhow::anyhow!("remote traces cannot read activity yet")));
+                let LoadRequest::ResolveActivity { counts, budget, .. } = &request else {
+                    unreachable!()
+                };
+                if counts.undecided.is_empty() {
+                    return Err(request.fail(anyhow::anyhow!("no undecided activity signals")));
+                }
+                let reservation = match budget.reserve(
+                    (counts.undecided.len() * std::mem::size_of::<crate::data::SignalRef>()) as u64,
+                ) {
+                    Ok(reservation) => reservation,
+                    Err(error) => return Err(request.fail(error)),
+                };
+                self.queued.push_back(Queued {
+                    job: request,
+                    reservation: Some(reservation),
+                });
+            }
+            request @ (LoadRequest::Track { .. } | LoadRequest::BuildActivity { .. }) => {
+                self.queued.push_back(Queued::new(request))
             }
             LoadRequest::Open { .. }
-            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
@@ -129,10 +169,77 @@ impl RemoteClient {
         if let Some(open) = self.opening.take() {
             return Ok(Some(open));
         }
-        if !self.connected || self.active.is_some() {
+        if !self.connected {
             return Ok(None);
         }
-        let Some(job) = self.queued.front() else {
+        if self.active.is_none()
+            && matches!(
+                self.queued.front().map(|q| &q.job),
+                Some(LoadRequest::ResolveActivity { .. })
+            )
+        {
+            let queued = self.queued.pop_front().unwrap();
+            let job = queued.job;
+            let LoadRequest::ResolveActivity { counts, .. } = &job else {
+                unreachable!()
+            };
+            let reservation = queued.reservation.expect("admitted activity read");
+            let changed = Vec::with_capacity(counts.undecided.len());
+            self.active = Some(Active::Resolve {
+                job,
+                transfer: None,
+                next: 0,
+                changed,
+                error: None,
+                _reservation: reservation,
+            });
+        }
+        if let Some(Active::Resolve {
+            job,
+            transfer: transfer @ None,
+            next,
+            ..
+        }) = &mut self.active
+        {
+            let LoadRequest::ResolveActivity {
+                trace,
+                generation,
+                counts,
+                ..
+            } = job
+            else {
+                unreachable!()
+            };
+            self.request = self
+                .request
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("request identity exhausted"))?;
+            let end = (*next + MAX_BATCH).min(counts.undecided.len());
+            let ids = &counts.undecided[*next..end];
+            let session = self
+                .session
+                .ok_or_else(|| anyhow::anyhow!("recording is not open"))?;
+            *transfer = Some(SignalTransfer::new(
+                session,
+                self.request,
+                *trace,
+                *generation,
+                ids,
+                self.limit,
+                self.budget.clone(),
+            )?);
+            *next = end;
+            return Ok(Some(Packet {
+                session,
+                request: self.request,
+                sequence: 0,
+                body: Body::Command(Command::Signals(ids.iter().map(|id| id.0).collect())),
+            }));
+        }
+        if self.active.is_some() {
+            return Ok(None);
+        }
+        let Some(job) = self.queued.front().map(|q| &q.job) else {
             return Ok(None);
         };
         self.request = self
@@ -160,7 +267,7 @@ impl RemoteClient {
                 )?;
                 let command = Command::Signals(signals.iter().map(|id| id.0).collect());
                 self.active = Some(Active::Signals {
-                    job: self.queued.pop_front().unwrap(),
+                    job: self.queued.pop_front().unwrap().job,
                     transfer,
                 });
                 command
@@ -184,13 +291,23 @@ impl RemoteClient {
                 )?;
                 let command = Command::Track(track.0);
                 self.active = Some(Active::Track {
-                    job: self.queued.pop_front().unwrap(),
+                    job: self.queued.pop_front().unwrap().job,
                     transfer,
                 });
                 command
             }
+            LoadRequest::BuildActivity { .. } => {
+                let transfer = ActivityTransfer::new(
+                    self.request,
+                    self.queued.pop_front().unwrap().job,
+                    self.limit,
+                    self.budget.clone(),
+                )?;
+                let command = transfer.command();
+                self.active = Some(Active::Activity { transfer });
+                command
+            }
             LoadRequest::Open { .. }
-            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
@@ -218,7 +335,7 @@ impl RemoteClient {
             return;
         }
         let wanted = app.signal_demand();
-        self.queued.retain_mut(|job| match job {
+        self.queued.retain_mut(|queued| match &mut queued.job {
             LoadRequest::Signals {
                 trace,
                 generation,
@@ -236,12 +353,11 @@ impl RemoteClient {
             } => app
                 .doc
                 .wants_track_request(*trace, *generation, *request_id, *track),
+            LoadRequest::BuildActivity { .. } | LoadRequest::ResolveActivity { .. } => true,
             LoadRequest::Open { .. }
-            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
-            | LoadRequest::ResolveActivity { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
             | LoadRequest::Integral { .. }
@@ -260,6 +376,11 @@ impl RemoteClient {
             Active::Open { transfer, .. } => transfer.accept(packet)?,
             Active::Signals { transfer, .. } => transfer.accept(packet)?,
             Active::Track { transfer, .. } => transfer.accept(packet)?,
+            Active::Activity { transfer } => transfer.accept(packet)?,
+            Active::Resolve { transfer, .. } => transfer
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("no active activity read"))?
+                .accept(packet)?,
         };
         self.accept_step(step)
     }
@@ -273,11 +394,87 @@ impl RemoteClient {
             Active::Open { transfer, .. } => transfer.step()?,
             Active::Signals { transfer, .. } => transfer.step()?,
             Active::Track { transfer, .. } => transfer.step()?,
+            Active::Activity { transfer } => transfer.step()?,
+            Active::Resolve { transfer, .. } => transfer
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("no active activity read"))?
+                .step()?,
         };
         self.accept_step(step)
     }
 
     fn accept_step(&mut self, step: ClientStep) -> anyhow::Result<ClientStep> {
+        let step = if let (
+            Some(Active::Resolve {
+                job,
+                transfer,
+                next,
+                changed,
+                error,
+                ..
+            }),
+            ClientStep::Complete {
+                ack,
+                result: LoadResult::Signals { results, .. },
+            },
+        ) = (self.active.as_mut(), &step)
+        {
+            let LoadRequest::ResolveActivity {
+                trace,
+                generation,
+                counts,
+                counter,
+                budget,
+                session,
+                ..
+            } = job
+            else {
+                unreachable!()
+            };
+            for (id, result) in results {
+                match result {
+                    Ok(history) => {
+                        if counts.window.0 <= counts.window.1
+                            && history.index_at(counts.window.1).is_some_and(|i| {
+                                history.time(i) >= counts.window.0
+                                    && history.time(i) != session.info().time_range.0
+                            })
+                        {
+                            changed.push(*id);
+                        }
+                    }
+                    Err(e) => *error = Some(format!("{e:#}")),
+                }
+            }
+            let finished = transfer.as_ref().is_some_and(|t| t.is_complete());
+            if finished {
+                transfer.take().unwrap().finish()?;
+                if *next == counts.undecided.len() || error.is_some() {
+                    let result = if let Some(message) = error.take() {
+                        Err(anyhow::anyhow!(message))
+                    } else {
+                        counts
+                            .resolved(counter, changed)
+                            .account(budget)
+                            .map(std::sync::Arc::new)
+                    };
+                    let result = LoadResult::ActivityResolved {
+                        trace: *trace,
+                        generation: *generation,
+                        window: counts.window,
+                        result,
+                    };
+                    self.active = None;
+                    return Ok(ClientStep::Complete {
+                        ack: ack.clone(),
+                        result,
+                    });
+                }
+            }
+            ClientStep::Ack(ack.clone())
+        } else {
+            step
+        };
         if let ClientStep::Complete { result, .. } = &step {
             match result {
                 LoadResult::Opened { result, .. } => {
@@ -311,6 +508,8 @@ impl RemoteClient {
             Some(Active::Open { transfer, .. }) => transfer.is_complete(),
             Some(Active::Signals { transfer, .. }) => transfer.is_complete(),
             Some(Active::Track { transfer, .. }) => transfer.is_complete(),
+            Some(Active::Activity { transfer }) => transfer.is_complete(),
+            Some(Active::Resolve { .. }) => false,
             None => false,
         };
         if complete {
@@ -318,6 +517,8 @@ impl RemoteClient {
                 Active::Open { transfer, .. } => transfer.finish()?,
                 Active::Signals { transfer, .. } => transfer.finish()?,
                 Active::Track { transfer, .. } => transfer.finish()?,
+                Active::Activity { transfer } => transfer.finish()?,
+                Active::Resolve { .. } => unreachable!(),
             }
         }
         Ok(step)
@@ -337,15 +538,18 @@ impl RemoteClient {
                 generation,
                 result: Err(anyhow::anyhow!(message.to_owned())),
             }),
-            Some(Active::Signals { job, .. } | Active::Track { job, .. }) => {
-                self.queued.push_front(job)
-            }
+            Some(Active::Activity { transfer }) => results.push(transfer.fail(message)),
+            Some(
+                Active::Signals { job, .. }
+                | Active::Track { job, .. }
+                | Active::Resolve { job, .. },
+            ) => self.queued.push_front(Queued::new(job)),
             None => {}
         }
         results.extend(
             self.queued
                 .drain(..)
-                .map(|job| job.fail(anyhow::anyhow!(message.to_owned()))),
+                .map(|queued| queued.job.fail(anyhow::anyhow!(message.to_owned()))),
         );
         results
     }
@@ -593,7 +797,7 @@ mod tests {
         client.sync_demand(&mut app);
         assert_eq!(client.queued.len(), 1);
         assert!(
-            matches!(client.queued.front(), Some(LoadRequest::Track { request_id, .. }) if *request_id == current)
+            matches!(client.queued.front().map(|q| &q.job), Some(LoadRequest::Track { request_id, .. }) if *request_id == current)
         );
         app.doc.release_track(track);
         client.sync_demand(&mut app);

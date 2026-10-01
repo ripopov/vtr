@@ -1,5 +1,6 @@
 //! Raw complete-object transport. No viewport or presentation state belongs here.
 
+pub mod activity;
 pub mod client;
 mod decode;
 mod equality;

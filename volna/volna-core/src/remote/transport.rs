@@ -25,7 +25,7 @@ use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};
 use serde::{Deserialize, Serialize};
 
 /// Protocol version carried in every frame header.
-pub const VERSION: u32 = 5;
+pub const VERSION: u32 = 6;
 /// Largest encoded frame body.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Largest `Data` chunk payload.
@@ -38,6 +38,7 @@ const HEADER_BYTES: usize = 12;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObjectId {
     Metadata,
+    Activity,
     Signal(u32),
     Track(u32),
     Scopes(u32),
@@ -46,10 +47,18 @@ pub enum ObjectId {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Command {
-    Open { max_object_bytes: u64 },
+    Open {
+        max_object_bytes: u64,
+    },
     Signals(Vec<u32>),
     Track(u32),
-    Ack { sequence: u64 },
+    /// Fetch the raw sidecar; build it if missing only when explicitly allowed.
+    Activity {
+        build: bool,
+    },
+    Ack {
+        sequence: u64,
+    },
     Close,
 }
 

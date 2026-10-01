@@ -79,6 +79,8 @@ pub enum ActivityBuildState {
 pub struct ActivityBuildView {
     pub trace: TraceId,
     pub name: String,
+    pub host: Option<String>,
+    pub available: bool,
     pub state: ActivityBuildState,
 }
 
@@ -86,7 +88,13 @@ impl ActivityBuildView {
     pub fn message(&self) -> String {
         match &self.state {
             ActivityBuildState::Offer { estimated_seconds } => {
-                format!("No activity index yet · about {estimated_seconds} s")
+                if let Some(host) = &self.host {
+                    format!(
+                        "No activity index yet · {host} builds it · about {estimated_seconds} s"
+                    )
+                } else {
+                    format!("No activity index yet · about {estimated_seconds} s")
+                }
             }
             ActivityBuildState::Building {
                 progress,
@@ -96,7 +104,15 @@ impl ActivityBuildView {
                 progress.completed, progress.total
             ),
             ActivityBuildState::Building { progress, .. } if progress.total == 0 => {
-                "Preparing the activity index…".into()
+                if let Some(host) = &self.host {
+                    if self.available {
+                        format!("Loading the activity index from {host}…")
+                    } else {
+                        format!("{host} is building the activity index…")
+                    }
+                } else {
+                    "Preparing the activity index…".into()
+                }
             }
             ActivityBuildState::Building { progress, .. } => format!(
                 "Building the activity index · {} of {} blocks",
@@ -158,7 +174,7 @@ impl ActivityModel {
             });
             let Some(index) = session.activity() else {
                 if session.activity_build_info().is_some() {
-                    if policy == ActivityIndexPolicy::Always
+                    if (session.activity_available() || policy == ActivityIndexPolicy::Always)
                         && (matches!(a.build, Build::Offered)
                             || policy_changed && matches!(a.build, Build::Dismissed))
                     {
@@ -422,7 +438,7 @@ impl ActivityModel {
         });
     }
 
-    /// Build offers and progress for locally buildable, unindexed traces.
+    /// Build offers and progress for unindexed traces with a local or remote reader.
     pub fn builds(&self, traces: &TraceSet, policy: ActivityIndexPolicy) -> Vec<ActivityBuildView> {
         traces
             .iter()
@@ -463,6 +479,8 @@ impl ActivityModel {
                 Some(ActivityBuildView {
                     trace: slot.id,
                     name: session.info().name.clone(),
+                    host: session.activity_host().map(str::to_owned),
+                    available: session.activity_available(),
                     state,
                 })
             })

@@ -90,13 +90,34 @@ pub trait Session: Send + Sync {
     /// The trace's activity index (docs/hierarchy-activity.html), when a
     /// valid sidecar was found at open or built later by the session.
     /// Resident and shared; counted in [`resident_bytes`](Self::resident_bytes).
-    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+    fn activity(&self) -> Option<Arc<crate::data::ActivityIndex>> {
         None
     }
-    /// Whether this session can build a local activity sidecar. Byte images,
-    /// recovered files and remote sessions have no local build source.
+    /// Whether this session's reader can build an activity sidecar. Byte
+    /// images and recovered files have no stable build source.
     fn activity_build_info(&self) -> Option<crate::data::ActivityBuildInfo> {
         None
+    }
+    /// Stable raw recording identity for sidecar validation.
+    fn activity_identity(&self) -> Option<vtr::activity::Identity> {
+        None
+    }
+    /// Read a validated raw sidecar image for transport beside the reader.
+    fn activity_image(&self, _cache_dir: Option<&std::path::Path>) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("this session has no activity sidecar")
+    }
+    /// Host of a remote reader, for the build offer.
+    fn activity_host(&self) -> Option<&str> {
+        None
+    }
+    /// A remote reader already has an index that the client should fetch.
+    fn activity_available(&self) -> bool {
+        self.activity().is_some()
+    }
+    /// Install a fully validated index received by the remote executor.
+    /// Blocking local readers reject this operation; their builder owns installation.
+    fn install_activity(&self, _index: Arc<crate::data::ActivityIndex>) -> anyhow::Result<()> {
+        anyhow::bail!("this session does not accept remote activity indexes")
     }
     /// Builds and installs an immutable activity index through the library.
     /// Blocking work for the loader; supply a control in `options` for
@@ -213,11 +234,17 @@ impl Session for AccountedSession {
     fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
         self.inner.scope_sizes()
     }
-    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+    fn activity(&self) -> Option<Arc<crate::data::ActivityIndex>> {
         self.inner.activity()
     }
     fn activity_build_info(&self) -> Option<crate::data::ActivityBuildInfo> {
         self.inner.activity_build_info()
+    }
+    fn activity_identity(&self) -> Option<vtr::activity::Identity> {
+        self.inner.activity_identity()
+    }
+    fn activity_image(&self, cache_dir: Option<&std::path::Path>) -> anyhow::Result<Vec<u8>> {
+        self.inner.activity_image(cache_dir)
     }
     fn build_activity(
         &self,
@@ -474,7 +501,7 @@ pub enum LoadRequest {
         trace: TraceId,
         generation: u64,
         window: (u64, u64),
-        index: Arc<vtr::activity::Index>,
+        index: Arc<crate::data::ActivityIndex>,
         counter: Arc<crate::data::ActivityCounter>,
         budget: crate::remote::memory::MemoryBudget,
     },
@@ -528,9 +555,9 @@ impl LoadRequest {
         match self {
             Self::Signals { session, .. }
             | Self::Track { session, .. }
-            | Self::ResolveActivity { session, .. } => session.remote_id(),
+            | Self::ResolveActivity { session, .. }
+            | Self::BuildActivity { session, .. } => session.remote_id(),
             Self::Open { .. }
-            | Self::BuildActivity { .. }
             | Self::Sizes { .. }
             | Self::ActivityCounter { .. }
             | Self::Activity { .. }

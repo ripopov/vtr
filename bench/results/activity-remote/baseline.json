@@ -1,0 +1,1142 @@
+{
+  "machine": {
+    "cpu": "Intel(R) Core(TM) Ultra 7 265K",
+    "kernel": "7.0.0-34-generic",
+    "rustc": "rustc 1.101.0-nightly (c1070d693 2026-09-28)"
+  },
+  "cpus": "0-7",
+  "samples_per_trace": 3,
+  "threads": 8,
+  "object_limit_bytes": 268435456,
+  "budget_bytes": 536870912,
+  "runs": [
+    {
+      "trace": "bench/results/latest/scr1_axi.vtr",
+      "trace_bytes": 1244845,
+      "format": "vtr",
+      "signals": 1445,
+      "blocks": 2,
+      "stretches": 1772,
+      "sidecar_bytes": 7289,
+      "sidecar_sha256": "2d4f110da5e04b419c8bb61d6c3d3a599357243fdeb220d2e2c543b1ba3aa039",
+      "build_s": 0.040515076,
+      "build_samples_s": [
+        0.040746817,
+        0.040861648,
+        0.040515076
+      ],
+      "loaded_bytes": 41288,
+      "peak_rss_bytes": 4341760,
+      "load_ms": 0.10602,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3543040,
+          "blocks": 2,
+          "load_ms": 0.10602,
+          "loaded_bytes": 41288,
+          "peak_rss_bytes": 4169728,
+          "signals": 1445,
+          "stretches": 1772
+        },
+        {
+          "baseline_rss_bytes": 3502080,
+          "blocks": 2,
+          "load_ms": 0.117607,
+          "loaded_bytes": 41288,
+          "peak_rss_bytes": 4194304,
+          "signals": 1445,
+          "stretches": 1772
+        },
+        {
+          "baseline_rss_bytes": 3653632,
+          "blocks": 2,
+          "load_ms": 0.130276,
+          "loaded_bytes": 41288,
+          "peak_rss_bytes": 4341760,
+          "signals": 1445,
+          "stretches": 1772
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/scr1_axi_fstapi_zlib.fst",
+      "trace_bytes": 2476849,
+      "format": "fst",
+      "signals": 1445,
+      "blocks": 3,
+      "stretches": 1772,
+      "sidecar_bytes": 7826,
+      "sidecar_sha256": "3a0042c9afab7ba758453f2f5dacff2a42f85b69f128d1c4aea59867dadc4ef3",
+      "build_s": 0.03453077,
+      "build_samples_s": [
+        0.03453077,
+        0.035293495,
+        0.034589016
+      ],
+      "loaded_bytes": 41320,
+      "peak_rss_bytes": 4280320,
+      "load_ms": 0.112588,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3559424,
+          "blocks": 3,
+          "load_ms": 0.112588,
+          "loaded_bytes": 41320,
+          "peak_rss_bytes": 4243456,
+          "signals": 1445,
+          "stretches": 1772
+        },
+        {
+          "baseline_rss_bytes": 3547136,
+          "blocks": 3,
+          "load_ms": 0.12909299999999999,
+          "loaded_bytes": 41320,
+          "peak_rss_bytes": 4161536,
+          "signals": 1445,
+          "stretches": 1772
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 3,
+          "load_ms": 0.136319,
+          "loaded_bytes": 41320,
+          "peak_rss_bytes": 4280320,
+          "signals": 1445,
+          "stretches": 1772
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/rsa256.vtr",
+      "trace_bytes": 32493712,
+      "format": "vtr",
+      "signals": 113,
+      "blocks": 1,
+      "stretches": 16434,
+      "sidecar_bytes": 3213,
+      "sidecar_sha256": "d7bc6fe8203109f679855bbad3f54d2e019be741d8a37b33b91926ee56f2850d",
+      "build_s": 0.016749097,
+      "build_samples_s": [
+        0.016749097,
+        0.017781521,
+        0.016899148
+      ],
+      "loaded_bytes": 329168,
+      "peak_rss_bytes": 4534272,
+      "load_ms": 0.24619399999999997,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3514368,
+          "blocks": 1,
+          "load_ms": 0.269796,
+          "loaded_bytes": 329168,
+          "peak_rss_bytes": 4468736,
+          "signals": 113,
+          "stretches": 16434
+        },
+        {
+          "baseline_rss_bytes": 3518464,
+          "blocks": 1,
+          "load_ms": 0.24619399999999997,
+          "loaded_bytes": 329168,
+          "peak_rss_bytes": 4468736,
+          "signals": 113,
+          "stretches": 16434
+        },
+        {
+          "baseline_rss_bytes": 3518464,
+          "blocks": 1,
+          "load_ms": 0.250716,
+          "loaded_bytes": 329168,
+          "peak_rss_bytes": 4534272,
+          "signals": 113,
+          "stretches": 16434
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/rsa256_fstapi_zlib.fst",
+      "trace_bytes": 33197469,
+      "format": "fst",
+      "signals": 113,
+      "blocks": 3,
+      "stretches": 16434,
+      "sidecar_bytes": 4130,
+      "sidecar_sha256": "8347db4ee31fc7f68a64b0ad33c780099dd8c5a3f773db98adb7d6db184ffc71",
+      "build_s": 0.038096091,
+      "build_samples_s": [
+        0.038264056,
+        0.038096091,
+        0.038128582
+      ],
+      "loaded_bytes": 329232,
+      "peak_rss_bytes": 4644864,
+      "load_ms": 0.28129000000000004,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3657728,
+          "blocks": 3,
+          "load_ms": 0.29437199999999997,
+          "loaded_bytes": 329232,
+          "peak_rss_bytes": 4644864,
+          "signals": 113,
+          "stretches": 16434
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 3,
+          "load_ms": 0.28432799999999997,
+          "loaded_bytes": 329232,
+          "peak_rss_bytes": 4579328,
+          "signals": 113,
+          "stretches": 16434
+        },
+        {
+          "baseline_rss_bytes": 3506176,
+          "blocks": 3,
+          "load_ms": 0.28129000000000004,
+          "loaded_bytes": 329232,
+          "peak_rss_bytes": 4493312,
+          "signals": 113,
+          "stretches": 16434
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/rsa256_long.vtr",
+      "trace_bytes": 325338845,
+      "format": "vtr",
+      "signals": 113,
+      "blocks": 2,
+      "stretches": 162692,
+      "sidecar_bytes": 20422,
+      "sidecar_sha256": "96a4f2af7650c10aeb88f9057b223173211734e9210dd85b253e4f656eb43c7c",
+      "build_s": 0.09721646,
+      "build_samples_s": [
+        0.100369076,
+        0.098415496,
+        0.09721646
+      ],
+      "loaded_bytes": 3254360,
+      "peak_rss_bytes": 7675904,
+      "load_ms": 1.6821169999999999,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3588096,
+          "blocks": 2,
+          "load_ms": 1.7731890000000001,
+          "loaded_bytes": 3254360,
+          "peak_rss_bytes": 7626752,
+          "signals": 113,
+          "stretches": 162692
+        },
+        {
+          "baseline_rss_bytes": 3637248,
+          "blocks": 2,
+          "load_ms": 1.734514,
+          "loaded_bytes": 3254360,
+          "peak_rss_bytes": 7675904,
+          "signals": 113,
+          "stretches": 162692
+        },
+        {
+          "baseline_rss_bytes": 3600384,
+          "blocks": 2,
+          "load_ms": 1.6821169999999999,
+          "loaded_bytes": 3254360,
+          "peak_rss_bytes": 7639040,
+          "signals": 113,
+          "stretches": 162692
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/rsa256_long_fstapi_zlib.fst",
+      "trace_bytes": 332271862,
+      "format": "fst",
+      "signals": 113,
+      "blocks": 24,
+      "stretches": 162692,
+      "sidecar_bytes": 33828,
+      "sidecar_sha256": "3abf585b66b0de4dd90b8814c9d30398f5ec2c8a5854f1ed9a5e3685e6f2e052",
+      "build_s": 0.134408133,
+      "build_samples_s": [
+        0.135294432,
+        0.134408133,
+        0.134964958
+      ],
+      "loaded_bytes": 3255064,
+      "peak_rss_bytes": 7426048,
+      "load_ms": 1.760314,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3481600,
+          "blocks": 24,
+          "load_ms": 1.842442,
+          "loaded_bytes": 3255064,
+          "peak_rss_bytes": 7426048,
+          "signals": 113,
+          "stretches": 162692
+        },
+        {
+          "baseline_rss_bytes": 3522560,
+          "blocks": 24,
+          "load_ms": 1.873586,
+          "loaded_bytes": 3255064,
+          "peak_rss_bytes": 7401472,
+          "signals": 113,
+          "stretches": 162692
+        },
+        {
+          "baseline_rss_bytes": 3530752,
+          "blocks": 24,
+          "load_ms": 1.760314,
+          "loaded_bytes": 3255064,
+          "peak_rss_bytes": 7340032,
+          "signals": 113,
+          "stretches": 162692
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/c910_coremark.vtr",
+      "trace_bytes": 254937343,
+      "format": "vtr",
+      "signals": 67144,
+      "blocks": 36,
+      "stretches": 449023,
+      "sidecar_bytes": 1817697,
+      "sidecar_sha256": "2812192072012d26ea5198eaca85f25d3e9703066102086e3870648888a0a4e8",
+      "build_s": 0.340546493,
+      "build_samples_s": [
+        0.347071296,
+        0.352701482,
+        0.340546493
+      ],
+      "loaded_bytes": 9250192,
+      "peak_rss_bytes": 15671296,
+      "load_ms": 15.162731,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3604480,
+          "blocks": 36,
+          "load_ms": 15.844186,
+          "loaded_bytes": 9250192,
+          "peak_rss_bytes": 15671296,
+          "signals": 67144,
+          "stretches": 449023
+        },
+        {
+          "baseline_rss_bytes": 3526656,
+          "blocks": 36,
+          "load_ms": 15.162731,
+          "loaded_bytes": 9250192,
+          "peak_rss_bytes": 15462400,
+          "signals": 67144,
+          "stretches": 449023
+        },
+        {
+          "baseline_rss_bytes": 3534848,
+          "blocks": 36,
+          "load_ms": 15.492139,
+          "loaded_bytes": 9250192,
+          "peak_rss_bytes": 15667200,
+          "signals": 67144,
+          "stretches": 449023
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/c910_coremark_fstapi_zlib.fst",
+      "trace_bytes": 407820587,
+      "format": "fst",
+      "signals": 67144,
+      "blocks": 134,
+      "stretches": 1577364,
+      "sidecar_bytes": 5004482,
+      "sidecar_sha256": "f95ed1885dd799fca99640cf30ea322bd7164621d5575df93206335ccd71a113",
+      "build_s": 1.411821372,
+      "build_samples_s": [
+        1.431285222,
+        1.417391338,
+        1.411821372
+      ],
+      "loaded_bytes": 31820148,
+      "peak_rss_bytes": 41320448,
+      "load_ms": 52.026115999999995,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3461120,
+          "blocks": 134,
+          "load_ms": 52.602053000000005,
+          "loaded_bytes": 31820148,
+          "peak_rss_bytes": 41185280,
+          "signals": 67144,
+          "stretches": 1577364
+        },
+        {
+          "baseline_rss_bytes": 3526656,
+          "blocks": 134,
+          "load_ms": 55.240547,
+          "loaded_bytes": 31820148,
+          "peak_rss_bytes": 41185280,
+          "signals": 67144,
+          "stretches": 1577364
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 134,
+          "load_ms": 52.026115999999995,
+          "loaded_bytes": 31820148,
+          "peak_rss_bytes": 41320448,
+          "signals": 67144,
+          "stretches": 1577364
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/scr1_x8.vtr",
+      "trace_bytes": 12460833,
+      "format": "vtr",
+      "signals": 11560,
+      "blocks": 10,
+      "stretches": 14176,
+      "sidecar_bytes": 10300,
+      "sidecar_sha256": "daef0f5f325be176f4cc76bae74ea55aab2a81606bcb888a757b51bc71da9e67",
+      "build_s": 0.077543716,
+      "build_samples_s": [
+        0.078643895,
+        0.077543716,
+        0.078809394
+      ],
+      "loaded_bytes": 330084,
+      "peak_rss_bytes": 4616192,
+      "load_ms": 0.452725,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3563520,
+          "blocks": 10,
+          "load_ms": 0.459434,
+          "loaded_bytes": 330084,
+          "peak_rss_bytes": 4612096,
+          "signals": 11560,
+          "stretches": 14176
+        },
+        {
+          "baseline_rss_bytes": 3637248,
+          "blocks": 10,
+          "load_ms": 0.460764,
+          "loaded_bytes": 330084,
+          "peak_rss_bytes": 4616192,
+          "signals": 11560,
+          "stretches": 14176
+        },
+        {
+          "baseline_rss_bytes": 3485696,
+          "blocks": 10,
+          "load_ms": 0.452725,
+          "loaded_bytes": 330084,
+          "peak_rss_bytes": 4464640,
+          "signals": 11560,
+          "stretches": 14176
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/scr1_x8_fstapi_zlib.fst",
+      "trace_bytes": 26539397,
+      "format": "fst",
+      "signals": 11560,
+      "blocks": 22,
+      "stretches": 93848,
+      "sidecar_bytes": 30836,
+      "sidecar_sha256": "2845e06c18921c96b1f5191f92f4d6a9346c0e762b9e5e7fbbbf9480fc448741",
+      "build_s": 0.121247583,
+      "build_samples_s": [
+        0.12245577,
+        0.121247583,
+        0.123257704
+      ],
+      "loaded_bytes": 1923908,
+      "peak_rss_bytes": 6139904,
+      "load_ms": 1.551694,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3555328,
+          "blocks": 22,
+          "load_ms": 1.582436,
+          "loaded_bytes": 1923908,
+          "peak_rss_bytes": 6045696,
+          "signals": 11560,
+          "stretches": 93848
+        },
+        {
+          "baseline_rss_bytes": 3403776,
+          "blocks": 22,
+          "load_ms": 1.57521,
+          "loaded_bytes": 1923908,
+          "peak_rss_bytes": 6021120,
+          "signals": 11560,
+          "stretches": 93848
+        },
+        {
+          "baseline_rss_bytes": 3588096,
+          "blocks": 22,
+          "load_ms": 1.551694,
+          "loaded_bytes": 1923908,
+          "peak_rss_bytes": 6139904,
+          "signals": 11560,
+          "stretches": 93848
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/long_sparse.vtr",
+      "trace_bytes": 8235306,
+      "format": "vtr",
+      "signals": 20001,
+      "blocks": 1,
+      "stretches": 20212,
+      "sidecar_bytes": 178722,
+      "sidecar_sha256": "44f26eabf091964febfbdb1d54adf34ddcf04c71f1274e2a69e975d685e1aeba",
+      "build_s": 0.035230368,
+      "build_samples_s": [
+        0.035420919,
+        0.035230368,
+        0.035922234
+      ],
+      "loaded_bytes": 484280,
+      "peak_rss_bytes": 5033984,
+      "load_ms": 1.1259359999999998,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3497984,
+          "blocks": 1,
+          "load_ms": 1.173386,
+          "loaded_bytes": 484280,
+          "peak_rss_bytes": 4976640,
+          "signals": 20001,
+          "stretches": 20212
+        },
+        {
+          "baseline_rss_bytes": 3522560,
+          "blocks": 1,
+          "load_ms": 1.1259359999999998,
+          "loaded_bytes": 484280,
+          "peak_rss_bytes": 4808704,
+          "signals": 20001,
+          "stretches": 20212
+        },
+        {
+          "baseline_rss_bytes": 3551232,
+          "blocks": 1,
+          "load_ms": 1.228666,
+          "loaded_bytes": 484280,
+          "peak_rss_bytes": 5033984,
+          "signals": 20001,
+          "stretches": 20212
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/long_sparse_fstapi_zlib.fst",
+      "trace_bytes": 13529412,
+      "format": "fst",
+      "signals": 20001,
+      "blocks": 1,
+      "stretches": 25896,
+      "sidecar_bytes": 231656,
+      "sidecar_sha256": "4fc09a06805846211605bf796ff328540b390cfa91a4e10b7fbf7d9c32484845",
+      "build_s": 0.167711728,
+      "build_samples_s": [
+        0.167711728,
+        0.170434967,
+        0.168114514
+      ],
+      "loaded_bytes": 597960,
+      "peak_rss_bytes": 5160960,
+      "load_ms": 1.4837150000000001,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3604480,
+          "blocks": 1,
+          "load_ms": 1.52636,
+          "loaded_bytes": 597960,
+          "peak_rss_bytes": 5120000,
+          "signals": 20001,
+          "stretches": 25896
+        },
+        {
+          "baseline_rss_bytes": 3575808,
+          "blocks": 1,
+          "load_ms": 1.506632,
+          "loaded_bytes": 597960,
+          "peak_rss_bytes": 5160960,
+          "signals": 20001,
+          "stretches": 25896
+        },
+        {
+          "baseline_rss_bytes": 3620864,
+          "blocks": 1,
+          "load_ms": 1.4837150000000001,
+          "loaded_bytes": 597960,
+          "peak_rss_bytes": 5140480,
+          "signals": 20001,
+          "stretches": 25896
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/many_active.vtr",
+      "trace_bytes": 73052971,
+      "format": "vtr",
+      "signals": 200001,
+      "blocks": 2,
+      "stretches": 384991,
+      "sidecar_bytes": 1298112,
+      "sidecar_sha256": "522fc1ede8ec757df6290b00290c8ada25c4ff50bf1cdd22a2b0ef413feebb14",
+      "build_s": 0.116780919,
+      "build_samples_s": [
+        0.117400401,
+        0.117324206,
+        0.116780919
+      ],
+      "loaded_bytes": 8499892,
+      "peak_rss_bytes": 16367616,
+      "load_ms": 13.504747,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3530752,
+          "blocks": 2,
+          "load_ms": 13.703757000000001,
+          "loaded_bytes": 8499892,
+          "peak_rss_bytes": 16117760,
+          "signals": 200001,
+          "stretches": 384991
+        },
+        {
+          "baseline_rss_bytes": 3645440,
+          "blocks": 2,
+          "load_ms": 13.504747,
+          "loaded_bytes": 8499892,
+          "peak_rss_bytes": 16367616,
+          "signals": 200001,
+          "stretches": 384991
+        },
+        {
+          "baseline_rss_bytes": 3538944,
+          "blocks": 2,
+          "load_ms": 14.123556,
+          "loaded_bytes": 8499892,
+          "peak_rss_bytes": 16326656,
+          "signals": 200001,
+          "stretches": 384991
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/many_active_fstapi_zlib.fst",
+      "trace_bytes": 107301035,
+      "format": "fst",
+      "signals": 200001,
+      "blocks": 7,
+      "stretches": 415445,
+      "sidecar_bytes": 1137798,
+      "sidecar_sha256": "f1843f5568a0341f98187a90725198e7252f72bd6604f39e923aa190d0a48ce7",
+      "build_s": 0.195050162,
+      "build_samples_s": [
+        0.196038028,
+        0.195050162,
+        0.20537708
+      ],
+      "loaded_bytes": 9109132,
+      "peak_rss_bytes": 16322560,
+      "load_ms": 14.767669000000001,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3600384,
+          "blocks": 7,
+          "load_ms": 15.206056,
+          "loaded_bytes": 9109132,
+          "peak_rss_bytes": 16322560,
+          "signals": 200001,
+          "stretches": 415445
+        },
+        {
+          "baseline_rss_bytes": 3538944,
+          "blocks": 7,
+          "load_ms": 15.958087999999998,
+          "loaded_bytes": 9109132,
+          "peak_rss_bytes": 16130048,
+          "signals": 200001,
+          "stretches": 415445
+        },
+        {
+          "baseline_rss_bytes": 3555328,
+          "blocks": 7,
+          "load_ms": 14.767669000000001,
+          "loaded_bytes": 9109132,
+          "peak_rss_bytes": 16277504,
+          "signals": 200001,
+          "stretches": 415445
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/wide_bus.vtr",
+      "trace_bytes": 14335453,
+      "format": "vtr",
+      "signals": 129,
+      "blocks": 1,
+      "stretches": 20271,
+      "sidecar_bytes": 44131,
+      "sidecar_sha256": "7973c022cee794dde1dc1975543437f08dfc454845be2f65a93ce506fe76f85b",
+      "build_s": 0.025181876,
+      "build_samples_s": [
+        0.025181876,
+        0.025189761,
+        0.025697179
+      ],
+      "loaded_bytes": 405972,
+      "peak_rss_bytes": 4726784,
+      "load_ms": 0.599075,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3653632,
+          "blocks": 1,
+          "load_ms": 0.599075,
+          "loaded_bytes": 405972,
+          "peak_rss_bytes": 4726784,
+          "signals": 129,
+          "stretches": 20271
+        },
+        {
+          "baseline_rss_bytes": 3530752,
+          "blocks": 1,
+          "load_ms": 0.600658,
+          "loaded_bytes": 405972,
+          "peak_rss_bytes": 4476928,
+          "signals": 129,
+          "stretches": 20271
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 1,
+          "load_ms": 0.653761,
+          "loaded_bytes": 405972,
+          "peak_rss_bytes": 4603904,
+          "signals": 129,
+          "stretches": 20271
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/wide_bus_fstapi_zlib.fst",
+      "trace_bytes": 14803081,
+      "format": "fst",
+      "signals": 129,
+      "blocks": 2,
+      "stretches": 15222,
+      "sidecar_bytes": 31614,
+      "sidecar_sha256": "770089cd265b7744023f80209eb47c25617ba10403a68fb33df421d83b592f75",
+      "build_s": 0.034088458,
+      "build_samples_s": [
+        0.034088458,
+        0.03439617,
+        0.034280563
+      ],
+      "loaded_bytes": 305024,
+      "peak_rss_bytes": 4591616,
+      "load_ms": 0.424128,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3534848,
+          "blocks": 2,
+          "load_ms": 0.444067,
+          "loaded_bytes": 305024,
+          "peak_rss_bytes": 4558848,
+          "signals": 129,
+          "stretches": 15222
+        },
+        {
+          "baseline_rss_bytes": 3493888,
+          "blocks": 2,
+          "load_ms": 0.424128,
+          "loaded_bytes": 305024,
+          "peak_rss_bytes": 4386816,
+          "signals": 129,
+          "stretches": 15222
+        },
+        {
+          "baseline_rss_bytes": 3571712,
+          "blocks": 2,
+          "load_ms": 0.441146,
+          "loaded_bytes": 305024,
+          "peak_rss_bytes": 4591616,
+          "signals": 129,
+          "stretches": 15222
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large_vtr.vtr",
+      "trace_bytes": 358071621,
+      "format": "vtr",
+      "signals": 8,
+      "blocks": 14,
+      "stretches": 300004,
+      "sidecar_bytes": 2623,
+      "sidecar_sha256": "6303cc05da5dbe1e3edf555553bedc84bda4aff1685741db44c9622cdf3c22db",
+      "build_s": 0.476997006,
+      "build_samples_s": [
+        0.488805843,
+        0.487100323,
+        0.476997006
+      ],
+      "loaded_bytes": 6000564,
+      "peak_rss_bytes": 10158080,
+      "load_ms": 2.493294,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3547136,
+          "blocks": 14,
+          "load_ms": 2.546902,
+          "loaded_bytes": 6000564,
+          "peak_rss_bytes": 10113024,
+          "signals": 8,
+          "stretches": 300004
+        },
+        {
+          "baseline_rss_bytes": 3588096,
+          "blocks": 14,
+          "load_ms": 2.493294,
+          "loaded_bytes": 6000564,
+          "peak_rss_bytes": 10158080,
+          "signals": 8,
+          "stretches": 300004
+        },
+        {
+          "baseline_rss_bytes": 3420160,
+          "blocks": 14,
+          "load_ms": 2.527896,
+          "loaded_bytes": 6000564,
+          "peak_rss_bytes": 10055680,
+          "signals": 8,
+          "stretches": 300004
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large_many_scopes.vtr",
+      "trace_bytes": 4177123346,
+      "format": "vtr",
+      "signals": 128,
+      "blocks": 77,
+      "stretches": 128,
+      "sidecar_bytes": 8950,
+      "sidecar_sha256": "689ea522f1a1226b6f55134bcdd6966f5c30c122e25bf58137fe032a5eae497f",
+      "build_s": 0.840180102,
+      "build_samples_s": [
+        0.842157836,
+        0.841584388,
+        0.840180102
+      ],
+      "loaded_bytes": 5540,
+      "peak_rss_bytes": 4128768,
+      "load_ms": 0.038789,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3641344,
+          "blocks": 77,
+          "load_ms": 0.041259,
+          "loaded_bytes": 5540,
+          "peak_rss_bytes": 4128768,
+          "signals": 128,
+          "stretches": 128
+        },
+        {
+          "baseline_rss_bytes": 3543040,
+          "blocks": 77,
+          "load_ms": 0.038872000000000004,
+          "loaded_bytes": 5540,
+          "peak_rss_bytes": 4030464,
+          "signals": 128,
+          "stretches": 128
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 77,
+          "load_ms": 0.038789,
+          "loaded_bytes": 5540,
+          "peak_rss_bytes": 4083712,
+          "signals": 128,
+          "stretches": 128
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large_analog_signals.vtr",
+      "trace_bytes": 4211598871,
+      "format": "vtr",
+      "signals": 15,
+      "blocks": 117,
+      "stretches": 15,
+      "sidecar_bytes": 13419,
+      "sidecar_sha256": "187ebab6b73b95dd048b3e49b3089d910486d3ed323ee4215e9324595d1c69e3",
+      "build_s": 1.427657723,
+      "build_samples_s": [
+        1.427657723,
+        1.429911405,
+        1.442736468
+      ],
+      "loaded_bytes": 4108,
+      "peak_rss_bytes": 4096000,
+      "load_ms": 0.041967,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3477504,
+          "blocks": 117,
+          "load_ms": 0.046229,
+          "loaded_bytes": 4108,
+          "peak_rss_bytes": 4046848,
+          "signals": 15,
+          "stretches": 15
+        },
+        {
+          "baseline_rss_bytes": 3444736,
+          "blocks": 117,
+          "load_ms": 0.04601,
+          "loaded_bytes": 4108,
+          "peak_rss_bytes": 3944448,
+          "signals": 15,
+          "stretches": 15
+        },
+        {
+          "baseline_rss_bytes": 3596288,
+          "blocks": 117,
+          "load_ms": 0.041967,
+          "loaded_bytes": 4108,
+          "peak_rss_bytes": 4096000,
+          "signals": 15,
+          "stretches": 15
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large/gates1.vtr",
+      "trace_bytes": 12429061,
+      "format": "vtr",
+      "signals": 569422,
+      "blocks": 1,
+      "stretches": 0,
+      "sidecar_bytes": 381,
+      "sidecar_sha256": "66b47ce2fccb7bac52cc256bc95811afa51992ca51877e6183bb568bb4dd52f0",
+      "build_s": 0.006671656,
+      "build_samples_s": [
+        0.006671656,
+        0.006823476,
+        0.007094324
+      ],
+      "loaded_bytes": 2277724,
+      "peak_rss_bytes": 8417280,
+      "load_ms": 3.246529,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3555328,
+          "blocks": 1,
+          "load_ms": 3.246529,
+          "loaded_bytes": 2277724,
+          "peak_rss_bytes": 8183808,
+          "signals": 569422,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3588096,
+          "blocks": 1,
+          "load_ms": 3.437177,
+          "loaded_bytes": 2277724,
+          "peak_rss_bytes": 8417280,
+          "signals": 569422,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3522560,
+          "blocks": 1,
+          "load_ms": 3.372475,
+          "loaded_bytes": 2277724,
+          "peak_rss_bytes": 8216576,
+          "signals": 569422,
+          "stretches": 0
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large/gates4.vtr",
+      "trace_bytes": 47162020,
+      "format": "vtr",
+      "signals": 2277688,
+      "blocks": 1,
+      "stretches": 0,
+      "sidecar_bytes": 381,
+      "sidecar_sha256": "7e40b19f0224cb4f74d44efbdbad578e6aece09fac0589bba2e88334d4e1db98",
+      "build_s": 0.020083544,
+      "build_samples_s": [
+        0.022126298,
+        0.020083544,
+        0.022862189
+      ],
+      "loaded_bytes": 9110788,
+      "peak_rss_bytes": 22007808,
+      "load_ms": 13.834357,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3551232,
+          "blocks": 1,
+          "load_ms": 13.834357,
+          "loaded_bytes": 9110788,
+          "peak_rss_bytes": 21843968,
+          "signals": 2277688,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3641344,
+          "blocks": 1,
+          "load_ms": 13.895909999999999,
+          "loaded_bytes": 9110788,
+          "peak_rss_bytes": 21868544,
+          "signals": 2277688,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3649536,
+          "blocks": 1,
+          "load_ms": 14.310071,
+          "loaded_bytes": 9110788,
+          "peak_rss_bytes": 22007808,
+          "signals": 2277688,
+          "stretches": 0
+        }
+      ]
+    },
+    {
+      "trace": "volna/volna/examples/large/gates16.vtr",
+      "trace_bytes": 186143709,
+      "format": "vtr",
+      "signals": 9110752,
+      "blocks": 1,
+      "stretches": 0,
+      "sidecar_bytes": 381,
+      "sidecar_sha256": "6d101988e3b7c887b5883f1369de2bf51a6e8e3185fe2254aaed3e145e8a63c7",
+      "build_s": 0.084815445,
+      "build_samples_s": [
+        0.087840886,
+        0.084948639,
+        0.084815445
+      ],
+      "loaded_bytes": 36443044,
+      "peak_rss_bytes": 76550144,
+      "load_ms": 53.146366,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3600384,
+          "blocks": 1,
+          "load_ms": 54.14325100000001,
+          "loaded_bytes": 36443044,
+          "peak_rss_bytes": 76550144,
+          "signals": 9110752,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3543040,
+          "blocks": 1,
+          "load_ms": 53.146366,
+          "loaded_bytes": 36443044,
+          "peak_rss_bytes": 76492800,
+          "signals": 9110752,
+          "stretches": 0
+        },
+        {
+          "baseline_rss_bytes": 3506176,
+          "blocks": 1,
+          "load_ms": 55.117922,
+          "loaded_bytes": 36443044,
+          "peak_rss_bytes": 76521472,
+          "signals": 9110752,
+          "stretches": 0
+        }
+      ]
+    },
+    {
+      "trace": "bench/results/latest/activity_bursty.vtr",
+      "trace_bytes": 304885222,
+      "format": "vtr",
+      "signals": 16035,
+      "blocks": 7,
+      "stretches": 363717,
+      "sidecar_bytes": 2928447,
+      "sidecar_sha256": "a7d2e8decc1652416e4521a8b907a2e806717fa28f3ba9ec1bb0a5b9aaeed8a9",
+      "build_s": 0.126631333,
+      "build_samples_s": [
+        0.129505902,
+        0.126631333,
+        0.12841024
+      ],
+      "loaded_bytes": 7338708,
+      "peak_rss_bytes": 15175680,
+      "load_ms": 14.061498,
+      "needs_paging": false,
+      "samples": [
+        {
+          "baseline_rss_bytes": 3534848,
+          "blocks": 7,
+          "load_ms": 14.696989,
+          "loaded_bytes": 7338708,
+          "peak_rss_bytes": 15175680,
+          "signals": 16035,
+          "stretches": 363717
+        },
+        {
+          "baseline_rss_bytes": 3579904,
+          "blocks": 7,
+          "load_ms": 14.909006000000002,
+          "loaded_bytes": 7338708,
+          "peak_rss_bytes": 15020032,
+          "signals": 16035,
+          "stretches": 363717
+        },
+        {
+          "baseline_rss_bytes": 3518464,
+          "blocks": 7,
+          "load_ms": 14.061498,
+          "loaded_bytes": 7338708,
+          "peak_rss_bytes": 14962688,
+          "signals": 16035,
+          "stretches": 363717
+        }
+      ]
+    }
+  ],
+  "needs_paging": false
+}

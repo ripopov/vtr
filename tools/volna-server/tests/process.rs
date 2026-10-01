@@ -14,7 +14,10 @@ use volna_core::session::LoadResult;
 use volna_core::session::OpenSpec;
 
 struct Server {
-    child: Child,
+    child: std::sync::Arc<std::sync::Mutex<Child>>,
+    deadline: std::sync::mpsc::Sender<()>,
+    watchdog: Option<std::thread::JoinHandle<()>>,
+    timed_out: std::sync::Arc<std::sync::atomic::AtomicBool>,
     input: ChildStdin,
     output: ChildStdout,
     session: u64,
@@ -22,8 +25,19 @@ struct Server {
 }
 impl Drop for Server {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.deadline.send(());
+        if let Some(watchdog) = self.watchdog.take() {
+            watchdog.join().unwrap();
+        }
+        let mut child = self.child.lock().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        if !std::thread::panicking() {
+            assert!(
+                !self.timed_out.load(std::sync::atomic::Ordering::Acquire),
+                "server test exceeded 60-second deadline"
+            );
+        }
     }
 }
 impl Server {
@@ -63,10 +77,29 @@ impl Server {
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
+        let input = child.stdin.take().unwrap();
+        let output = child.stdout.take().unwrap();
+        let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+        let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (deadline, stop) = std::sync::mpsc::channel();
+        let owned_child = child.clone();
+        let expired = timed_out.clone();
+        let watchdog = Some(std::thread::spawn(move || {
+            if matches!(
+                stop.recv_timeout(std::time::Duration::from_secs(60)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                expired.store(true, std::sync::atomic::Ordering::Release);
+                let _ = owned_child.lock().unwrap().kill();
+            }
+        }));
         Self {
-            input: child.stdin.take().unwrap(),
-            output: child.stdout.take().unwrap(),
+            input,
+            output,
             child,
+            deadline,
+            watchdog,
+            timed_out,
             session: 0,
             request: 0,
         }
@@ -216,9 +249,17 @@ impl Server {
         receiver.finish().unwrap();
         results
     }
+    fn wait(&self) -> std::process::ExitStatus {
+        loop {
+            if let Some(status) = self.child.lock().unwrap().try_wait().unwrap() {
+                return status;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
     fn close(&mut self) {
         self.command(Command::Close);
-        assert!(self.child.wait().unwrap().success());
+        assert!(self.wait().success());
     }
 }
 
@@ -482,5 +523,52 @@ fn changed_recording_invalidates_process() {
         .unwrap();
     server.command(Command::Track(0));
     assert!(read_packet(&mut server.output).unwrap().is_none());
-    assert!(!server.child.wait().unwrap().success());
+    assert!(!server.wait().success());
+}
+
+#[test]
+fn activity_sidecars_are_raw_cached_objects_shared_between_processes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shared.vtr");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../volna/volna/examples/picorv32.vtr"),
+        &path,
+    )
+    .unwrap();
+    let mut first = Server::start(&path);
+    let mut second = Server::start(&path);
+    let a = first.open(64 << 20).unwrap();
+    let b = second.open(64 << 20).unwrap();
+    assert!(!a.activity.as_ref().unwrap().available);
+    assert_eq!(a.activity, b.activity);
+    assert!(!a.server.is_empty());
+    // Fetch-only does not authorize a build or create a sidecar.
+    first.command(Command::Activity { build: false });
+    assert!(first.receive::<Vec<u8>>(vec![ObjectId::Activity])[0].is_err());
+    assert!(!path.with_extension("vtr.index").exists());
+    first.command(Command::Activity { build: true });
+    let image = first
+        .receive::<Vec<u8>>(vec![ObjectId::Activity])
+        .pop()
+        .unwrap()
+        .unwrap();
+    let identity = a.activity.unwrap().identity().unwrap();
+    let index = vtr::activity::Index::decode(&image, &identity).unwrap();
+    assert_eq!(index.signal_count() as usize, a.info.signal_count);
+    let index_path = path.with_extension("vtr.index");
+    let modified = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+    second.command(Command::Activity { build: true });
+    let other = second
+        .receive::<Vec<u8>>(vec![ObjectId::Activity])
+        .pop()
+        .unwrap()
+        .unwrap();
+    assert_eq!(image, other);
+    assert_eq!(
+        modified,
+        std::fs::metadata(&index_path).unwrap().modified().unwrap(),
+        "second server reuses publication"
+    );
+    first.close();
+    second.close();
 }

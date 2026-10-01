@@ -167,6 +167,34 @@ pub fn serve(
                     )?;
                 }
             }
+            Command::Activity { build } => {
+                let cache = vtr::activity::default_cache_dir();
+                let result = (|| {
+                    if build && session.activity().is_none() {
+                        // This server owns the scan. A disconnected client's
+                        // scan may finish and publish for subsequent clients.
+                        let options = vtr::activity::BuildOptions {
+                            control: Some(Arc::new(vtr::activity::BuildControl::default())),
+                            ..Default::default()
+                        };
+                        let budget = super::memory::MemoryBudget::new(2 << 30);
+                        session.build_activity(&options, &budget, cache.as_deref())?;
+                    }
+                    session.activity_image(cache.as_deref())
+                })();
+                check_snapshot()?;
+                #[derive(Serialize)]
+                struct Image<'a>(#[serde(serialize_with = "super::serialize_bytes")] &'a [u8]);
+                reply(
+                    &mut writer,
+                    ObjectId::Activity,
+                    result
+                        .as_ref()
+                        .map(|bytes| Image(bytes))
+                        .map_err(|error| anyhow::anyhow!("{error:#}")),
+                    max_object_bytes,
+                )?;
+            }
             Command::Track(id) => {
                 let result = session.load_track(TrackRef(id));
                 check_snapshot()?;

@@ -74,6 +74,33 @@ and FST fixtures, one sample and no pinning:
 python3 bench/activity-memory.py --samples 1 --cpus '' --output /tmp/activity-memory.json volna/volna/examples/picorv32.vtr volna/volna/examples/landing_dram.fst
 ```
 
+### Remote sidecar reader A/B
+
+The activity decoder used for remote installation is also the native sidecar
+reader. Its A/B gate measures the complete activity cohort, including all eight
+signal workloads' VTR/FST twins, large traces, hierarchy expansions and the
+bursty recording. The trace writer and waveform/history value decode paths are
+unchanged; this compares sidecar size, build time, load time and loading RSS.
+The runner alternates A/B order for each sample, builds each sidecar in isolated
+temporary state, verifies matching SHA-256 digests, and loads in fresh child
+processes. Best-of-three build and load times and every sample are recorded.
+Each command has a five-minute timeout; failure removes temporary sidecars.
+
+After provisioning the cohort with the commands above:
+
+```sh
+git worktree add --detach /tmp/activity-baseline 3ad43ab
+# Initialize the baseline's workspace dependency (or share the pinned local copy).
+git -C /tmp/activity-baseline submodule update --init --depth 1 ext/elkrs
+cargo build --locked --release -p vtr-bench --manifest-path /tmp/activity-baseline/Cargo.toml --target-dir /tmp/activity-baseline-target
+cargo build --locked --release -p vtr-bench
+python3 bench/activity-memory.py --cohort bench/results/activity-memory/results.json --samples 3 \
+  --baseline-binary /tmp/activity-baseline-target/release/vtr-bench \
+  --baseline-output bench/results/activity-remote/baseline.json \
+  --output bench/results/activity-remote/current.json
+python3 bench/run.py report
+```
+
 ## Competitors
 
 | label | what |

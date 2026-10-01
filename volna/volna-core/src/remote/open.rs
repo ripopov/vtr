@@ -1,4 +1,4 @@
-//! One asynchronous protocol-v5 Open. The catalog, pages and indexes stay
+//! One asynchronous protocol-v6 Open. The catalog, pages and indexes stay
 //! private until every page's End and cooperative validation have completed.
 use super::ClientStep;
 use super::decode::{Decoder, Step};

@@ -92,6 +92,19 @@ async fn metadata(r: &Reader) -> anyhow::Result<super::hierarchy::Header> {
         .await?;
     let scopes = r.u32().await?;
     let vars = r.u32().await?;
+    let activity = if r.boolean().await? {
+        let descriptor = super::activity::Descriptor {
+            format: r.u8().await?,
+            length: r.u64().await?,
+            toc_crc: r.u32().await?,
+            available: r.boolean().await?,
+        };
+        descriptor.identity()?;
+        Some(descriptor)
+    } else {
+        None
+    };
+    let server = r.string().await?;
     Ok(super::hierarchy::Header {
         info,
         capabilities,
@@ -99,6 +112,8 @@ async fn metadata(r: &Reader) -> anyhow::Result<super::hierarchy::Header> {
         generators,
         scopes,
         vars,
+        activity,
+        server,
     })
 }
 
@@ -294,6 +309,8 @@ mod tests {
             generators: metadata.hierarchy.generators.as_ref().clone(),
             scopes: metadata.hierarchy.scope_count() as u32,
             vars: metadata.hierarchy.var_count() as u32,
+            activity: metadata.activity.clone(),
+            server: metadata.server.clone(),
         })
         .unwrap();
         assert!(bytes.len() < DATA_BYTES);

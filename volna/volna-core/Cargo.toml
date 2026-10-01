@@ -27,6 +27,9 @@ sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+gethostname = "=1.1.0"
+
 [features]
 # Test fixtures (`volna_core::testing`) for this crate's integration tests and
 # for frontend tests.

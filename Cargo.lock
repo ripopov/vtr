@@ -8623,6 +8623,7 @@ dependencies = [
  "bincode",
  "flate2",
  "fst-reader",
+ "gethostname",
  "log",
  "lz4_flex 0.11.6",
  "percent-encoding",

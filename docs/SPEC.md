@@ -927,10 +927,10 @@ sets it as an attribute. Misuse (a key that names no item, a key reused before
 its item ended) is reported as warnings in the `simulation_log` stream at
 close. The package adds no section, value tag or format version.
 
-## Raw hierarchy transport, version 5
+## Raw hierarchy and activity transport, version 6
 
 The query transport has its own version, independent of VTR 1.1. The `VLNA`
-frame header carries version **5** and rejects other versions before decoding
+frame header carries version **6** and rejects other versions before decoding
 objects. Existing framing, checksums, request/session identities, acknowledgement
 backpressure and complete-object semantics are specified in
 [`remote::transport`](../volna/volna-core/src/remote/transport.rs).
@@ -939,10 +939,35 @@ No VTR section or encoding changes.
 An Open response sends a `Metadata` catalog followed by `Scopes(page)` objects
 and then `Variables(page)` objects, with zero-based page numbers. The catalog
 contains, in order, `TraceInfo`, capabilities, tracks, generator declarations,
-`u32 scope_count`, and `u32 variable_count`. These are raw recording fields;
+`u32 scope_count`, `u32 variable_count`, an optional activity-source descriptor,
+and the reader host name as a UTF-8 string. The descriptor is a one-byte
+option tag, followed when present by `u8 format` (1 VTR, 2 FST), `u64 trace_length`,
+`u32 toc_crc`, and a boolean indicating whether a valid sidecar is available.
+Its identity is the one defined by the activity sidecar; unknown format codes
+are rejected. Byte-backed or recovered recordings without a stable index
+source omit the descriptor. These are raw recording and transport fields;
 VDB profiles, annotations, formats, colors and workspace state remain client-side.
 Each declaration section has `ceil(count / 65536)` pages. All pages except the
 last contain exactly 65,536 declarations. An empty section sends no pages.
+
+`Activity { build: bool }` requests one `Activity` object containing the raw
+sidecar image as a length-prefixed byte vector. Normal framing compresses and
+checksums its bounded packets. `build: false` only fetches an existing valid
+sidecar; absence is an object error. `build: true` authorizes the reader to
+build a missing sidecar with the same VTR/FST library builder before responding.
+The reader validates the recording snapshot before and after the query.
+The sidecar retains version 1; transport version 6 is required because the
+catalog and command/object discriminants changed. Old peers fail before any
+object is installed.
+
+Builds coordinate through an exclusive persistent `<sidecar>.lock` file,
+beside the recording or in the identity-keyed user cache when the recording
+directory is read-only. A lock holder rechecks the valid cache before scanning.
+The lock is released on handle close; its file is retained so waiters and new
+clients always use the same lock identity. Completed sidecars are atomically
+published and shared by later clients. A client disconnect does not revoke a
+server-owned build: it may finish and cache its result, but a partial transfer
+never becomes a client index. Presentation and classification remain client-side.
 
 Each page uses the fixed little-endian bincode representation: `u32 start`,
 `Vec<u32> ids`, `Vec<Vec<u32>> columns`, `Vec<u8> names`, `Vec<u32> offsets`,

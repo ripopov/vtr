@@ -366,11 +366,32 @@ impl Session for FstSession {
                 .as_ref()
                 .map_or(0, |a| a.source.resident_bytes())
     }
-    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+    fn activity(&self) -> Option<Arc<crate::data::ActivityIndex>> {
         self.activity.as_ref().and_then(|a| a.source.index())
     }
     fn activity_build_info(&self) -> Option<super::ActivityBuildInfo> {
         self.activity.as_ref().map(|a| a.source.info())
+    }
+    fn activity_identity(&self) -> Option<vtr::activity::Identity> {
+        self.activity
+            .as_ref()
+            .map(|a| &a.source)
+            .map(|a| a.identity)
+    }
+    fn activity_image(&self, cache_dir: Option<&std::path::Path>) -> anyhow::Result<Vec<u8>> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.activity
+                .as_ref()
+                .map(|a| &a.source)
+                .ok_or_else(|| anyhow::anyhow!("this trace has no activity source"))?
+                .image(cache_dir)
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = cache_dir;
+            anyhow::bail!("byte-backed traces have no sidecar")
+        }
     }
     fn build_activity(
         &self,

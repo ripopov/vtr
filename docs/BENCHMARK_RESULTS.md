@@ -333,9 +333,41 @@ Paging is requested when a retained index exceeds the default 256 MiB object lim
 | gates16.vtr | 177.52 MiB | 9,110,752 | 381 B | 34.75 MiB | 73.22 MiB | 51.34 ms |
 | activity_bursty.vtr | 290.76 MiB | 16,035 | 2.79 MiB | 7.00 MiB | 14.57 MiB | 13.66 ms |
 
-The gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). Trace bytes and production encoding, build and decode paths are unchanged.
+The gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). These measurements use the resident version-1 index; the current cooperative decoder’s A/B measurements follow.
 
 
+
+### Activity sidecar decoding for remote traces
+
+Stage 6 of [hierarchy activity](hierarchy-activity.html#stage-6) adds cooperative sidecar decoding and admission before table allocation. The same reader serves native opens and remote installation. `bench/activity-memory.py` interleaves the unchanged `3ad43ab` binary and the new reader on the full 23-trace activity cohort, pinned to CPUs 0-7, best of 3 builds and fresh-process loads. Sidecar SHA-256, size and retained bytes agree for every trace. Raw samples: `bench/results/activity-remote/baseline.json` and `current.json`. This isolates native sidecar decoding; it does not measure network latency or WASM execution.
+
+| trace | sidecar (unchanged) | build s, before → after | load ms, before → after | peak load RSS MiB, before → after |
+|---|---:|---:|---:|---:|
+| scr1_axi.vtr | 7.1 KiB | 0.041 → 0.040 | 0.11 → 0.11 | 4.14 → 4.17 |
+| scr1_axi_fstapi_zlib.fst | 7.6 KiB | 0.035 → 0.035 | 0.11 → 0.11 | 4.08 → 4.12 |
+| rsa256.vtr | 3.1 KiB | 0.017 → 0.017 | 0.25 → 0.26 | 4.32 → 4.46 |
+| rsa256_fstapi_zlib.fst | 4.0 KiB | 0.038 → 0.038 | 0.28 → 0.28 | 4.43 → 4.50 |
+| rsa256_long.vtr | 19.9 KiB | 0.097 → 0.098 | 1.68 → 1.84 | 7.32 → 7.43 |
+| rsa256_long_fstapi_zlib.fst | 33.0 KiB | 0.134 → 0.118 | 1.76 → 1.80 | 7.08 → 7.28 |
+| c910_coremark.vtr | 1.73 MiB | 0.341 → 0.340 | 15.16 → 15.39 | 14.95 → 15.17 |
+| c910_coremark_fstapi_zlib.fst | 4.77 MiB | 1.412 → 1.422 | 52.03 → 53.43 | 39.41 → 39.75 |
+| scr1_x8.vtr | 10.1 KiB | 0.078 → 0.078 | 0.45 → 0.46 | 4.40 → 4.41 |
+| scr1_x8_fstapi_zlib.fst | 30.1 KiB | 0.121 → 0.124 | 1.55 → 1.59 | 5.86 → 5.95 |
+| long_sparse.vtr | 174.5 KiB | 0.035 → 0.036 | 1.13 → 1.08 | 4.80 → 4.84 |
+| long_sparse_fstapi_zlib.fst | 226.2 KiB | 0.168 → 0.163 | 1.48 → 1.47 | 4.92 → 5.21 |
+| many_active.vtr | 1.24 MiB | 0.117 → 0.118 | 13.50 → 13.41 | 15.61 → 15.79 |
+| many_active_fstapi_zlib.fst | 1.09 MiB | 0.195 → 0.196 | 14.77 → 14.51 | 15.57 → 15.64 |
+| wide_bus.vtr | 43.1 KiB | 0.025 → 0.025 | 0.60 → 0.58 | 4.51 → 4.42 |
+| wide_bus_fstapi_zlib.fst | 30.9 KiB | 0.034 → 0.034 | 0.42 → 0.42 | 4.38 → 4.48 |
+| large_vtr.vtr | 2.6 KiB | 0.477 → 0.483 | 2.49 → 2.61 | 9.69 → 9.76 |
+| large_many_scopes.vtr | 8.7 KiB | 0.840 → 0.838 | 0.04 → 0.04 | 3.94 → 3.97 |
+| large_analog_signals.vtr | 13.1 KiB | 1.428 → 1.436 | 0.04 → 0.04 | 3.91 → 4.05 |
+| gates1.vtr | 381 B | 0.007 → 0.007 | 3.25 → 3.61 | 8.03 → 8.04 |
+| gates4.vtr | 381 B | 0.020 → 0.021 | 13.83 → 14.64 | 20.99 → 21.02 |
+| gates16.vtr | 381 B | 0.085 → 0.091 | 53.15 → 56.44 | 73.00 → 73.20 |
+| activity_bursty.vtr | 2.79 MiB | 0.127 → 0.128 | 14.06 → 14.60 | 14.47 → 14.75 |
+
+The largest retained index (gates16.vtr) loads in 53.15 → 56.44 ms (+6.2%). Building ranges from 0.88–1.08× of the baseline. Peak loading RSS reaches 73.20 MiB and retained bytes reach 34.75 MiB. These are one-time index loads: panning uses the already resident immutable tables. The tradeoff buys allocation admission, cancellation and yielding between signal rows and stretches. Shared container checks also reject overflowing malformed directory lengths. Trace and sidecar encodings, waveform value decoding and the writer are unchanged.
 
 ## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
 

@@ -3147,3 +3147,51 @@ fn activity_build_banner_drives_build_dismiss_and_cancel(cx: &mut TestAppContext
     assert!(banners.size.height <= panel.size.height * 0.4 + gpui_kit::px(1.0));
     assert!(tree.size.height >= panel.size.height * 0.4);
 }
+
+/// The remote offer is ordinary GPUI chrome over the shared activity model.
+#[gpui_kit::test]
+fn remote_activity_banner_names_the_reader_and_dismisses(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, VisualTestContext};
+    use volna_core::remote::{objects::Metadata, session::RemoteSession};
+    init(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("remote.vtr");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr"),
+        &path,
+    )
+    .unwrap();
+    let source = volna_core::session::OpenSpec::Path(path).open().unwrap();
+    let mut metadata = Metadata::from_session(source.as_ref());
+    metadata.server = "build-01".into();
+    let remote = std::sync::Arc::new(RemoteSession::new(17, metadata).unwrap());
+    let window = cx.add_window(Workspace::new);
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    window
+        .update(&mut vcx, |ws, _, cx| {
+            ws.app.set_session(remote);
+            ws.after(None, cx);
+            let views = ws.app.activity.builds(
+                ws.app.doc.traces(),
+                ws.app.settings.resolved().hierarchy.activity_index,
+            );
+            assert_eq!(views.len(), 1);
+            assert!(views[0].message().contains("build-01 builds it"));
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let banner = vcx
+        .debug_bounds("activity-banner-A")
+        .expect("remote build offer");
+    let message = vcx
+        .debug_bounds("activity-message-A")
+        .expect("server-named message");
+    assert!(message.size.width > gpui_kit::px(0.0) && banner.contains(&message.center()));
+    assert!(vcx.debug_bounds("activity-build-A").is_some());
+    let dismiss = vcx.debug_bounds("activity-dismiss-A").expect("Not now");
+    vcx.simulate_click(dismiss.center(), Modifiers::default());
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(vcx.debug_bounds("activity-banner-A").is_none());
+}

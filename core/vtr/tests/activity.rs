@@ -479,3 +479,78 @@ fn set_read_only(dir: &Path, ro: bool) {
     p.set_readonly(ro);
     std::fs::set_permissions(dir, p).unwrap();
 }
+
+#[test]
+fn admitted_cooperative_decode_matches_sync_and_stops_before_allocation() {
+    use std::future::{poll_fn, Future};
+    use std::task::{Context, Poll, Wake, Waker};
+    use std::sync::Arc;
+    struct Noop;
+    impl Wake for Noop { fn wake(self: Arc<Self>) {} }
+    let waker = Waker::from(Arc::new(Noop));
+    let dir = tmpdir();
+    let trace = dir.path().join("cooperative.vtr");
+    random_trace(&trace, 941, 800, 127);
+    let reader = Reader::open(&trace).unwrap();
+    let identity = Identity::of(&reader).unwrap();
+    let mut bytes = Vec::new();
+    activity::build(&reader, &mut bytes, &Default::default()).unwrap();
+    let mut peak = 0;
+    let (index, yields) = {
+    let future = Index::decode_with(&bytes, &identity, |n| { peak = peak.max(n); Ok(()) }, || {
+        let mut yielded = false;
+        poll_fn(move |_| if std::mem::replace(&mut yielded, true) { Poll::Ready(Ok(())) } else { Poll::Pending })
+    });
+    let mut future = std::pin::pin!(future);
+    let mut yields = 0;
+    loop {
+        match future.as_mut().poll(&mut Context::from_waker(&waker)) {
+            Poll::Ready(result) => break (result.unwrap(), yields),
+            Poll::Pending => yields += 1,
+        }
+    }
+    };
+    assert!(yields > 100);
+    assert!(peak >= index.memory_bytes());
+    let ordinary = Index::decode(&bytes, &identity).unwrap();
+    assert_eq!(index.memory_bytes(), ordinary.memory_bytes());
+    for t in (0..reader.time_range().unwrap().1).step_by(8191) {
+        assert_eq!(index.classify(t, t + 37), ordinary.classify(t, t + 37));
+    }
+    let mut refused = std::pin::pin!(Index::decode_with(&bytes, &identity,
+        |_| Err(Error::Invalid("admission refused".into())), || std::future::ready(Ok(()))));
+    assert!(matches!(refused.as_mut().poll(&mut Context::from_waker(&waker)), Poll::Ready(Err(Error::Invalid(_)))));
+    let mut cancelled = std::pin::pin!(Index::decode_with(&bytes, &identity,
+        |_| Ok(()), || std::future::ready(Err(Error::Invalid("cancelled".into())))));
+    assert!(matches!(cancelled.as_mut().poll(&mut Context::from_waker(&waker)), Poll::Ready(Err(Error::Invalid(_)))));
+}
+
+#[test]
+fn malformed_sidecar_directory_lengths_fail_without_allocation_or_overflow() {
+    let dir = tmpdir();
+    let trace = dir.path().join("directory.vtr");
+    random_trace(&trace, 942, 100, 127);
+    let reader = Reader::open(&trace).unwrap();
+    let identity = Identity::of(&reader).unwrap();
+    let mut bytes = Vec::new();
+    activity::build(&reader, &mut bytes, &Default::default()).unwrap();
+    let trailer = bytes.len() - 24;
+    let directory = u64::from_le_bytes(bytes[trailer..trailer + 8].try_into().unwrap()) as usize;
+    let count = directory + 24;
+    for invalid in [u64::MAX, 1 << 63, (1 << 32) + 3] {
+        let mut bad = bytes.clone();
+        bad[count..count + 8].copy_from_slice(&invalid.to_le_bytes());
+        assert!(Index::decode(&bad, &identity).is_err());
+    }
+    // The first directory entry's payload length must not wrap around the
+    // section header, on native readers or the 32-bit WASM client.
+    let mut bad = bytes.clone();
+    bad[count + 24..count + 32].copy_from_slice(&u64::MAX.to_le_bytes());
+    assert!(Index::decode(&bad, &identity).is_err());
+    for slot in [trailer, trailer + 8] {
+        let mut bad = bytes.clone();
+        let original = u64::from_le_bytes(bad[slot..slot + 8].try_into().unwrap());
+        bad[slot..slot + 8].copy_from_slice(&(original + (1 << 32)).to_le_bytes());
+        assert!(Index::decode(&bad, &identity).is_err());
+    }
+}

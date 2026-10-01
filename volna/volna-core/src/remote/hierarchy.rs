@@ -1,4 +1,4 @@
-//! Protocol v5 bounded hierarchy pages. Names and fixed-width columns are
+//! Protocol v6 bounded hierarchy pages. Names and fixed-width columns are
 //! retained directly; no node acquires an owned string or vector.
 use super::decode::{Decoder, Reader, Step};
 use super::memory::{MemoryBudget, Reservation};
@@ -26,6 +26,8 @@ pub struct Header {
     pub generators: Vec<Generator>,
     pub scopes: u32,
     pub vars: u32,
+    pub activity: Option<super::activity::Descriptor>,
+    pub server: String,
 }
 #[derive(Serialize)]
 pub(crate) struct HeaderView<'a> {
@@ -35,6 +37,8 @@ pub(crate) struct HeaderView<'a> {
     generators: &'a [Generator],
     scopes: u32,
     vars: u32,
+    activity: Option<super::activity::Descriptor>,
+    server: String,
 }
 impl Header {
     pub(crate) fn borrowed(session: &dyn Session) -> anyhow::Result<HeaderView<'_>> {
@@ -45,6 +49,8 @@ impl Header {
             generators: &session.hierarchy().generators,
             scopes: session.hierarchy().scope_count().try_into()?,
             vars: session.hierarchy().var_count().try_into()?,
+            activity: super::activity::Descriptor::from_session(session),
+            server: server_name(),
         })
     }
     /// Owned catalog projection for fixtures; production serialization borrows.
@@ -56,6 +62,8 @@ impl Header {
             generators: session.hierarchy().generators.as_ref().clone(),
             scopes: session.hierarchy().scope_count().try_into()?,
             vars: session.hierarchy().var_count().try_into()?,
+            activity: super::activity::Descriptor::from_session(session),
+            server: server_name(),
         })
     }
     /// Number of required scope objects, including a partial last page.
@@ -65,6 +73,17 @@ impl Header {
     /// Number of required variable objects, including a partial last page.
     pub fn var_pages(&self) -> u32 {
         self.vars.div_ceil(PAGE_ENTRIES as u32)
+    }
+}
+
+fn server_name() -> String {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        gethostname::gethostname().to_string_lossy().into_owned()
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        "remote server".into()
     }
 }
 
@@ -711,6 +730,8 @@ impl Assembly {
                     hierarchy,
                     capabilities: assembly.header.capabilities,
                     tracks: assembly.header.tracks,
+                    activity: assembly.header.activity,
+                    server: assembly.header.server,
                 };
                 // Alias validation has one slot per signal, rather than per alias.
                 r.charge(

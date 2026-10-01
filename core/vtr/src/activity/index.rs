@@ -85,6 +85,30 @@ impl Index {
     /// [`Error::Corrupt`] or [`Error::Checksum`] for a damaged image. Every
     /// section's CRC is verified.
     pub fn decode(bytes: &[u8], trace: &Identity) -> Result<Index> {
+        let mut decode = std::pin::pin!(Self::decode_with(bytes, trace, |_| Ok(()), || std::future::ready(Ok(()))));
+        struct Wake;
+        impl std::task::Wake for Wake { fn wake(self: std::sync::Arc<Self>) {} }
+        let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
+        match std::future::Future::poll(decode.as_mut(), &mut std::task::Context::from_waker(&waker)) {
+            std::task::Poll::Ready(result) => result,
+            std::task::Poll::Pending => unreachable!("synchronous decoding never yields"),
+        }
+    }
+
+    /// Decodes with cooperative checkpoints and admission before table/scratch
+    /// allocation. `admit` receives the peak Rust heap bytes required so far,
+    /// excluding the input image and codec-native scratch; reject to stop before
+    /// allocation. Checkpoints can yield or cancel between rows and stretches.
+    /// The complete index remains private until the future succeeds.
+    pub async fn decode_with<F: std::future::Future<Output = Result<()>>>(
+        bytes: &[u8],
+        trace: &Identity,
+        mut admit: impl FnMut(u64) -> Result<()>,
+        mut checkpoint: impl FnMut() -> F,
+    ) -> Result<Index> {
+        // The directory cannot retain more entries than the encoded image can
+        // hold. Admit that upper bound before Container allocates its entries.
+        admit(bytes.len() as u64)?;
         let ((major, minor), entries) = Container::parse_closed(bytes, &MAGIC)?;
         if major != VERSION {
             return Err(Error::UnsupportedVersion { major, minor, supported: VERSION });
@@ -99,6 +123,21 @@ impl Index {
             return Err(Error::invalid("the activity index was built for another trace"));
         }
         let n = header.signals as usize;
+        let base = (n as u64 + 1) * 4 + (rest.len() * std::mem::size_of::<IndexBlock>()) as u64;
+        // Account for directory storage and geometric Vec scratch growth.
+        // Admission excludes the input image and codec-native scratch.
+        let directory = (entries.len() * std::mem::size_of::<DirEntry>()) as u64;
+        format::tail_rows(payload(tail)?)?;
+        let mut scratch = crate::codec::raw_len(&payload(tail)?[TAIL_HEAD_LEN..])? as u64;
+        for e in rest {
+            let p = payload(e)?;
+            BlockHead::decode(p)?;
+            scratch = scratch.max(crate::codec::raw_len(&p[BLOCK_HEAD_LEN..])? as u64);
+            checkpoint().await?;
+        }
+        let peak = base.checked_add(directory).and_then(|n| n.checked_add(scratch.saturating_mul(2)))
+            .ok_or(Error::Corrupt("activity decode memory overflow"))?;
+        admit(peak)?;
         let tail = payload(tail)?;
         let (mut d, mut raw) = (Decompressor::new(), Vec::new());
 
@@ -106,6 +145,7 @@ impl Index {
         let mut off = vec![0u32; n + 1];
         let mut blocks = Vec::with_capacity(rest.len());
         for e in rest {
+            checkpoint().await?;
             let p = payload(e)?;
             let head = BlockHead::decode(p)?;
             if blocks.last().is_some_and(|b: &IndexBlock| head.start < b.end) {
@@ -116,6 +156,7 @@ impl Index {
             let (mut sigs, mut heads) = (col(&raw, c[0]), col(&raw, c[1]));
             let mut s = 0u64;
             for _ in 0..head.rows {
+                checkpoint().await?;
                 s += sigs.u64()?;
                 let closed = heads.u64()? >> 1;
                 let slot = off.get_mut(s as usize + 1).filter(|_| s < n as u64).ok_or(Error::Corrupt("activity index names an unknown signal"))?;
@@ -126,21 +167,27 @@ impl Index {
         let mut sigs = col(&raw, c[0]);
         let mut s = 0u64;
         for _ in 0..format::tail_rows(tail)? {
+            checkpoint().await?;
             s += sigs.u64()?;
             let slot = off.get_mut(s as usize + 1).filter(|_| s < n as u64).ok_or(Error::Corrupt("activity index names an unknown signal"))?;
             *slot = slot.checked_add(1).ok_or(Error::Corrupt("activity index too large"))?;
         }
         for i in 0..n {
+            checkpoint().await?;
             off[i + 1] = off[i].checked_add(off[i + 1]).ok_or(Error::Corrupt("activity index too large"))?;
         }
 
         // Pass 2: fill. `cursor[s]` is the signal's open stretch, whose start
         // is already in place once the signal has changed.
         let total = off[n] as usize;
+        admit(peak.checked_add((total as u64).saturating_mul(STRETCH_BYTES))
+            .and_then(|v| v.checked_add(n as u64 * 5))
+            .ok_or(Error::Corrupt("activity decode memory overflow"))?)?;
         let (mut start, mut end, mut gap) = (vec![0u64; total], vec![0u64; total], vec![0u32; total]);
         let mut cursor = off[..n].to_vec();
         let mut opened = vec![false; n];
         for (e, blk) in rest.iter().zip(&blocks) {
+            checkpoint().await?;
             let p = payload(e)?;
             let head = BlockHead::decode(p)?;
             let c = format::unpack::<BLOCK_COLUMNS>(&p[BLOCK_HEAD_LEN..], &mut d, &mut raw)?;
@@ -148,6 +195,7 @@ impl Index {
             let mut s = 0usize;
             let mut closed_total = 0u64;
             for _ in 0..head.rows {
+                checkpoint().await?;
                 s += sigs.usize()?;
                 let h = heads.u64()?;
                 let i = cursor[s] as usize;
@@ -161,6 +209,7 @@ impl Index {
                     return corrupt("activity index closes a stretch of a signal that never changed");
                 }
                 for k in 0..h >> 1 {
+                    checkpoint().await?;
                     let i = i + k as usize;
                     if i + 1 >= off[s + 1] as usize {
                         return corrupt("activity index stretch counts disagree");
@@ -184,6 +233,7 @@ impl Index {
         let [mut sigs, mut lens, mut gaps] = c.map(|r| col(&raw, r));
         let mut s = 0usize;
         for _ in 0..format::tail_rows(tail)? {
+            checkpoint().await?;
             s += sigs.usize()?;
             let i = cursor[s] as usize;
             if !opened[s] || i + 1 != off[s + 1] as usize {
@@ -193,8 +243,11 @@ impl Index {
             gap[i] = gaps.u64()?.min(GAP_SATURATED as u64) as u32;
             cursor[s] += 1;
         }
-        if (0..n).any(|s| cursor[s] != off[s + 1] || opened[s] != (off[s + 1] > off[s])) {
-            return corrupt("activity index leaves a stretch open");
+        for s in 0..n {
+            checkpoint().await?;
+            if cursor[s] != off[s + 1] || opened[s] != (off[s + 1] > off[s]) {
+                return corrupt("activity index leaves a stretch open");
+            }
         }
         Ok(Index { header, blocks, off, start, end, gap })
     }

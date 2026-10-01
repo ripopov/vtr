@@ -49,7 +49,7 @@ jobs:
         run: |
           VOLNA_WEB_FEATURES=remote-profile volna/volna/web/build.sh
           cargo build --locked -p volna-server --profile viewer --example hierarchy_fixture
-      - name: Test local and protocol-v5 hierarchy pages in single-threaded WASM
+      - name: Test local and protocol-v6 hierarchy pages in single-threaded WASM
         run: node --test --test-concurrency=1 volna/volna/tools/hierarchy.test.mjs
   metal:
     runs-on: macos-14

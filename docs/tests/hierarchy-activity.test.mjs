@@ -140,6 +140,8 @@ test('the plan pictures ring every numbered addition, from the same index', {tim
   // Seven stages, each linked from the summary table; scope sizes live in their own design.
   assert.equal(await b.evaluate(`document.querySelectorAll('#plan .a-stage').length`), 7);
   assert.equal(await b.evaluate(`[...document.querySelectorAll('#plan tbody a')].filter(a => document.querySelector(a.getAttribute('href'))).length`), 7);
+  assert.equal(await b.evaluate(`document.querySelector('#stage-6 .v-chip').textContent`), 'Landed');
+  assert.ok(await b.evaluate(`!!document.querySelector('#stage-6 a[href="BENCHMARK_RESULTS.md#activity-sidecar-decoding-for-remote-traces"]')`));
   assert.equal(await b.evaluate(`document.querySelector('#stage-7 .v-chip').textContent`), 'Deferred');
   assert.ok(await b.evaluate(`!!document.querySelector('#stage-7 a[href="BENCHMARK_RESULTS.md#activity-reader-memory-paging-gate"]')`));
   assert.ok(await b.evaluate(`!!document.querySelector('#plan a[href="hierarchy-scope-sizes.html"]')`));

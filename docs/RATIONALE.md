@@ -2991,7 +2991,8 @@ renders only with Metal on macOS.
 **Building from Volna.** Background builds reuse the existing session/load
 loop instead of spawning the CLI or adding a second job executor. Source
 identity, path and the immutable index belong in the local session, which
-installs a late-built index once and holds its shared-budget reservation.
+installs a late-built index once. The immutable `ActivityIndex` carries its
+shared-budget reservation through the last classification or session owner.
 The activity model owns only the offer, dismissal, retry and control for each
 trace generation. Build, Not now and Cancel change no cockpit state and stay
 out of the undo journal and workspace. `hierarchy.activityIndex` lives in the
@@ -3013,6 +3014,65 @@ directory uses the existing identity-addressed user cache. Builder tests verify
 byte-identical controlled builds, cancellation during a scan and before the
 rename, and concurrent temporary files; session and headless GPUI tests cover
 policy, buttons, VTR/FST builds, close, retry and cache fallback.
+
+**Remote sidecar ownership.** The server uses the existing raw-object transport:
+one request authorizes a fetch or a build, and the reply carries the unchanged
+sidecar image. Protocol 6 advertises its source identity and availability in the
+catalog, so a client can reject an index of another recording and distinguish
+fetching an existing cache from authorizing a scan. Compressed bounded packets
+and acknowledgement backpressure are reused; scope counts and presentation do
+not enter the protocol. Exact remote reads use the existing complete-history
+contract rather than introducing server-side scope queries.
+
+The VS Code host starts a server process per connection, so an in-process mutex
+alone would still scan once per client. Builds instead coordinate at the sidecar
+owner with an exclusive persistent sibling lock, then recheck the cache while
+holding it. Rust's [file-lock API](https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock)
+provides operating-system locks released when the handle closes. Removing the
+lock file on completion is rejected: an existing waiter could hold the old inode
+while a new process locks its replacement. Polling `try_lock` lets a cancelled
+local build stop waiting. Read-only directories use the existing identity-keyed
+cache fallback. A disconnected client can leave a completed, valid server cache;
+it cannot install an incomplete response. Headless tests stream and validate
+sidecar bytes, preserve the cache across an unacknowledged response, and use two
+independent sessions to verify that only one scans the source. Two real server
+processes also reuse the same publication. A gated build test disconnects a
+client inside an authorized build, releases the server and proves another open
+can use its finished cache.
+
+The client fetches an advertised existing sidecar even under the never-build
+policy; missing indexes still follow ask/always/never. The offer names the
+operating-system reader host. Cancelling stops client decoding/installation and
+drains the response without corrupting transport framing; it does not revoke
+an already authorized server scan shared with other clients. Client installation
+claims the control's terminal state against cancellation before exposing the
+immutable index. Build, fetch, dismissal and cancellation remain outside undo.
+
+`Index::decode_with` adds admission before its table and Rust scratch
+allocations and checkpoints between rows and stretches; the blocking decoder
+uses the same path with ready checkpoints. The C API projects image decoding
+with a memory bound and optional control. The encoded image and decoder scratch
+are separately admitted by the remote receiver and released on completion;
+retained admission follows the immutable index's last owner. Object errors
+are drained and reported normally, while framing errors close the connection.
+The shared container validates directory counts against the available bytes
+before allocation, checks section-length addition, and rejects trailer values
+that do not fit the target address width. Malformed raw images therefore fail
+on native and 32-bit WASM readers rather than overflowing size arithmetic.
+Exact reads batch complete histories through the existing signal transport,
+count changes after the initial time step on the client, release each history,
+and deliver one generation/window-tagged answer. No viewport or scope-count
+endpoint is added. This preserves the complete-selected-data session contract;
+a huge undecided history may fail the negotiated limit even for a small window.
+
+The [full activity A/B cohort](BENCHMARK_RESULTS.md#activity-sidecar-decoding-for-remote-traces)
+keeps byte-identical sidecars and retained bytes across 23 traces. The largest
+hierarchy index loads in 53.15 → 56.44 ms (+6.2%); C910's VTR and FST index loads
+are 15.16 → 15.39 ms and 52.03 → 53.43 ms. Build times range from 0.88–1.08×
+of the unchanged reader's session measurements and loading RSS stays below
+74 MiB. Cooperative decoding trades modest one-time overhead on some traces
+for admission, cancellation and yielding; resident classification on pan is
+unchanged. The trace writer, waveform value decoding and both file encodings are unchanged.
 
 **Paging is conditional.** The native reader-memory gate covers 23 traces:
 the eight signal workloads' VTR/FST twins, the three large VTR samples,
