@@ -2,6 +2,7 @@
 """Build and verify a VS Code package for this machine's native platform."""
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,9 @@ import zipfile
 
 EXT = Path(__file__).resolve().parent
 ROOT = EXT.parents[2]
+spec = importlib.util.spec_from_file_location("distribution_notices", ROOT / "volna/volna/tools/distribution-notices.py")
+notices = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(notices)
 VSCE_VERSION = "4.0.0"
 MEDIA = ("theme.mjs", "volna.js", "volna_bg.wasm")
 # The generated wasm-bindgen ES modules use literal relative imports. Follow
@@ -105,6 +109,7 @@ def verify_vsix(vsix, target, server):
         if binary != server.read_bytes():
             raise ValueError("VSIX server differs from the native build")
         check_media(lambda item: archive.read(f"extension/media/{item}"))
+        notices.verify(lambda item: archive.read(f"extension/licenses/{item}"))
 
 
 def package(target):
@@ -128,6 +133,7 @@ def package(target):
         temp_path.unlink(missing_ok=True)
     other = "volna-server" if name.endswith(".exe") else "volna-server.exe"
     (bin_dir / other).unlink(missing_ok=True)
+    notices.collect(EXT / "licenses", {"volna", "volna-server"})
     version = json.loads((EXT / "package.json").read_text())["version"]
     vsix = EXT / f"volna-{version}-{target}.vsix"
     local_vsce = os.environ.get("VOLNA_VSCE")

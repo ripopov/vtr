@@ -271,6 +271,7 @@ git submodule update --init --recursive
 cargo build --release          # library, libvtr.{a,so}, CLI, benchmark driver
 cargo test                     # unit, round-trip, converter, and C-ABI tests
 cargo clippy --release
+python3 tools/packaging/check-cargo-licenses.py # source-package license checks
 cargo test -p volna-core       # headless viewer-core tests
 volna/volna/check.sh           # viewer crates, headless server and VS Code adapter
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
@@ -395,5 +396,8 @@ Trace Event Format, and the Surfer/wellen readers.
 
 ## License
 
-Project code is MIT OR Apache-2.0. Submodules and bundled third-party assets
-retain their own licenses; see [Volna's asset notices](volna/volna/THIRD_PARTY.md).
+First-party code is licensed under MIT OR Apache-2.0, at your option: see
+[LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).
+Third-party RTL, assets and submodules retain their own licenses; see
+[THIRD_PARTY.md](THIRD_PARTY.md), the [Solderpad 0.51 text](LICENSES/SHL-0.51.txt),
+and [Volna's asset notices](volna/volna/THIRD_PARTY.md).

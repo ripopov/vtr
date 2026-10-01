@@ -1,6 +1,7 @@
 """Stage a desktop distribution from a built Volna binary; never launch it."""
 
 import argparse
+import importlib.util
 from pathlib import Path
 import plistlib
 import shutil
@@ -8,6 +9,9 @@ import tomllib
 
 FRONTEND = Path(__file__).resolve().parents[1]
 ASSETS = FRONTEND / "assets" / "app-icon"
+spec = importlib.util.spec_from_file_location("distribution_notices", Path(__file__).with_name("distribution-notices.py"))
+notices = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(notices)
 APP_ID = "io.github.ripopov.volna"
 
 
@@ -20,6 +24,12 @@ def copy(source, destination, executable=False):
 def package(platform, binary, output):
     if not binary.is_file():
         raise FileNotFoundError(f"Build Volna first: {binary}")
+    if platform not in ("macos", "linux", "windows"):
+        raise ValueError(f"Unsupported platform: {platform}")
+    notice_dir = (output / "Volna.app/Contents/Resources/licenses" if platform == "macos"
+                  else output / "share/doc/volna/licenses" if platform == "linux"
+                  else output / "licenses")
+    notices.collect(notice_dir, {"volna"})
     if platform == "macos":
         contents = output / "Volna.app" / "Contents"
         copy(binary, contents / "MacOS" / "volna", executable=True)

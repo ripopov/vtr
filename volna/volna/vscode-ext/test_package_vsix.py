@@ -34,6 +34,18 @@ def binary(target):
 
 
 class PackageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.notices_temp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.notices_temp.cleanup)
+        cls.notices_dir = Path(cls.notices_temp.name)
+        packager.notices.collect(cls.notices_dir, {"volna", "volna-server"})
+
+    def add_notices(self, archive):
+        for file in self.notices_dir.rglob("*"):
+            if file.is_file():
+                archive.write(file, "extension/licenses/" + file.relative_to(self.notices_dir).as_posix())
+
     def test_binary_architectures(self):
         for os_name in ("linux", "darwin", "win32"):
             for arch in ("x64", "arm64"):
@@ -51,10 +63,12 @@ class PackageTests(unittest.TestCase):
             server.write_bytes(binary("linux-x64"))
             vsix = root / "volna.vsix"
 
-            def write_vsix(target, bundled):
+            def write_vsix(target, bundled, notices=True):
                 identity = f' TargetPlatform="{target}"' if target else ""
                 manifest = f'<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Version="0.1.0"{identity}/></Metadata></PackageManifest>'
                 with zipfile.ZipFile(vsix, "w") as archive:
+                    if notices:
+                        self.add_notices(archive)
                     archive.writestr("extension.vsixmanifest", manifest)
                     archive.writestr("extension/package.json", json.dumps({"version": "0.1.0"}))
                     archive.writestr("extension/bin/volna-server", bundled)
@@ -69,6 +83,20 @@ class PackageTests(unittest.TestCase):
                 packager.verify_vsix(vsix, "linux-x64", server)
             write_vsix("linux-x64", server.read_bytes())
             packager.verify_vsix(vsix, "linux-x64", server)
+            write_vsix("linux-x64", server.read_bytes(), notices=False)
+            with self.assertRaises(KeyError):
+                packager.verify_vsix(vsix, "linux-x64", server)
+
+    def test_notices_reject_missing_files(self):
+        files = {p.relative_to(self.notices_dir).as_posix(): p.read_bytes()
+                 for p in self.notices_dir.rglob("*") if p.is_file()}
+        for name in (*packager.notices.STATIC, "DEPENDENCIES.json", "FILES.json",
+                     next(n for n in files if n.startswith("dependencies/"))):
+            with self.subTest(name=name):
+                missing = dict(files)
+                del missing[name]
+                with self.assertRaises(KeyError):
+                    packager.notices.verify(missing.__getitem__)
 
     def test_vsix_rejects_missing_snippet_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -77,6 +105,7 @@ class PackageTests(unittest.TestCase):
             server.write_bytes(binary("linux-x64"))
             vsix = root / "volna.vsix"
             with zipfile.ZipFile(vsix, "w") as archive:
+                self.add_notices(archive)
                 archive.writestr("extension.vsixmanifest", '<PackageManifest xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011"><Metadata><Identity Version="0.1.1" TargetPlatform="linux-x64"/></Metadata></PackageManifest>')
                 archive.writestr("extension/package.json", json.dumps({"version": "0.1.1"}))
                 archive.writestr("extension/bin/volna-server", server.read_bytes())

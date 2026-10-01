@@ -17,6 +17,7 @@ import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 
 from PIL import Image
 import pefile
@@ -96,6 +97,16 @@ class DesktopTests(unittest.TestCase):
                 output = temp / platform
                 result = package.package(platform, binary, output)
                 self.assertTrue(result.exists())
+                # Inspect the actual archived layout, including every dependency notice.
+                notice_dir = ("Volna.app/Contents/Resources/licenses" if platform == "macos"
+                              else "share/doc/volna/licenses" if platform == "linux" else "licenses")
+                archive_path = temp / f"{platform}.zip"
+                with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                    for file in output.rglob("*"):
+                        if file.is_file():
+                            archive.write(file, file.relative_to(output).as_posix())
+                with zipfile.ZipFile(archive_path) as archive:
+                    package.notices.verify(lambda name: archive.read(f"{notice_dir}/{name}"))
                 if platform == "macos":
                     contents = result / "Contents"
                     metadata = plistlib.loads((contents / "Info.plist").read_bytes())
@@ -159,7 +170,11 @@ def check_binary(binary, platform):
         asset = "volna.icns" if platform == "macos" else "volna-256.png"
         assert (ASSETS / asset).read_bytes() in data, f"{binary} is missing its embedded icon"
     with tempfile.TemporaryDirectory(prefix="volna-bundle-") as directory:
-        package.package(platform, binary, Path(directory))
+        output = Path(directory)
+        package.package(platform, binary, output)
+        notice_dir = (output / "Volna.app/Contents/Resources/licenses" if platform == "macos"
+                      else output / "share/doc/volna/licenses" if platform == "linux" else output / "licenses")
+        package.notices.verify(lambda name: (notice_dir / name).read_bytes())
     print(f"Verified linked {platform} application icon: {binary}")
 
 

@@ -22,6 +22,8 @@ jobs:
         run: cc --version
       - name: Test the Rust core, the C API and the C smoke test
         run: cargo test --locked -p vtr -p vtr-capi -p vtr-guard -- --skip crash_matrix --skip guard_chains_to_address_sanitizer
+      - name: Verify Cargo source-package license texts
+        run: python3 tools/packaging/check-cargo-licenses.py
       - name: Check fresh-process activity index memory accounting
         run: |
           cargo build --locked --release -p vtr-bench
