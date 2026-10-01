@@ -6,7 +6,8 @@ use anyhow::{Context as _, Result};
 use web_time::Instant;
 
 use super::{App, Event};
-use crate::history::{Context, Edit, Prop, Step, Structure};
+use crate::history::{Context, Edit, Step, Structure};
+use crate::panels::content::Prop;
 use crate::panels::{Panel, PanelId, Panels};
 
 impl App {
@@ -74,6 +75,7 @@ impl App {
         op: impl FnOnce(&mut Panels) -> Result<(T, Vec<Panel>)>,
     ) -> Result<T> {
         self.collect_edits();
+        let revision = self.panels.revision();
         let (layout, focused, before) = self.panels.structure();
         let (value, removed) = op(&mut self.panels)?;
         let (after_layout, _, after) = self.panels.structure();
@@ -83,7 +85,12 @@ impl App {
             .filter(|p| !p.kind.is_settings())
             .collect();
         for panel in &mut reopen {
-            self.release(panel);
+            panel.kind.retire(&mut self.doc);
+        }
+        let notices = self.adopt_panels(&close);
+        self.events.extend(notices.into_iter().map(Event::Notice));
+        if revision != self.panels.revision() {
+            self.layout_changed();
         }
         if close.is_empty() && reopen.is_empty() && layout.same_shape(&after_layout) {
             return Ok(value);
@@ -98,23 +105,6 @@ impl App {
             label,
         );
         Ok(value)
-    }
-
-    /// Release what a panel that left the layout retained, and detach its
-    /// rows: the journal keeps it without trace data or memory.
-    pub(super) fn release(&mut self, panel: &mut Panel) {
-        if let Some(table) = panel.kind.table_mut() {
-            table.park(&mut self.doc);
-        }
-        if let Some(pipeline) = panel.kind.pipeline_mut() {
-            pipeline.detach(&mut self.doc);
-        }
-        if let Some(model) = panel.kind.transaction_mut() {
-            model.park(&mut self.doc);
-        }
-        if let Some(waves) = panel.kind.waves_mut() {
-            waves.detach_rows();
-        }
     }
 
     /// Commit the open step: merge it into the previous one when it repeats
@@ -170,22 +160,7 @@ impl App {
                     let Some(p) = self.panels.get(*panel) else {
                         return false;
                     };
-                    match prop {
-                        Prop::Title(title) => p.title.get() == title,
-                        Prop::Clocks { rulers, origin } => p.kind.nav().is_some_and(|nav| {
-                            nav.clocks().rulers == *rulers && nav.clocks().origin == *origin
-                        }),
-                        Prop::Columns(columns) => {
-                            p.kind.table().is_some_and(|t| t.columns.get() == columns)
-                        }
-                        Prop::Pin(pinned, _) => {
-                            p.kind.transaction().is_some_and(|m| m.pinned() == *pinned)
-                        }
-                        Prop::Radix(radix) => p
-                            .kind
-                            .transaction()
-                            .is_some_and(|m| m.prefs().radix == *radix),
-                    }
+                    p.matches_prop(prop)
                 }
                 Edit::Layout(s) => {
                     s.close.is_empty()
@@ -337,11 +312,10 @@ impl App {
             Edit::Layout(structure) => {
                 let mut inverse = self.panels.install(*structure)?;
                 for panel in &mut inverse.reopen {
-                    self.release(panel);
+                    panel.kind.retire(&mut self.doc);
                 }
-                for &id in &inverse.close {
-                    self.created(id);
-                }
+                let notices = self.adopt_panels(&inverse.close);
+                self.events.extend(notices.into_iter().map(Event::Notice));
                 self.layout_changed();
                 Edit::Layout(Box::new(inverse))
             }
@@ -354,32 +328,10 @@ impl App {
             self.layout_changed();
             return Ok(Prop::Title(old));
         }
-        let Self { panels, doc, .. } = self;
-        let kind = &mut panels
+        self.panels
             .get_mut(id)
             .with_context(|| format!("no panel {}", id.0))?
-            .kind;
-        Ok(match prop {
-            Prop::Title(_) => unreachable!("handled above"),
-            Prop::Clocks { rulers, origin } => {
-                let nav = kind.nav_mut().context("not a timed panel")?;
-                let (rulers, origin) = nav.swap_clocks((rulers, origin));
-                Prop::Clocks { rulers, origin }
-            }
-            Prop::Columns(columns) => {
-                let table = kind.table_mut().context("not a table")?;
-                Prop::Columns(table.swap_columns(columns))
-            }
-            Prop::Pin(pinned, record) => {
-                let model = kind.transaction_mut().context("not a transaction panel")?;
-                let (pinned, record) = model.swap_pin(doc, (pinned, record));
-                Prop::Pin(pinned, record)
-            }
-            Prop::Radix(radix) => {
-                let model = kind.transaction_mut().context("not a transaction panel")?;
-                Prop::Radix(model.swap_radix(radix))
-            }
-        })
+            .swap_prop(&mut self.doc, prop)
     }
 
     /// Show what a flip changed: focus the panel it touched, restore the

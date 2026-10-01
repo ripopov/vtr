@@ -1009,30 +1009,28 @@ impl App {
         self.changed();
     }
 
-    /// A created panel's content may retain document data; a removed
-    /// panel's content releases it.
-    fn created(&mut self, id: PanelId) {
+    /// Adopt panels entering the live layout through the same content lifecycle.
+    /// Failures are visible notices; the panel keeps its own loading/error state.
+    pub(crate) fn adopt_panels(&mut self, ids: &[PanelId]) -> Vec<String> {
+        if ids.is_empty() {
+            return Vec::new();
+        }
         let resident = self.resident_histories();
-        // A panel put back by undo loads its rows again.
-        if let Some(waves) = self.panels.waves_mut(id)
-            && waves.needs_attach()
-        {
-            waves.attach_rows(&mut self.doc, &resident);
+        let mut notices = Vec::new();
+        for &id in ids {
+            if let Some(panel) = self.panels.get_mut(id)
+                && let Err(error) = panel.kind.adopt(&mut self.doc, &resident)
+            {
+                notices.push(format!("{}: {error:#}", panel.title()));
+            }
         }
-        if let Some(table) = self.panels.get_mut(id).and_then(|p| p.kind.table_mut())
-            && let Err(error) = table.attach(&mut self.doc, &resident)
-        {
-            table.state = crate::table::TableState::Failed(error.to_string());
-        }
-        if let Some(pipeline) = self.panels.pipeline_mut(id)
-            && let Err(error) = pipeline.attach(&mut self.doc)
-        {
-            self.events.push(Event::Notice(error.to_string()));
-        }
-        if let Some(model) = self.panels.transaction_mut(id)
-            && let Err(error) = model.attach(&mut self.doc)
-        {
-            self.events.push(Event::Notice(error.to_string()));
+        notices
+    }
+
+    /// Release the current view before a workspace replaces it.
+    pub(crate) fn retire_panels(&mut self) {
+        for panel in self.panels.iter_mut() {
+            panel.kind.retire(&mut self.doc);
         }
     }
 
@@ -1054,11 +1052,7 @@ impl App {
         label: Option<String>,
     ) -> Result<PanelId, String> {
         match self.restructure(label, |panels| panels.replace(id, kind)) {
-            Ok(new) => {
-                self.created(new);
-                self.layout_changed();
-                Ok(new)
-            }
+            Ok(new) => Ok(new),
             Err(error) => {
                 self.events.push(Event::Notice(error.to_string()));
                 self.changed();
@@ -1094,10 +1088,7 @@ impl App {
         match self.restructure(None, |panels| {
             Ok((panels.open(waves, focused, None)?, Vec::new()))
         }) {
-            Ok(id) => {
-                self.layout_changed();
-                Some(id)
-            }
+            Ok(id) => Some(id),
             Err(error) => {
                 self.events.push(Event::Notice(error.to_string()));
                 self.changed();
@@ -1129,13 +1120,13 @@ impl App {
                 self.restructure(label, |panels| {
                     Ok((panels.create(panel, Some(axis))?, Vec::new()))
                 })
-                .map(|id| self.created(id))
+                .map(|_| ())
             }
             PanelsCommand::NewTab { group_of } => self
                 .restructure(Some("New panel".into()), |panels| {
                     Ok((panels.create(group_of, None)?, Vec::new()))
                 })
-                .map(|id| self.created(id)),
+                .map(|_| ()),
             PanelsCommand::Close(id) => {
                 let label = self.panels.get(id).map(|p| format!("Close {}", p.title()));
                 self.restructure(label, |panels| Ok(((), panels.close(id)?)))
@@ -1612,11 +1603,7 @@ impl App {
                 Vec::new(),
             ))
         }) {
-            Ok(id) => {
-                self.created(id);
-                self.layout_changed();
-                self.sync_selection();
-            }
+            Ok(_) => self.sync_selection(),
             Err(error) => {
                 self.events.push(Event::Notice(error.to_string()));
                 self.changed();
@@ -1872,10 +1859,7 @@ impl App {
                 Vec::new(),
             ))
         }) {
-            Ok(id) => {
-                self.created(id);
-                self.layout_changed();
-            }
+            Ok(_) => {}
             Err(error) => {
                 self.events.push(Event::Notice(error.to_string()));
                 self.changed();
@@ -1926,12 +1910,10 @@ impl App {
                 Vec::new(),
             ))
         }) {
-            Ok(id) => {
-                self.created(id);
+            Ok(_) => {
                 if let Some(w) = self.panels.waves_mut(focused) {
                     w.menu_dismiss();
                 }
-                self.layout_changed();
             }
             Err(error) => {
                 self.events.push(Event::Notice(error.to_string()));

@@ -447,7 +447,7 @@ impl NavState {
         history.record(
             crate::history::Edit::Prop {
                 panel,
-                prop: crate::history::Prop::Clocks { rulers, origin },
+                prop: crate::panels::content::Prop::Clocks { rulers, origin },
             },
             Some(label),
         );

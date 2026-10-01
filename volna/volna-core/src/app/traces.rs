@@ -252,12 +252,7 @@ impl App {
         }
         let label = format!("Close trace {trace}");
         for panel in self.panels.iter_mut() {
-            if let Some(waves) = panel.kind.waves_mut() {
-                waves.remove_trace_rows(trace, label.clone());
-            }
-            if let Some(nav) = panel.kind.nav_mut() {
-                nav.forget_trace(trace);
-            }
+            panel.kind.forget_trace(&mut self.doc, trace, Some(&label));
         }
         let doomed: Vec<_> = self
             .panels
@@ -287,10 +282,10 @@ impl App {
 
     /// Take a trace out of the document after releasing what panels still
     /// hold of it, and drop it from the sidebar.
-    fn forget_trace(&mut self, trace: TraceId) -> Option<crate::trace::TraceSlot> {
+    pub(crate) fn forget_trace(&mut self, trace: TraceId) -> Option<crate::trace::TraceSlot> {
         let Self { panels, doc, .. } = self;
-        for (_, model) in panels.transactions_mut() {
-            model.forget_trace(doc, trace);
+        for panel in panels.iter_mut() {
+            panel.kind.forget_trace(doc, trace, None);
         }
         for track in self.lane_tracks.1.iter().filter(|t| t.trace == trace) {
             self.doc.release_track(*track);

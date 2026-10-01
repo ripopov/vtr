@@ -509,6 +509,44 @@ fn every_value_tag_an_open_record_and_a_cross_stream_parent_read_as_recorded() {
 }
 
 #[test]
+fn a_restored_pinned_panel_loads_without_another_track_consumer() {
+    let (mut app, session, pipeline) = with_pipeline("pipeline_showcase.vtr", "soc.cpu0.pipeline");
+    let insn = track(session.as_ref(), "soc.cpu0.pipeline.instruction");
+    let pinned = show(&mut app, pipeline, insn, 33);
+    app.handle(Command::Transaction(pinned, TransactionCommand::Pin(true)));
+    app.handle(Command::Panels(
+        volna_core::panels::PanelsCommand::CloseOthers(pinned),
+    ));
+    assert_eq!(app.panels.len(), 1);
+    let saved = Workspace::capture(&app, volna_core::testing::paths("trace.vtr"), None).unwrap();
+
+    let mut restored = App::new();
+    restored.set_session(session);
+    let plan = saved
+        .prepare(
+            &restored,
+            "file:///tmp/trace.vtr",
+            "file:///tmp/trace.vtr.volna.json",
+        )
+        .unwrap();
+    assert!(plan.commit(&mut restored).unwrap().notices.is_empty());
+    pump(&mut restored);
+    assert_eq!(view(&restored, pinned).identity.id, TransactionRef(33));
+
+    // Close and undo use the same adoption path as restore. The last owner
+    // releases the generator; reopening loads it again under the saved ID.
+    restored.handle(Command::Panels(volna_core::panels::PanelsCommand::Close(
+        pinned,
+    )));
+    assert!(restored.doc.resident_generator(a(insn)).is_none());
+    restored.handle(Command::Undo);
+    pump(&mut restored);
+    assert_eq!(view(&restored, pinned).identity.id, TransactionRef(33));
+    restored.handle(Command::Redo);
+    assert!(restored.doc.resident_generator(a(insn)).is_none());
+}
+
+#[test]
 fn the_workspace_restores_a_pinned_record_and_the_reader_choices() {
     let (mut app, session, pipeline) = with_pipeline("pipeline_showcase.vtr", "soc.cpu0.pipeline");
     let insn = track(session.as_ref(), "soc.cpu0.pipeline.instruction");

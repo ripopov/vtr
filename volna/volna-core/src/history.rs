@@ -8,17 +8,14 @@
 //! collects those inverses after each command into the open [`Step`]. Steps
 //! hold descriptions (detached rows and panels), never trace data.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use web_time::Instant;
 
-use crate::data::text::Radix;
 use crate::marker::Marker;
-use crate::panels::{Layout, Panel, PanelId};
-use crate::table::columns::ColumnSet;
-use crate::transaction::ShownRecord;
+use crate::panels::{Layout, Panel, PanelId, content::Prop};
 use crate::wave::tree::Entry;
 
 /// Repeated adjustments of the same targets merge into one step while they
@@ -232,35 +229,6 @@ pub(crate) enum Edit {
     Traces(crate::document::TraceEdit),
 }
 
-/// A swappable panel property.
-pub(crate) enum Prop {
-    Title(Option<String>),
-    /// A timed panel's ruler rows and cycle origin. The selected clock is
-    /// navigation.
-    Clocks {
-        rulers: Option<Vec<crate::clock::ClockKey>>,
-        origin: Option<u64>,
-    },
-    /// A table's shown columns.
-    Columns(ColumnSet),
-    /// Whether a transaction panel is pinned, and the record it froze on.
-    Pin(bool, Option<ShownRecord>),
-    /// A transaction panel's per-attribute radixes.
-    Radix(BTreeMap<String, Radix>),
-}
-
-impl Prop {
-    fn kind(&self) -> u8 {
-        match self {
-            Prop::Title(_) => 0,
-            Prop::Clocks { .. } => 1,
-            Prop::Columns(_) => 2,
-            Prop::Pin(..) => 3,
-            Prop::Radix(_) => 4,
-        }
-    }
-}
-
 /// What a workspace's panel structure was, as a layout edit restores it.
 pub(crate) struct Structure {
     /// The dock tree without the settings tab, which is chrome.
@@ -296,14 +264,7 @@ impl Edit {
                         std::mem::size_of::<Marker>() + m.label.as_ref().map_or(0, String::len)
                     })
                     .sum(),
-                Edit::Prop { prop, .. } => match prop {
-                    Prop::Title(t) => t.as_ref().map_or(0, String::len),
-                    Prop::Clocks { rulers, .. } => {
-                        rulers.iter().flatten().map(|k| k.item.len() + 24).sum()
-                    }
-                    Prop::Columns(_) | Prop::Pin(..) => 64,
-                    Prop::Radix(map) => map.keys().map(|k| k.len() + 32).sum(),
-                },
+                Edit::Prop { prop, .. } => prop.bytes(),
                 Edit::Layout(s) => {
                     s.close.len() * 8
                         + s.reopen
@@ -319,10 +280,13 @@ impl Edit {
 
     /// The target of a swap edit: a later swap of the same target within a
     /// step is not recorded, since the first inverse restores the start.
-    fn swap_target(&self) -> Option<(u8, Option<PanelId>)> {
+    fn swap_target(&self) -> Option<(u8, u8, Option<PanelId>)> {
         match self {
-            Edit::Markers { .. } => Some((0, None)),
-            Edit::Prop { panel, prop } => Some((1 + prop.kind(), Some(*panel))),
+            Edit::Markers { .. } => Some((0, 0, None)),
+            Edit::Prop { panel, prop } => {
+                let (kind, field) = prop.kind();
+                Some((1 + kind, field, Some(*panel)))
+            }
             _ => None,
         }
     }
@@ -659,16 +623,13 @@ impl History {
                         m.time.retime(by);
                     }
                 }
-                Edit::Prop {
-                    prop: Prop::Clocks { origin, .. },
-                    ..
-                } => origin.retime(by),
+                Edit::Prop { prop, .. } => prop.retime(by),
                 Edit::Layout(structure) => {
                     for panel in &mut structure.reopen {
                         panel.kind.retime(by);
                     }
                 }
-                Edit::Rows { .. } | Edit::Prop { .. } | Edit::Traces(_) => {}
+                Edit::Rows { .. } | Edit::Traces(_) => {}
             }
         }
     }

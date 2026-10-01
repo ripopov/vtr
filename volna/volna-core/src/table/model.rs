@@ -138,23 +138,17 @@ pub struct TableModel {
 }
 
 impl TableModel {
+    /// Describe a detached panel. Admission and data retention happen in [`Self::attach`].
     pub fn new(source: TableSource, link: Link, budget: MemoryBudget) -> Self {
         let columns = match &source {
             TableSource::Generator(_) => ColumnSet::transactions_default(),
             TableSource::Signals(signals) => ColumnSet::signals(signals.len()),
         };
-        let reservation = budget.reserve(PANEL_BYTES);
-        let state = match &reservation {
-            Ok(_) => TableState::Loading,
-            Err(error) => TableState::Refused(format!(
-                "Table needs {PANEL_BYTES} bytes; admission failed: {error}"
-            )),
-        };
         let mut nav = NavState::new();
         nav.link = link;
         Self {
             source,
-            state,
+            state: TableState::Loading,
             columns: crate::history::Journaled::new(columns),
             viewport: RowViewport::default(),
             selected: None,
@@ -169,7 +163,7 @@ impl TableModel {
             signal_results: HashMap::new(),
             attached: false,
             budget,
-            _panel_reservation: reservation.ok(),
+            _panel_reservation: None,
         }
     }
 
@@ -767,7 +761,7 @@ impl TableModel {
             history.record(
                 crate::history::Edit::Prop {
                     panel,
-                    prop: crate::history::Prop::Columns(columns),
+                    prop: crate::panels::content::Prop::Table(Prop::Columns(columns)),
                 },
                 Some("Change columns".into()),
             );
@@ -1403,6 +1397,34 @@ fn normalized_u64(offset: f32, track: f32, maximum: u64) -> u64 {
     ((maximum as u128 * numerator as u128) / denominator as u128) as u64
 }
 
+/// The table owns the meaning and storage of its journaled properties.
+pub(crate) enum Prop {
+    Columns(ColumnSet),
+}
+
+impl Prop {
+    pub(crate) fn kind(&self) -> u8 {
+        0
+    }
+    pub(crate) fn bytes(&self) -> usize {
+        64
+    }
+}
+
+impl TableModel {
+    pub(crate) fn matches_prop(&self, prop: &Prop) -> bool {
+        match prop {
+            Prop::Columns(columns) => self.columns.get() == columns,
+        }
+    }
+
+    pub(crate) fn swap_prop(&mut self, prop: Prop) -> Prop {
+        match prop {
+            Prop::Columns(columns) => Prop::Columns(self.swap_columns(columns)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1436,11 +1458,15 @@ mod tests {
     }
 
     fn signal_model(budget: MemoryBudget) -> TableModel {
-        TableModel::new(
+        let mut model = TableModel::new(
             TableSource::Signals(vec![signal_source("a", 1), signal_source("b", 2)]),
             Link::default(),
             budget,
-        )
+        );
+        model
+            .attach(&mut Document::new(), &Default::default())
+            .unwrap();
+        model
     }
 
     #[test]
@@ -1471,6 +1497,9 @@ mod tests {
             Link::default(),
             budget.clone(),
         );
+        model
+            .attach(&mut Document::new(), &Default::default())
+            .unwrap();
         model
             .build_signal_rows(vec![history(&[2, 8], &["0", "1"])])
             .unwrap();
@@ -1716,6 +1745,9 @@ mod tests {
             Link::default(),
             budget.clone(),
         );
+        model
+            .attach(&mut Document::new(), &Default::default())
+            .unwrap();
         assert!(matches!(model.state, TableState::Refused(_)));
         drop(blocker);
 

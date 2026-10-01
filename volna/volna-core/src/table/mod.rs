@@ -15,3 +15,5 @@ pub use model::{
     TableModel, TableState,
 };
 pub use source::{SignalSource, TableSource};
+
+pub(crate) mod workspace;

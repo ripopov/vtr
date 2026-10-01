@@ -11,7 +11,7 @@ use super::view::{SectionKey, TxView, VIEW_BYTES, ViewPrefs};
 use crate::data::text::{COPY_BYTES, Radix};
 use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::document::{Document, TrackLoadState, TxSelection};
-use crate::history::{Before, Edit, History, MergeKey, Prop};
+use crate::history::{Before, Edit, History, MergeKey};
 use crate::pipeline::TrackSource;
 use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::trace::Traced;
@@ -96,11 +96,8 @@ pub struct TransactionModel {
 }
 
 impl TransactionModel {
+    /// Describe a detached panel. Admission and track retention happen in [`Self::attach`].
     pub fn new(budget: MemoryBudget, detail_items: usize) -> Self {
-        let reservation = budget.reserve(PANEL_BYTES);
-        let refused = reservation.as_ref().err().map(|error| {
-            format!("Transaction panel needs {PANEL_BYTES} bytes; admission failed: {error}")
-        });
         Self {
             history: Vec::new(),
             cursor: 0,
@@ -113,9 +110,9 @@ impl TransactionModel {
             },
             retained: None,
             attached: false,
-            refused,
+            refused: None,
             budget,
-            _reservation: reservation.ok(),
+            _reservation: None,
         }
     }
 
@@ -200,7 +197,7 @@ impl TransactionModel {
             history.record(
                 Edit::Prop {
                     panel,
-                    prop: Prop::Pin(pinned, record),
+                    prop: crate::panels::content::Prop::Transaction(Prop::Pin(pinned, record)),
                 },
                 Some(label.into()),
             );
@@ -218,7 +215,7 @@ impl TransactionModel {
             history.record(
                 Edit::Prop {
                     panel,
-                    prop: Prop::Radix(radix),
+                    prop: crate::panels::content::Prop::Transaction(Prop::Radix(radix)),
                 },
                 Some(format!("Radix of {key}")),
             );
@@ -525,4 +522,44 @@ fn track_path(doc: &Document, track: Traced<TrackRef>) -> Option<Vec<String>> {
         .iter()
         .find(|t| t.id == track.item)
         .map(|t| t.path.clone())
+}
+
+/// A transaction panel's edits carry only its own saved property values.
+pub(crate) enum Prop {
+    Pin(bool, Option<ShownRecord>),
+    Radix(BTreeMap<String, Radix>),
+}
+
+impl Prop {
+    pub(crate) fn kind(&self) -> u8 {
+        match self {
+            Self::Pin(..) => 0,
+            Self::Radix(_) => 1,
+        }
+    }
+    pub(crate) fn bytes(&self) -> usize {
+        match self {
+            Self::Pin(..) => 64,
+            Self::Radix(map) => map.keys().map(|k| k.len() + 32).sum(),
+        }
+    }
+}
+
+impl TransactionModel {
+    pub(crate) fn matches_prop(&self, prop: &Prop) -> bool {
+        match prop {
+            Prop::Pin(pinned, _) => self.pinned() == *pinned,
+            Prop::Radix(radix) => self.prefs().radix == *radix,
+        }
+    }
+
+    pub(crate) fn swap_prop(&mut self, doc: &mut Document, prop: Prop) -> Prop {
+        match prop {
+            Prop::Pin(pinned, record) => {
+                let (pinned, record) = self.swap_pin(doc, (pinned, record));
+                Prop::Pin(pinned, record)
+            }
+            Prop::Radix(radix) => Prop::Radix(self.swap_radix(radix)),
+        }
+    }
 }

@@ -23,3 +23,5 @@ pub use model::{
 pub use tint::Tint;
 pub use tree::Entry;
 pub use viewport::Viewport;
+
+pub(crate) mod workspace;

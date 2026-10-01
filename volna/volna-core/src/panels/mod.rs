@@ -1,7 +1,9 @@
 //! Panel identity, ownership, and docking operations. Widget IDs and pixel
 //! geometry never enter this model.
 
+pub(crate) mod content;
 mod layout;
+pub(crate) mod workspace;
 pub use layout::{Axis, Layout, MAX_LAYOUT_DEPTH, MAX_PANELS};
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -303,7 +305,7 @@ impl Panel {
             history.record(
                 crate::history::Edit::Prop {
                     panel: id,
-                    prop: crate::history::Prop::Title(title),
+                    prop: crate::panels::content::Prop::Title(title),
                 },
                 Some("Rename panel".into()),
             );

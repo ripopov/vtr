@@ -341,14 +341,7 @@ impl App {
     /// Take a trace out without journaling it: a workspace about to be
     /// restored replaces the whole session, history included.
     fn drop_trace(&mut self, trace: TraceId) {
-        for panel in self.panels.iter_mut() {
-            if let Some(model) = panel.kind.transaction_mut() {
-                model.forget_trace(&mut self.doc, trace);
-            }
-        }
-        self.doc.remove_trace(trace);
-        self.scopes.remove_trace(self.doc.traces(), trace);
-        self.variables.remove_trace(self.doc.traces(), trace);
+        self.forget_trace(trace);
     }
 
     fn restore_if_ready(&mut self) -> Result<()> {

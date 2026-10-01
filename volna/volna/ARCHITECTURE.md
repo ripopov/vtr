@@ -13,7 +13,7 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: the trace set, shared navigation, markers, selection, translators, loads
   src/trace/             TraceSet and TraceSlot, TraceId letters, Traced<T> identities, names, Placement
-  src/panels/            stable IDs, split/tab layout, focus, per-panel wave, pipeline, table and transaction models
+  src/panels/            stable IDs, split/tab layout, focus, content lifecycle, codec and journal dispatch
   src/nav/               Tween<T> animation, NavState (links, local viewport/cursor, clocks) of every timed panel
   src/clock.rs           declared clocks: catalog, timelines, a panel's ClockView, ruler/readout math
   src/pipeline/          RowView row axis, PipelineModel, PipelineLayout, stage palette, painter → Scene
@@ -209,6 +209,23 @@ Every panel closes; the last content panel gives way to a start panel, and
 validated atomically for membership, duplicates, active tabs, finite positive
 shares, depth and panel count. `debug_state()` reports one line per panel in
 layout order, with its ID, focus and link flags before the waveform state.
+
+`panels::content` owns the content lifecycle dispatch: `adopt` retains a
+kind's data and admits its panel memory; `retire` releases data, builders and
+reservations while keeping the description needed by undo. `App::restructure`
+derives the entering IDs and removed panels from the layout delta and performs
+both transitions automatically. Undo/redo and workspace commit use the same
+dispatch, including pinned transaction panels restored without another track
+consumer. Creation callers never pair a layout edit with an attachment call.
+
+Each kind's `workspace` module owns its schema, capture, validation and path
+resolution. `panels::workspace` dispatches the common envelope and preserves
+unknown payloads verbatim; `workspace::Workspace` owns document-level state and
+the complete restore plan. Preparation reserves no panel memory and requests
+no data. Commit retires the old view before restarting loads and adopting the
+prepared view. Table and transaction models own their property swaps and
+comparison rules; the journal stores these through `panels::content::Prop`,
+alongside common title and navigation properties.
 
 `Document` owns the trace set, shared viewport and cursor, markers with stable IDs
 and optional labels, translators, and load generations. Every timed panel embeds
@@ -544,9 +561,9 @@ All policy and commands live in `pipeline::activity` in `volna-core`.
 
 `Command::OpenPipeline { track }` (from `ActivateMembers`, the menu, the
 palette) focuses the panel already showing the track or opens one split below
-the focused panel. `PipelineModel::attach` retains the track through
-`Document::retain_track`; a split copies the view and retains it again; closing
-a panel (`Panels::close` returns the removed panels) detaches it, so the last
+the focused panel. Content adoption calls `PipelineModel::attach` to retain
+the track through `Document::retain_track`; a split copies the view and
+adopts it again; closing a panel retires its content, so the last
 consumer releases the load and a late delivery is a no-op. The model never
 copies records: `Rows` is a view over the loaded generators' slices with prefix
 sums, `Loading`, `Failed` (with a retry button), `Unresolved` (a saved path

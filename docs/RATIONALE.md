@@ -1693,6 +1693,21 @@ Two link flags avoid introducing synchronization groups for the current scope.
 Histories remain shared immutable Arcs across panels; the panel collection
 provides reuse from existing rows without a second history cache.
 
+Panel content follows one adoption/retirement dispatch in `panels::content`.
+Restructure derives the lifecycle delta from stable panel IDs; undo/redo and
+workspace commit use the same per-kind transitions. The exhaustive enum keeps
+the real Waves, Pipeline, Table and Transaction variations explicit without a
+second trait hierarchy. Per-kind workspace codecs and property swaps stay with
+their models; the journal no longer imports table columns or transaction
+records and radixes. This follows the existing owner-written journal and
+layout-delta design rather than introducing a competing owner for selected
+tracks. We reject caller-paired creation/attachment calls and separate restore
+attachment loops: they allow a new path to omit a kind, as pinned transaction
+restore did. Panel descriptions reserve no memory until adoption, so preparing
+a replacement does not compete with the live view for admission. Lifecycle
+tests exercise restore, split, close and undo through App commands and the
+existing workspace projection oracle.
+
 Durable hierarchy locators use literal segments and an optional variable
 occurrence. This preserves escaped names containing dots and same-name
 declarations without guessing when a scope path is ambiguous. Runtime signal

@@ -811,6 +811,130 @@ fn model_based(
 
 /// `VOLNA_UNDO_SEEDS=n` runs `n` more seeds for exploration.
 #[test]
+fn every_panel_kind_adopts_and_retires_through_restore_split_close_and_undo() {
+    let mut d = Driver::new(17);
+    d.send(Command::AddVars(a_all(vec![0])));
+    let waves = d.focused();
+    let member = *d
+        .catalog
+        .generators
+        .iter()
+        .find(|&&g| d.app.member_clock(a(g)).is_none())
+        .unwrap();
+    let track = d
+        .app
+        .doc
+        .hierarchy(TraceId::A)
+        .unwrap()
+        .member_track(member)
+        .unwrap();
+    d.send(Command::OpenPipeline { track: a(track) });
+    let pipeline = d.focused();
+    d.send(Command::OpenTable {
+        selected: a_all(vec![member]),
+        clicked: None,
+    });
+    let table = d.focused();
+    let id = d
+        .app
+        .doc
+        .resident_generator(a(track))
+        .unwrap()
+        .transactions()[0]
+        .id;
+    d.send(Command::SelectTransaction {
+        panel: table,
+        track: a(track),
+        id,
+        cursor: None,
+    });
+    d.send(Command::ShowTransaction { from: table });
+    let transaction = d.focused();
+    d.send(Command::Transaction(
+        transaction,
+        TransactionCommand::Pin(true),
+    ));
+
+    // A prepared view is a description, not a second live set of owners.
+    let budget = d
+        .app
+        .doc
+        .session(TraceId::A)
+        .unwrap()
+        .memory_budget()
+        .unwrap();
+    let used = budget.used();
+    let saved =
+        Workspace::capture(&d.app, volna_core::testing::paths("landing.vtr"), None).unwrap();
+    let plan = saved.prepare(&d.app, TRACE, LOCATION).unwrap();
+    assert_eq!(
+        budget.used(),
+        used,
+        "preparation must not admit live panel memory"
+    );
+    assert!(plan.commit(&mut d.app).unwrap().notices.is_empty());
+    pump(&mut d.app);
+    assert_eq!(
+        budget.used(),
+        used,
+        "replacing the view must not duplicate reservations"
+    );
+    let mut oracle = Oracle::new(&d.app);
+
+    for panel in [waves, pipeline, table, transaction] {
+        d.send(Command::Panels(PanelsCommand::Split {
+            panel,
+            axis: volna_core::panels::Axis::Horizontal,
+        }));
+        let clone = d.focused();
+        oracle.check(&d.app, Kind::Edit, "split");
+        assert_eq!(d.app.panels.waves(waves).unwrap().loaded_count(), 1);
+        assert!(matches!(
+            d.app.panels.pipeline(pipeline).unwrap().rows(&d.app.doc),
+            volna_core::pipeline::Rows::Ready(_)
+        ));
+        assert!(matches!(
+            d.app.panels.get(table).unwrap().kind.table().unwrap().state,
+            volna_core::table::TableState::Ready
+        ));
+        assert!(matches!(
+            d.app
+                .panels
+                .transaction(transaction)
+                .unwrap()
+                .state(&d.app.doc),
+            volna_core::transaction::TxPanelState::Ready(_)
+        ));
+        d.send(Command::Panels(PanelsCommand::Close(clone)));
+        oracle.check(&d.app, Kind::Edit, "close clone");
+        for (command, kind) in [
+            (Command::Undo, Kind::Undo),
+            (Command::Redo, Kind::Redo),
+            (Command::Undo, Kind::Undo),
+            (Command::Undo, Kind::Undo),
+        ] {
+            d.send(command);
+            oracle.check(&d.app, kind, "flip clone lifecycle");
+        }
+        assert!(d.app.panels.get(clone).is_none());
+    }
+
+    for panel in [pipeline, table, transaction] {
+        d.send(Command::Panels(PanelsCommand::Close(panel)));
+        oracle.check(&d.app, Kind::Edit, "close shared owner");
+        assert_eq!(
+            d.app.doc.resident_generator(a(track)).is_some(),
+            panel != transaction
+        );
+    }
+    for _ in 0..3 {
+        d.send(Command::Undo);
+        oracle.check(&d.app, Kind::Undo, "restore shared owner");
+        assert!(d.app.doc.resident_generator(a(track)).is_some());
+    }
+}
+
+#[test]
 fn random_commands_undo_and_redo_to_every_earlier_cockpit() {
     let more: u64 = std::env::var("VOLNA_UNDO_SEEDS")
         .ok()
