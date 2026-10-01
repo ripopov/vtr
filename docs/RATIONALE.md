@@ -2972,6 +2972,12 @@ drops a read arriving after a pan but before the next classification.
 Counts of the previous view stay hidden until the new classification
 arrives; a failed request clears the pending meters and reports a notice.
 
+Scope totals belong to the document's trace slot. Workspace restoration keeps
+completed immutable totals and restarts unfinished count requests under the
+trace's new generation. Both initial installation and restoration use the
+same document query path. A frontend retry or disabling automatic workspace
+restore would hide the lost-request bug and duplicate loading ownership.
+
 Per-scope counts come from each signal's census weights (`vtr::Contributions`
 from a recording `vtr::Census`): +1 at each scope holding it, −1 at each
 lowest common ancestor of consecutive holders. A frame sums the changing

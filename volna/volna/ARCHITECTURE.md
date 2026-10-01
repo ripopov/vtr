@@ -847,6 +847,11 @@ active destination only on acknowledgement; failed flushes keep the live view.
 Automatic restore failures suspend saves. Fallback selection compares the
 saved `supersedes` SHA-256 against the exact sidecar bytes and preserves its base.
 
+Restoring a workspace invalidates loads by advancing each loaded trace's
+generation. Completed immutable scope totals remain with their trace; the
+document requeues unfinished totals under the new generation, so scope counts
+and activity meters appear even when restoration precedes the initial count.
+
 `App::new()` disables persistence. Native `main` configures a byte store that
 reads bounded files and writes through a same-directory temporary file and
 rename. The WASM entry point accepts both opaque restore candidates with the

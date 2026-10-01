@@ -405,7 +405,7 @@ impl Document {
 
     /// Start every view afresh over the same traces (a restored
     /// workspace): loads in flight become stale, retained tracks and
-    /// summaries go, and every trace's clocks load again.
+    /// summaries go, and clocks and any unfinished scope counts load again.
     pub(crate) fn restart(&mut self) {
         self.epoch = self.next_generation();
         // A trace still opening keeps its generation: its open completes.
@@ -424,6 +424,7 @@ impl Document {
             .map(|(id, s)| (id, Arc::clone(s)))
             .collect();
         for (id, session) in loaded {
+            self.load_scope_sizes(id, &session);
             self.clocks.add_trace(id, session.tracks());
             self.retain_clocks(id);
         }
@@ -481,16 +482,7 @@ impl Document {
             .expect("installed traces have slots");
         slot.placement = placement;
         slot.state = SlotState::Loaded(Arc::clone(&session));
-        if slot.sizes.is_none() {
-            slot.sizes = session.scope_sizes();
-        }
-        if slot.sizes.is_none() {
-            self.requests.push(LoadRequest::Sizes {
-                trace: id,
-                generation: slot.generation,
-                session: Arc::clone(&session),
-            });
-        }
+        self.load_scope_sizes(id, &session);
         if first {
             self.shared.viewport.set(Viewport::fit(self.limits()));
         }
@@ -499,6 +491,25 @@ impl Document {
         self.clocks.add_trace(id, session.tracks());
         self.retain_clocks(id);
         Ok(refined)
+    }
+
+    /// Completed counts survive a workspace restore; unfinished counts need
+    /// a request under the trace's current generation.
+    fn load_scope_sizes(&mut self, trace: TraceId, session: &Arc<dyn Session>) {
+        let slot = self
+            .traces
+            .get_mut(trace)
+            .expect("loaded traces have slots");
+        if slot.sizes.is_none() {
+            slot.sizes = session.scope_sizes();
+        }
+        if slot.sizes.is_none() {
+            self.requests.push(LoadRequest::Sizes {
+                trace,
+                generation: slot.generation,
+                session: Arc::clone(session),
+            });
+        }
     }
 
     fn retain_clocks(&mut self, trace: TraceId) {

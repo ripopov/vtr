@@ -379,6 +379,65 @@ fn replacing_a_trace_rejects_results_before_the_next_frame() {
 }
 
 #[test]
+fn restoring_a_workspace_before_scope_sizes_arrive_keeps_activity_meters() {
+    use volna_core::workspace::Workspace;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 3);
+    index_beside(&path);
+    let session = OpenSpec::Path(path).open().unwrap();
+    // Counts may still be queued, in flight, or already retained.
+    for initial in 0..3 {
+        let mut app = App::new();
+        app.set_session(session.clone());
+        if initial == 2 {
+            settle(&mut app);
+        }
+        let stale = (initial == 1).then(|| {
+            app.take_requests()
+                .into_iter()
+                .find(|r| matches!(r, LoadRequest::Sizes { .. }))
+                .expect("initial scope count")
+                .perform()
+        });
+        let saved = Workspace::capture(&app, volna_core::testing::paths("run.vtr"), None).unwrap();
+        saved
+            .prepare(
+                &app,
+                "file:///tmp/run.vtr",
+                "file:///tmp/run.vtr.volna.json",
+            )
+            .unwrap()
+            .commit(&mut app)
+            .unwrap();
+        if let Some(stale) = stale {
+            app.deliver(stale);
+            assert!(app.doc.traces().get(TraceId::A).unwrap().sizes().is_none());
+        }
+        let requests = app.take_requests();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| matches!(r, LoadRequest::Sizes { .. }))
+                .count(),
+            usize::from(initial != 2),
+            "only unfinished counts restart"
+        );
+        for request in requests {
+            app.deliver(request.perform());
+        }
+        settle(&mut app);
+        let window = app.activity_viewport();
+        check_exact(
+            &app,
+            &session,
+            window.start.max(0.0) as u64,
+            window.end as u64,
+        );
+    }
+}
+
+#[test]
 fn meters_follow_the_focused_panels_unlinked_viewport() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("run.vtr");

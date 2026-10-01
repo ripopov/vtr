@@ -245,6 +245,74 @@ fn scope_rows_show_activity_meters_in_both_themes(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn feature_showcase_workspace_restores_with_scope_activity_meters(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::sidebar::TreeNode;
+    use volna_core::trace::Traced;
+    use volna_core::workspace::Workspace as SavedWorkspace;
+    init(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("feature_showcase.vtr");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/feature_showcase.vtr"),
+        &trace,
+    )
+    .unwrap();
+    let reader = vtr::Reader::open(&trace).unwrap();
+    let identity = vtr::activity::Identity::of(&reader).unwrap();
+    vtr::activity::Sidecar::new(&trace, &identity, None)
+        .write(|w| vtr::activity::build(&reader, w, &Default::default()))
+        .unwrap();
+    let session = OpenSpec::Path(trace.clone()).open().unwrap();
+    let saved = SavedWorkspace::parse(include_bytes!(
+        "../examples/feature_showcase.vtr.volna.json"
+    ))
+    .unwrap();
+    let uri = crate::native_workspace::file_uri(&trace).unwrap();
+    let window = cx.add_window(Workspace::new);
+    window
+        .update(cx, |ws, window, cx| {
+            ws.app.set_session(session.clone());
+            // Restore the startup layout before the first scope-count request
+            // reaches the executor, as loading a workspace sidecar can do.
+            saved
+                .prepare(&ws.app, &uri, &format!("{uri}.volna.json"))
+                .unwrap()
+                .commit(&mut ws.app)
+                .unwrap();
+            ws.after(Some(window), cx);
+        })
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    let soc = window
+        .update(&mut vcx, |ws, _, _| {
+            let h = session.hierarchy();
+            let soc = h
+                .roots()
+                .iter()
+                .find(|&id| h.scope(id).name == "soc")
+                .unwrap();
+            let activity = ws
+                .app
+                .scope_activity(TreeNode::scope(Traced::new(TraceId::A, soc)))
+                .expect("restored workspace has activity counts");
+            assert!(activity.exact() && activity.changing > 0);
+            soc
+        })
+        .unwrap();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    for part in ["scope-activity", "scope-meter"] {
+        let bounds = vcx
+            .debug_bounds(Box::leak(format!("{part}-A-{soc}").into_boxed_str()))
+            .expect("activity count and meter are rendered after restore");
+        assert!(bounds.size.width > gpui_kit::px(0.0));
+    }
+}
+
+#[gpui_kit::test]
 fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace(cx: &mut TestAppContext) {
     init(cx);
     let window = cx.add_window(Workspace::new);
