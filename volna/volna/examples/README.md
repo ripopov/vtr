@@ -390,3 +390,37 @@ cc -O2 volna/volna/examples/generate_large_fst.c \
 /tmp/generate-large-fst volna/volna/examples/large_fst.fst
 cargo run -p volna --profile viewer -- volna/volna/examples/large_fst.fst
 ```
+
+## Gate-level hierarchy traces
+
+`large/` (not committed) holds gate-level expansions of the C910 CoreMark
+hierarchy for scope-size and hierarchy-loading work
+([docs/hierarchy-scope-sizes.html](../../../docs/hierarchy-scope-sizes.html)).
+Each variable becomes one-bit nets, each net gets a driving cell scope
+(`NAND2_X1`, or `DFF_X1` for one in five) whose pins alias nets of its
+module, and aliases keep aliasing the same bits. Only the hierarchy is
+interesting; there are no value changes.
+
+| Trace | Scopes | Variables | Signals | Size |
+|---|---:|---:|---:|---:|
+| `gates1.vtr`, `gates1.fst` | 576,380 | 3.32M | 569,422 | 12 / 13 MB |
+| `gates4.vtr`, `gates4.fst` | 2,305,524 | 13.29M | 2,277,688 | 47 / 53 MB |
+| `gates16.vtr` | 9,222,096 | 53.15M | 9,110,752 | 186 MB |
+
+Volna opens `gates16.vtr` in 3.49 s at 2.54 GiB peak RSS with compact
+hierarchy storage; see the [benchmark report](../../../docs/BENCHMARK_RESULTS.md#compact-hierarchy-local-and-remote).
+Generate them from the repository root; `c910_coremark.vtr`
+comes from the benchmark suite, and the FST copies need `vcd2fst`:
+
+```sh
+cargo build --release -p vtr-bench -p vtr-cli
+mkdir -p volna/volna/examples/large && cd volna/volna/examples/large
+for n in 1 4 16; do
+  ../../../../target/release/vtr-bench gen-gates \
+    ../../../../bench/results/latest/c910_coremark.vtr gates$n.vtr --copies $n
+done
+for n in 1 4; do
+  ../../../../target/release/vtr to-vcd gates$n.vtr gates$n.vcd
+  vcd2fst gates$n.vcd gates$n.fst && rm gates$n.vcd
+done
+```

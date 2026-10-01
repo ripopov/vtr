@@ -35,9 +35,13 @@ __pycache__/
 
 # Local large examples and their workspaces.
 /volna/volna/examples/large_*
+/volna/volna/examples/large/
 
 # macOS Finder folder metadata.
 .DS_Store
 # Activity index sidecars (`vtr index`) are derived data.
 *.vtr.index
 *.fst.index
+
+# Local backup copies of retired pages and tests.
+/backup/
