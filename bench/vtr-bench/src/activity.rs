@@ -115,22 +115,22 @@ impl Trace {
 }
 
 /// Builds `path`'s index (VTR or FST) into a temporary file with the library and measures it.
-pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64) -> serde_json::Value {
+pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64, output: Option<&str>) -> serde_json::Value {
     let mut r = Trace::open(path);
     let id = r.identity();
     let file = id.length;
-    let out = std::env::temp_dir().join(format!("vtr-bench-activity-{}.index", std::process::id()));
+    let out = output.map(std::path::PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join(format!("vtr-bench-activity-{}.index", std::process::id())));
     let opts = BuildOptions { threads, budget, ..Default::default() };
     let base = rss_anon();
     let sampler = PeakSampler::start();
     let t = Instant::now();
-    let summary = r.build(std::io::BufWriter::new(std::fs::File::create(&out).unwrap()), &opts);
+    let summary = r.build(std::io::BufWriter::new(std::fs::OpenOptions::new().write(true).create_new(true).open(&out).unwrap()), &opts);
     let build_s = t.elapsed().as_secs_f64();
     let peak = sampler.stop().saturating_sub(base);
     let t = Instant::now();
     let index = Index::open(&out, &id).unwrap();
     let load_ms = t.elapsed().as_secs_f64() * 1e3;
-    std::fs::remove_file(&out).unwrap();
+    if output.is_none() { std::fs::remove_file(&out).unwrap(); }
     let blocks = index.blocks();
     let rel: Vec<f64> = blocks
         .iter()
@@ -152,7 +152,8 @@ pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64
     let queries = if windows > 0 { check_windows(&mut r, &index, windows, threads, seed) } else { json!(null) };
     json!({
         "queries": queries,
-        "file": path, "file_bytes": file, "signals": summary.signals, "changes": summary.changes, "blocks": summary.blocks,
+        "file": path, "file_bytes": file, "format": id.format.name(), "toc_crc": id.toc_crc,
+        "signals": summary.signals, "changes": summary.changes, "blocks": summary.blocks,
         "disk": budget.disk, "memory": budget.memory, "threads": threads,
         "build_s": build_s, "build_ns_per_change": build_s * 1e9 / summary.changes.max(1) as f64,
         "peak_anon_bytes": peak,
@@ -160,6 +161,25 @@ pub fn run(path: &str, budget: Budget, threads: usize, windows: usize, seed: u64
         "stretches": summary.stretches, "delta_min": dmin, "delta_max": dmax,
         "delta_over_block_min": rmin, "delta_over_block_median": rmed, "delta_over_block_max": rmax,
         "load_ms": load_ms, "loaded_bytes": index.memory_bytes(), "memory_share": index.memory_bytes() as f64 / file as f64,
+    })
+}
+
+/// Loads only a sidecar, in a fresh process, so Linux's peak RSS includes
+/// the encoded image and decode scratch without the source trace or builder.
+pub fn load(path: &str, identity: Identity) -> serde_json::Value {
+    let baseline = crate::util::peak_rss();
+    assert!(baseline > 0, "activity-load needs Linux /proc memory accounting");
+    let t = Instant::now();
+    let index = Index::open(path, &identity).unwrap();
+    let load_ms = t.elapsed().as_secs_f64() * 1e3;
+    let peak = crate::util::peak_rss();
+    // Capture before JSON allocation. Keep the immutable index live until
+    // after the measurement; its size is the library's exact packed size.
+    json!({
+        "load_ms": load_ms, "loaded_bytes": index.memory_bytes(),
+        "signals": index.signal_count(), "blocks": index.blocks().len(),
+        "stretches": index.stretch_count(), "baseline_rss_bytes": baseline,
+        "peak_rss_bytes": peak,
     })
 }
 

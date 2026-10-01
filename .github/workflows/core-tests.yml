@@ -22,6 +22,10 @@ jobs:
         run: cc --version
       - name: Test the Rust core, the C API and the C smoke test
         run: cargo test --locked -p vtr -p vtr-capi -p vtr-guard -- --skip crash_matrix --skip guard_chains_to_address_sanitizer
+      - name: Check fresh-process activity index memory accounting
+        run: |
+          cargo build --locked --release -p vtr-bench
+          python3 bench/activity-memory.py --samples 1 --cpus '' --output /tmp/activity-memory.json volna/volna/examples/picorv32.vtr volna/volna/examples/landing_dram.fst
   crash-matrix:
     # Every way a simulation can end, run in child processes against libvtr.a
     # (core/vtr-capi/tests/crash.rs, docs/crash-safe-vtr.html).

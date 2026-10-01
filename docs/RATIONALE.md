@@ -3013,3 +3013,31 @@ directory uses the existing identity-addressed user cache. Builder tests verify
 byte-identical controlled builds, cancellation during a scan and before the
 rename, and concurrent temporary files; session and headless GPUI tests cover
 policy, buttons, VTR/FST builds, close, retry and cache fallback.
+
+**Paging is conditional.** The native reader-memory gate covers 23 traces:
+the eight signal workloads' VTR/FST twins, the three large VTR samples,
+1/4/16-copy C910 hierarchy expansions and the bursty recording. The
+[benchmark report](BENCHMARK_RESULTS.md#activity-reader-memory-paging-gate)
+records a largest retained index of 34.75 MiB and peak loading RSS of
+73.22 MiB, both on the sixteen-copy hierarchy. No retained index exceeds the
+default 256 MiB object limit and no index-only load exceeds the 512 MiB
+shared budget. Two approximately 4 GiB sampled recordings need very few
+stretches; file length alone does not establish a paging need.
+
+`bench/activity-memory.py` builds temporary sidecars, then loads each in
+three fresh child processes with neither trace nor builder resident. Retained
+storage comes from `Index::memory_bytes`; Linux's high-water RSS includes
+startup, encoded image, decode scratch, codec and allocator storage. The
+runner checks decoded counts, enforces timeouts, removes temporary files and
+fails on a configured limit breach. It measures native index loading alone,
+not the complete viewer or WASM. Other admitted objects still share the pool.
+
+Keep the resident version-1 format until a representative trace exceeds the
+gate. Repeating stretches at block boundaries spends disk bytes and introduces
+page I/O, eviction and fallible queries without a measured benefit here. The
+large hierarchy fixtures contain no post-initial changes, so their index is
+the four-byte per-signal offset table, which paging stretches cannot remove.
+The VTR reader already retains decompressed pieces for narrow pans; do not
+add a second cache without measuring a need. A long irregular trace can still
+trigger a future paged design; that change must measure repeated stretches,
+write and read time, bounded page residency and errors against this reader.

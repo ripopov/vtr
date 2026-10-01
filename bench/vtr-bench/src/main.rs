@@ -29,9 +29,11 @@ vtr-bench commands:
                                                       synthetic simulator log through Writer::log (JSON);
                                                       --rate paces it to R records/s
   log-encode <n>                                      log block encoder micro-benchmark per codec (JSON)
-  activity <in.vtr> [--disk D] [--memory M] [--threads T] [--windows N]
+  activity <trace> [--disk D] [--memory M] [--threads T] [--windows N] [--output INDEX]
                                                       builds the activity index; time, memory, size, and with
                                                       --windows the answers of N random windows checked (JSON)
+  activity-load <index> --format vtr|fst --length N --toc-crc N
+                                                      fresh-process sidecar load time and peak RSS (Linux, JSON)
   activity-export <in.vtr> <t0> <t1> <out.bin>        demo data for docs/hierarchy-activity.html
   gen-bursty <out.vtr> [--scale S]                    synthetic ps trace with sleep phases and gated units
   scopes <in.vtr> [--children NAME]                   distinct signals per scope, three ways (JSON)
@@ -196,7 +198,20 @@ fn main() {
             };
             let threads = flag(&args, "--threads").map_or(16, |s| s.parse().unwrap());
             let windows = flag(&args, "--windows").map_or(0, |s| s.parse().unwrap());
-            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], budget, threads, windows, seed)).unwrap());
+            println!("{}", serde_json::to_string_pretty(&activity::run(&pos[1], budget, threads, windows, seed, flag(&args, "--output").as_deref())).unwrap());
+        }
+        "activity-load" => {
+            let format = match flag(&args, "--format").as_deref() {
+                Some("vtr") => vtr::activity::SourceFormat::Vtr,
+                Some("fst") => vtr::activity::SourceFormat::Fst,
+                _ => panic!("activity-load needs --format vtr|fst"),
+            };
+            let identity = vtr::activity::Identity {
+                format,
+                length: flag(&args, "--length").expect("--length").parse().unwrap(),
+                toc_crc: flag(&args, "--toc-crc").expect("--toc-crc").parse().unwrap(),
+            };
+            println!("{}", serde_json::to_string_pretty(&activity::load(&pos[1], identity)).unwrap());
         }
         "activity-export" => activity::export(&pos[1], pos[2].parse().unwrap(), pos[3].parse().unwrap(), &pos[4]),
         "scopes" => scopes::run(&pos[1], flag(&args, "--children").as_deref()),

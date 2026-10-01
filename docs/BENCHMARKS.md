@@ -28,6 +28,52 @@ source, nothing is downloaded: every input is generated from the
 repository or taken from the submodules. The C910 workload needs a
 `riscv64-unknown-elf-gcc` for the CoreMark image.
 
+## Activity reader memory
+
+Stage 7 of [hierarchy activity](hierarchy-activity.html#stage-7) adds paging
+only when a measured index exceeds the viewer's limits. The native Linux
+gate measures both retained index bytes and peak loading RSS. It builds a
+sidecar once per trace in an isolated temporary directory, then runs
+`vtr-bench activity-load` in a fresh child for each of three samples. The
+child opens only the sidecar, using the identity returned by the builder;
+the trace and builder are absent. It checks signal, block, stretch and
+retained-byte counts against the build. Each process has a 300-second timeout;
+temporary indexes are removed even when a child fails.
+
+`Index::memory_bytes` counts packed retained storage. Linux `VmHWM` counts
+the entire load process, including startup, encoded sidecar, decoded tables,
+codec memory, scratch and allocator overhead. It is not an allocation count,
+total viewer memory, a cold-disk measurement or a WASM measurement. Samples
+are pinned to P-cores 0–7; the report retains every sample, selects the fastest
+load time and the largest peak. A retained index over 256 MiB (the default
+object limit) or index-only peak over 512 MiB (the default shared budget)
+writes a failing report and exits nonzero. Passing leaves room for other
+objects but does not prove that a complete workspace fits.
+
+The checked-in cohort includes the eight signal workloads' VTR/FST twins,
+the three large VTR samples, the C910-derived 1/4/16-copy hierarchy expansions
+and the bursty trace. Provision the main workloads with `python3 bench/run.py
+all`. Generate the large samples with `cargo -Zscript` and the three
+`generate_large_{vtr,many_scopes,analog}.rs` generators in
+`volna/volna/examples/`. Generate the hierarchy expansions as described in
+[their benchmark README](../bench/results/hierarchy-stage2/README.md), under
+`volna/volna/examples/large/`. Then run:
+
+```sh
+cargo build --locked --release -p vtr-bench
+target/release/vtr-bench gen-bursty bench/results/latest/activity_bursty.vtr --scale 4
+python3 bench/activity-memory.py --cohort bench/results/activity-memory/results.json --output bench/results/activity-memory/results.json
+python3 bench/run.py report
+```
+
+New traces can be passed directly in place of `--cohort`; missing inputs are
+errors. The Linux core CI job runs the same runner with bundled small VTR
+and FST fixtures, one sample and no pinning:
+
+```sh
+python3 bench/activity-memory.py --samples 1 --cpus '' --output /tmp/activity-memory.json volna/volna/examples/picorv32.vtr volna/volna/examples/landing_dram.fst
+```
+
 ## Competitors
 
 | label | what |

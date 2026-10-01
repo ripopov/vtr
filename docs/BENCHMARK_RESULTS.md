@@ -300,6 +300,43 @@ taskset -c 0-7 target/release/examples/activity_cost bench/results/latest/c910_c
 taskset -c 0-7 target/release/examples/activity_cost bench/results/latest/c910_coremark_fstapi_zlib.fst
 ```
 
+
+### Activity reader memory: paging gate
+
+Stage 7 of [hierarchy activity](hierarchy-activity.html#stage-7) is conditional on measured memory pressure. `bench/activity-memory.py` builds each sidecar in an isolated temporary directory, then loads it in 3 fresh native processes pinned to CPUs 0-7. The child holds no source trace or builder. Retained bytes are `Index::memory_bytes`; peak RSS is Linux's process high-water mark, including startup, encoded sidecar, decoded index, native codec storage and temporary decode tables. Load time is best of 3; peak is the largest of the 3. This measures the index alone, not total viewer memory or WASM memory. Raw samples and machine details: `bench/results/activity-memory/results.json`.
+
+Paging is requested when a retained index exceeds the default 256 MiB object limit or an index-only load exceeds the default 512 MiB viewer budget. No measured trace exceeds either gate, so the version-1 resident reader is retained. Other loaded viewer objects still share the budget; passing this isolated gate does not guarantee that a whole workspace fits.
+
+| trace | source | signals | sidecar | retained index | peak load RSS | load |
+|---|---:|---:|---:|---:|---:|---:|
+| scr1_axi.vtr | 1.19 MiB | 1,445 | 7.1 KiB | 40.3 KiB | 4.20 MiB | 0.11 ms |
+| scr1_axi_fstapi_zlib.fst | 2.36 MiB | 1,445 | 7.6 KiB | 40.4 KiB | 4.18 MiB | 0.11 ms |
+| rsa256.vtr | 30.99 MiB | 113 | 3.1 KiB | 321.5 KiB | 4.46 MiB | 0.23 ms |
+| rsa256_fstapi_zlib.fst | 31.66 MiB | 113 | 4.0 KiB | 321.5 KiB | 4.39 MiB | 0.25 ms |
+| rsa256_long.vtr | 310.27 MiB | 113 | 19.9 KiB | 3.10 MiB | 7.35 MiB | 1.75 ms |
+| rsa256_long_fstapi_zlib.fst | 316.88 MiB | 113 | 33.0 KiB | 3.10 MiB | 7.20 MiB | 1.74 ms |
+| c910_coremark.vtr | 243.13 MiB | 67,144 | 1.73 MiB | 8.82 MiB | 15.12 MiB | 15.66 ms |
+| c910_coremark_fstapi_zlib.fst | 388.93 MiB | 67,144 | 4.77 MiB | 30.35 MiB | 39.61 MiB | 52.02 ms |
+| scr1_x8.vtr | 11.88 MiB | 11,560 | 10.1 KiB | 322.3 KiB | 4.54 MiB | 0.44 ms |
+| scr1_x8_fstapi_zlib.fst | 25.31 MiB | 11,560 | 30.1 KiB | 1.83 MiB | 5.96 MiB | 1.56 ms |
+| long_sparse.vtr | 7.85 MiB | 20,001 | 174.5 KiB | 472.9 KiB | 5.00 MiB | 1.13 ms |
+| long_sparse_fstapi_zlib.fst | 12.90 MiB | 20,001 | 226.2 KiB | 583.9 KiB | 4.97 MiB | 1.31 ms |
+| many_active.vtr | 69.67 MiB | 200,001 | 1.24 MiB | 8.11 MiB | 15.73 MiB | 13.54 ms |
+| many_active_fstapi_zlib.fst | 102.33 MiB | 200,001 | 1.09 MiB | 8.69 MiB | 15.73 MiB | 15.63 ms |
+| wide_bus.vtr | 13.67 MiB | 129 | 43.1 KiB | 396.5 KiB | 4.56 MiB | 0.55 ms |
+| wide_bus_fstapi_zlib.fst | 14.12 MiB | 129 | 30.9 KiB | 297.9 KiB | 4.52 MiB | 0.42 ms |
+| large_vtr.vtr | 341.48 MiB | 8 | 2.6 KiB | 5.72 MiB | 9.80 MiB | 2.57 ms |
+| large_many_scopes.vtr | 3.89 GiB | 128 | 8.7 KiB | 5.4 KiB | 4.00 MiB | 0.03 ms |
+| large_analog_signals.vtr | 3.92 GiB | 15 | 13.1 KiB | 4.0 KiB | 4.07 MiB | 0.04 ms |
+| gates1.vtr | 11.85 MiB | 569,422 | 381 B | 2.17 MiB | 8.00 MiB | 3.36 ms |
+| gates4.vtr | 44.98 MiB | 2,277,688 | 381 B | 8.69 MiB | 20.99 MiB | 14.12 ms |
+| gates16.vtr | 177.52 MiB | 9,110,752 | 381 B | 34.75 MiB | 73.22 MiB | 51.34 ms |
+| activity_bursty.vtr | 290.76 MiB | 16,035 | 2.79 MiB | 7.00 MiB | 14.57 MiB | 13.66 ms |
+
+The gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). Trace bytes and production encoding, build and decode paths are unchanged.
+
+
+
 ## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
 
 Every logger receives the same messages (see `docs/BENCHMARKS.md`, *Log workloads*): one producer thread, simulation-time stamps, 13 call sites with integer, hex, float and string arguments. `hot path` is the message loop alone (asynchronous loggers queue and return); `total` includes the flush/close that puts everything on disk; `cpu` is user+system time of the whole process, background threads included. `+zstd` is the size after compressing the output with zstd level 3 in 4 MiB frames, for the loggers that write uncompressed output (VTR, NanoLog and the CLP IR stream are already compressed). `read back` renders every record to text again (VTR: `vtr_log_rec_format`; CLP: IR decoder; NanoLog: its `decompressor`; binlog: `bread`; Quill and the text baseline already are text).

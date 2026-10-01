@@ -310,7 +310,7 @@ button.a-row{cursor:pointer}
     <p class="v-kicker">Plan</p>
     <h2 class="v-section__title">Seven commits, each useful on its own.</h2>
     <div class="a-body">
-      <p>Stages 1–5 have landed: local VTR and FST traces have exact scope meters and can build their indexes from Volna. Remote sessions and a measured need for paging remain. The design lands in seven commits, from the bottom layer up. Every commit builds, passes <code>cargo test</code> for the crates it touches, <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the tests and documentation it touches. No commit adds a feature flag or code that only a later commit calls. Each stage below says what the user gets and then what the commit contains. Where a stage adds something to the screen, its picture shows only the features of that stage and the ones before, and red rings number the new elements as its list does. The pictures are built by this page from the same C910 index as the demo.</p>
+      <p>Stages 1–5 have landed: local VTR and FST traces have exact scope meters and can build their indexes from Volna. Remote sessions remain planned. Stage 7's memory gate has been measured on 23 traces and paging is deferred: none exceeds the viewer's default limits. The design has seven stages, from the bottom layer up. Every commit builds, passes <code>cargo test</code> for the crates it touches, <code>cargo test -p volna-core</code> and <code>volna/volna/check.sh</code>, and updates the tests and documentation it touches. No commit adds a feature flag or code that only a later commit calls. Each stage below says what the user gets and then what the commit contains. Where a stage adds something to the screen, its picture shows only the features of that stage and the ones before, and red rings number the new elements as its list does. The pictures are built by this page from the same C910 index as the demo.</p>
       <p><strong>Why this order.</strong> Each layer is useful before the next one exists.</p>
       <ul>
         <li><strong>Scope sizes are a design of their own.</strong> The size column that meters divide by, and the per-signal lists that count active signals per scope, come from the <a class="v-link" href="hierarchy-scope-sizes.html">scope-sizes design</a>. On gate-level hierarchies of millions of scopes they are a problem in their own right. The meters need its first stage.</li>
@@ -330,7 +330,7 @@ button.a-row{cursor:pointer}
           <tr><td>4 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-4">Meters</a></td><td>A live meter on every scope row of an indexed trace</td><td>3; scope sizes, stage 1</td><td>unchanged</td></tr>
           <tr><td>5 <span class="v-chip v-chip--accent">Landed</span></td><td><a class="v-link" href="#stage-5">Build from Volna</a></td><td>The offer, a background build with progress, <code>hierarchy.activityIndex</code></td><td>3, 4</td><td>settings key, user cache</td></tr>
           <tr><td>6</td><td><a class="v-link" href="#stage-6">Remote traces</a></td><td>Meters over a remote session; the server builds and caches the sidecar</td><td>5</td><td>one protocol message</td></tr>
-          <tr><td>7</td><td><a class="v-link" href="#stage-7">Paged reader</a></td><td>Bounded viewer memory on very large busy traces, if measured to be needed</td><td>4</td><td>sidecar version 2</td></tr>
+          <tr><td>7 <span class="v-chip">Deferred</span></td><td><a class="v-link" href="#stage-7">Paged reader</a></td><td>23 traces fit the memory gate; paging remains conditional</td><td>4</td><td>version 1 retained</td></tr>
         </tbody>
       </table>
     </div>
@@ -469,14 +469,16 @@ x_ct_core        17,823 / 62,292
       </article>
 
       <article class="a-stage" id="stage-7" aria-labelledby="stage-7-h">
-        <p class="a-stage__n">Stage 7 <span class="v-chip">If measured</span></p>
+        <p class="a-stage__n">Stage 7 <span class="v-chip">Deferred</span></p>
         <h3 id="stage-7-h">Paged reader</h3>
-        <p>Only if stage 1's benchmark shows a trace whose loaded index is too large for a viewer. Each section then repeats the stretches that cross its block's start, so the reader loads only the sections a window touches, plus one bit per signal per block for the interior. Reader memory becomes bounded like the builder's. A cache of the current blocks' decompressed runs in <code>resolve</code>, measured in the same commit, would make narrow pans inside them cheap.</p>
-        <h4 class="a-committed">Committed</h4>
+        <p>The paging gate is measured, and no paged reader is needed by the current cohort. <a class="v-link" href="BENCHMARK_RESULTS.md#activity-reader-memory-paging-gate">23 traces</a> cover the eight signal workloads' VTR/FST twins, three large VTR samples, three gate-level hierarchy expansions and a bursty trace. The largest retained index is 34.75 MiB and the highest peak loading RSS is 73.22 MiB, both on the sixteen-core hierarchy expansion. They fit the default 256 MiB object limit and 512 MiB shared budget. The two approximately 4 GiB traces retain very few stretches because they change nearly every sample. These are native, index-only measurements; other viewer objects share the budget, and unmeasured long irregular traces may still need paging.</p>
+        <p><code>bench/activity-memory.py</code> builds isolated temporary sidecars and loads each in three fresh child processes without its trace or builder. It records retained bytes, best load time and the largest process high-water RSS, including the encoded image and decode scratch. A limit breach exits nonzero. The Linux core CI job runs the same command on small bundled VTR and FST fixtures. <a class="v-link" href="BENCHMARKS.md#activity-reader-memory">Reproduction commands</a> provision the full cohort from checked-in generators.</p>
+        <h4 class="a-committed">If the gate is exceeded</h4>
+        <p>A future version would repeat stretches crossing each block's start, load the boundary sections a window touches, and use one bit per signal per block for the interior. The repeated stretches' disk cost and peak reader memory must be measured against the resident reader. <code>resolve</code> already uses the VTR reader's piece cache; another cache needs measured benefit.</p>
         <dl class="a-dl">
-          <div><dt>Format</dt><dd>Sidecar version 2, with the repeated stretches; the SPEC entry and RATIONALE updated with the measured cost. Version 1 files fail clearly and are rebuilt.</dd></div>
-          <div><dt>Core</dt><dd>A paged <code>Index</code> behind the same <code>classify</code>, so the session and the viewer do not change.</dd></div>
-          <div><dt>Tests</dt><dd>The brute-force comparison with a page budget of a few sections; the reader's peak memory under a cap.</dd></div>
+          <div><dt>Format</dt><dd>Version 1 remains current. Only a demonstrated paging need introduces version 2, repeated stretches, a SPEC entry and a measured RATIONALE. Incompatible files fail clearly and are rebuilt.</dd></div>
+          <div><dt>Core</dt><dd>A future paged <code>Index</code> preserves the query semantics; fallible page reads and their memory admission belong in the index and session layers.</dd></div>
+          <div><dt>Tests</dt><dd>A future reader needs brute-force comparisons with only a few sections resident, corruption and page-read failures, and peak memory asserted under a cap.</dd></div>
         </dl>
       </article>
     </div>

@@ -742,6 +742,9 @@ def render(results, path):
                 d = f"{a['delta_min']:,}" if a["delta_min"] == a["delta_max"] else f"{a['delta_min']:,}–{a['delta_max']:,}"
                 qs = f"{q['exact_share'] * 100:.0f}% | {q['undecided_median'] * 100:.0f}% | {q['classify_ns_per_signal']:.1f} ns | {q['resolve_ms_max']:.1f} ms" if q else "- | - | - | -"
                 L.append(f"| {r['workload']} | {label} | {a['build_s']:.2f}s | {a['build_ns_per_change']:.2f} ns | {a['peak_anon_bytes'] / 2**20:.0f} MiB | {fmt_bytes(a['sidecar_bytes'])} | {a['disk_share'] * 100:.2f}% | {fmt_bytes(a['loaded_bytes'])} | {d} | {qs} |")
+    activity_memory = os.path.join(ROOT, "bench", "results", "activity-memory", "results.json")
+    if os.path.exists(activity_memory):
+        L.extend(render_activity_memory(json.load(open(activity_memory))))
     if logs:
         L.extend(render_logs(logs))
     comp = os.path.join(ROOT, "bench", "results", "latest", "compilers.json")
@@ -759,6 +762,19 @@ def render(results, path):
         L.append(f"- **{r['workload']}**: {r['info'].get('description', '')}")
     with open(path, "w") as f:
         f.write("\n".join(L) + "\n")
+
+
+def render_activity_memory(report):
+    L = ["\n### Activity reader memory: paging gate\n"]
+    n = report['samples_per_trace']
+    placement = f"pinned to CPUs {report['cpus']}" if report['cpus'] else 'without pinning'
+    L.append(f"Stage 7 of [hierarchy activity](hierarchy-activity.html#stage-7) is conditional on measured memory pressure. `bench/activity-memory.py` builds each sidecar in an isolated temporary directory, then loads it in {n} fresh native processes {placement}. The child holds no source trace or builder. Retained bytes are `Index::memory_bytes`; peak RSS is Linux's process high-water mark, including startup, encoded sidecar, decoded index, native codec storage and temporary decode tables. Load time is best of {n}; peak is the largest of the {n}. This measures the index alone, not total viewer memory or WASM memory. Raw samples and machine details: `bench/results/activity-memory/results.json`.\n")
+    L.append(f"Paging is requested when a retained index exceeds the default {report['object_limit_bytes'] / 2**20:.0f} MiB object limit or an index-only load exceeds the default {report['budget_bytes'] / 2**20:.0f} MiB viewer budget. " + ("At least one trace exceeds the gate; paging is needed.\n" if report['needs_paging'] else "No measured trace exceeds either gate, so the version-1 resident reader is retained. Other loaded viewer objects still share the budget; passing this isolated gate does not guarantee that a whole workspace fits.\n"))
+    L.extend(["| trace | source | signals | sidecar | retained index | peak load RSS | load |", "|---|---:|---:|---:|---:|---:|---:|"])
+    for row in report['runs']:
+        L.append(f"| {os.path.basename(row['trace'])} | {fmt_bytes(row['trace_bytes'])} | {row['signals']:,} | {fmt_bytes(row['sidecar_bytes'])} | {fmt_bytes(row['loaded_bytes'])} | {row['peak_rss_bytes'] / 2**20:.2f} MiB | {row['load_ms']:.2f} ms |")
+    L.append("\nThe gate-level expansions contain hierarchy and no changes after the initial time; their retained index is the four-byte signal-offset table. Paging stretches cannot remove that floor. The two approximately 4 GiB sampled traces change nearly every sample and retain few stretches. These measurements do not bound unmeasured long, irregular traces. Re-run the gate with such a trace before introducing repeated block-boundary stretches, a version-2 sidecar or another cache. Reproduction and CI smoke commands are in [the methodology](BENCHMARKS.md#activity-reader-memory). Trace bytes and production encoding, build and decode paths are unchanged.\n")
+    return L
 
 
 def render_hierarchy(before, after):
