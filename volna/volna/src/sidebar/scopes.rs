@@ -16,6 +16,34 @@ use crate::app::Workspace;
 use crate::theme::{ThemePx, theme};
 use crate::ui::{Icon, IconName, icon_button, panel_header};
 
+/// Width of a scope row's activity meter, in design pixels.
+const METER_WIDTH: f32 = 26.0;
+
+/// The meter of a scope row: the share of its signals that change in the
+/// view, solid, and the share that may while the rest are read, hatched.
+fn activity_meter(a: volna_core::data::ScopeActivity, t: &crate::theme::Theme) -> gpui_kit::Div {
+    let (changing, upper) = a.shares();
+    // A share that is not zero shows at least 2 px.
+    let length = |share: f32, count: u32| {
+        if count == 0 {
+            0.0
+        } else {
+            (METER_WIDTH * share).round().max(2.0)
+        }
+    };
+    let bar = |w: f32| div().absolute().top_0().bottom_0().left_0().w(t.px(w));
+    div()
+        .flex_none()
+        .relative()
+        .w(t.px(METER_WIDTH))
+        .h(t.px(4.0))
+        .rounded(t.px(2.0))
+        .overflow_hidden()
+        .bg(t.border)
+        .child(bar(length(upper, a.upper)).bg(gpui_kit::pattern_slash(t.wave_signal, 1.0, 2.0)))
+        .child(bar(length(changing, a.changing)).bg(t.wave_signal))
+}
+
 impl Workspace {
     fn scopes_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if ev.keystroke.key == "tab" {
@@ -272,6 +300,8 @@ impl Workspace {
                         let (icon, tint) = scope_icon(&scope);
                         // Empty until the count after open finishes.
                         let size = ScopeTreeModel::size(this.app.doc.traces(), node);
+                        // With an activity index, the signals that change in the view.
+                        let activity = this.app.scope_activity(node);
                         let mut tooltip = format!(
                             "{} — {} {}",
                             h.scope_path(id).join("."),
@@ -281,6 +311,10 @@ impl Workspace {
                         if let Some(size) = size {
                             tooltip = format!("{tooltip}\n{}", size.detail());
                         }
+                        if let Some(a) = activity {
+                            tooltip = format!("{tooltip}\n{}", a.detail());
+                        }
+                        let quiet = activity.is_some_and(|a| a.quiet());
                         let trace = node.trace;
                         let scope_menu = move |menu: gpui_kit::component::menu::PopupMenu,
                                                _: &mut Window,
@@ -337,6 +371,10 @@ impl Workspace {
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
+                                    // A scope none of whose signals can change in the view is faint.
+                                    .when(quiet && !selected, |name| {
+                                        name.text_color(colors.text_placeholder)
+                                    })
                                     .child(name),
                             )
                             .when_some(stream_tag(&scope), |row, tag| {
@@ -355,7 +393,7 @@ impl Workspace {
                                         .child(SharedString::from(tag.to_owned())),
                                 )
                             })
-                            .when_some(size, |row, size| {
+                            .when_some(size.filter(|_| activity.is_none()), |row, size| {
                                 row.child(
                                     div()
                                         .debug_selector(move || format!("scope-size-{trace}-{id}"))
@@ -364,6 +402,24 @@ impl Workspace {
                                         .text_size(px(t.ui_size_small))
                                         .text_color(colors.text_placeholder)
                                         .child(SharedString::from(size.label())),
+                                )
+                            })
+                            .when_some(activity, |row, a| {
+                                row.child(
+                                    div()
+                                        .debug_selector(move || {
+                                            format!("scope-activity-{trace}-{id}")
+                                        })
+                                        .flex_none()
+                                        .pl_1()
+                                        .text_size(px(t.ui_size_small))
+                                        .text_color(colors.text_placeholder)
+                                        .child(SharedString::from(a.label())),
+                                )
+                                .child(
+                                    activity_meter(a, &t).debug_selector(move || {
+                                        format!("scope-meter-{trace}-{id}")
+                                    }),
                                 )
                             })
                             .context_menu(scope_menu);

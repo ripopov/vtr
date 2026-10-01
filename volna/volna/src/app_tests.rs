@@ -158,6 +158,92 @@ fn scope_rows_show_their_signal_count_in_both_themes(cx: &mut TestAppContext) {
     }
 }
 
+/// With an activity index beside the trace, scope rows show how many of
+/// their signals change in the view and a meter instead of the size alone,
+/// in light and dark themes alike.
+#[gpui_kit::test]
+fn scope_rows_show_activity_meters_in_both_themes(cx: &mut TestAppContext) {
+    use gpui_kit::VisualTestContext;
+    use volna_core::sidebar::TreeNode;
+    use volna_core::trace::Traced;
+    init(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("picorv32.vtr");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr"),
+        &trace,
+    )
+    .unwrap();
+    let reader = vtr::Reader::open(&trace).unwrap();
+    let id = vtr::activity::Identity::of(&reader).unwrap();
+    vtr::activity::Sidecar::new(&trace, &id, None)
+        .write(|w| vtr::activity::build(&reader, w, &Default::default()))
+        .unwrap();
+    let window = cx.add_window(Workspace::new);
+    window
+        .update(cx, |ws, _, cx| ws.open_path(trace.clone(), cx))
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    vcx.run_until_parked();
+    // The first frame asks for the classification; its result paints the next.
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    vcx.run_until_parked();
+    let root = window
+        .update(&mut vcx, |ws, _, _| {
+            let root = ws
+                .app
+                .doc
+                .hierarchy(TraceId::A)
+                .unwrap()
+                .roots()
+                .first()
+                .unwrap();
+            let a = ws
+                .app
+                .scope_activity(TreeNode::scope(Traced::new(TraceId::A, root)))
+                .expect("meters once classified");
+            assert!(
+                a.exact() && a.changing > 0 && a.changing <= a.total,
+                "{a:?}"
+            );
+            root
+        })
+        .unwrap();
+    for appearance in [
+        crate::theme::Appearance::Light,
+        crate::theme::Appearance::Dark,
+    ] {
+        vcx.update(|_, cx| {
+            crate::theme::install(
+                crate::theme::CoreTheme::from_host(&crate::theme::HostPalette {
+                    appearance,
+                    ..Default::default()
+                }),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        let mut bounds = |name: String| vcx.debug_bounds(Box::leak(name.into_boxed_str()));
+        let row = bounds(format!("scope-row-A-{root}")).expect("root scope row");
+        let count = bounds(format!("scope-activity-A-{root}")).expect("changing of total");
+        let meter = bounds(format!("scope-meter-A-{root}")).expect("meter");
+        assert!(
+            bounds(format!("scope-size-A-{root}")).is_none(),
+            "the count replaces the size"
+        );
+        assert!(
+            count.left() > row.center().x && count.right() <= meter.left(),
+            "{appearance:?}: {count:?} {meter:?}"
+        );
+        assert!(
+            meter.right() <= row.right() && meter.size.width > gpui_kit::px(20.0),
+            "{appearance:?}: {meter:?} in {row:?}"
+        );
+        assert!(row.top() <= meter.top() && meter.bottom() <= row.bottom());
+    }
+}
+
 #[gpui_kit::test]
 fn latest_open_wins_and_a_stale_open_cannot_replace_the_trace(cx: &mut TestAppContext) {
     init(cx);

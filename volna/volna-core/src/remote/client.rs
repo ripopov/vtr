@@ -104,8 +104,14 @@ impl RemoteClient {
                 }
             }
             request @ LoadRequest::Track { .. } => self.queued.push_back(request),
+            // Remote sessions have no activity index until the server sends one.
+            request @ LoadRequest::ResolveActivity { .. } => {
+                return Err(request.fail(anyhow::anyhow!("remote traces cannot read activity yet")));
+            }
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
+            | LoadRequest::ActivityCounter { .. }
+            | LoadRequest::Activity { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
             | LoadRequest::Integral { .. }
@@ -184,6 +190,9 @@ impl RemoteClient {
             }
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
+            | LoadRequest::ActivityCounter { .. }
+            | LoadRequest::Activity { .. }
+            | LoadRequest::ResolveActivity { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
             | LoadRequest::Integral { .. }
@@ -227,6 +236,9 @@ impl RemoteClient {
                 .wants_track_request(*trace, *generation, *request_id, *track),
             LoadRequest::Open { .. }
             | LoadRequest::Sizes { .. }
+            | LoadRequest::ActivityCounter { .. }
+            | LoadRequest::Activity { .. }
+            | LoadRequest::ResolveActivity { .. }
             | LoadRequest::Summary { .. }
             | LoadRequest::GroupSummary { .. }
             | LoadRequest::Integral { .. }
@@ -282,6 +294,9 @@ impl RemoteClient {
                 }
                 LoadResult::Track { .. }
                 | LoadResult::Sizes { .. }
+                | LoadResult::ActivityCounter { .. }
+                | LoadResult::Activity { .. }
+                | LoadResult::ActivityResolved { .. }
                 | LoadResult::Summary { .. }
                 | LoadResult::GroupSummary { .. }
                 | LoadResult::Integral { .. }

@@ -12,6 +12,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 vtr = { path = "../../core/vtr" }
+# The FST front end of the activity index.
+vtr-cli = { path = "../../tools/vtr-cli", default-features = false }
 anyhow = "1"
 bincode = "=1.3.3"
 lz4_flex = { version = "=0.11.6", features = ["frame"] }

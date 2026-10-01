@@ -284,6 +284,21 @@ int main(int argc, char **argv) {
     CHECK(vtr_scope_sizes_get(sz, 0, &one));
     ASSERT(one.node == VTR_NONE && one.signals == 1 && one.variables == 2 && one.scopes == 2);
     vtr_scope_sizes_free(sz);
+    /* A recording census counts any set of signals per scope. */
+    cen = vtr_census_new_recording();
+    vtr_census_enter(cen);
+    CHECK(vtr_census_var(cen, 5));
+    vtr_census_enter(cen);
+    CHECK(vtr_census_var(cen, 5));
+    CHECK(vtr_census_var(cen, 6));
+    vtr_contributions *con = NULL;
+    sz = vtr_census_finish_recorded(cen, &con);
+    ASSERT(sz != NULL && con != NULL);
+    uint32_t some[2] = {6, 5}, per[2];
+    ASSERT(vtr_contributions_count(con, some, 1, per, 2) == 2 && per[0] == 1 && per[1] == 1);
+    ASSERT(vtr_contributions_count(con, some, 2, per, 2) == 2 && per[0] == 2 && per[1] == 2);
+    vtr_contributions_free(con);
+    vtr_scope_sizes_free(sz);
     CHECK(vtr_reader_transaction_generator(rd, 7, &owner_late));
     ASSERT(owner_late == late_gen);
     vtr_value_buf *b = vtr_value_buf_new();

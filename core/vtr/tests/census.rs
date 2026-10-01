@@ -118,6 +118,43 @@ fn streaming_count_equals_brute_force() {
     }
 }
 
+/// A recorded census counts any subset of signals per scope exactly.
+#[test]
+fn contributions_count_any_subset() {
+    let mut rng = StdRng::seed_from_u64(9);
+    for _ in 0..300 {
+        let t = random_tree(&mut rng);
+        let n = t.parent.len();
+        let mut c = Census::recording();
+        let mut open: Vec<usize> = Vec::new();
+        for i in 0..n {
+            while open.last().is_some_and(|&o| Some(o) != t.parent[i]) {
+                open.pop();
+                c.leave();
+            }
+            c.enter();
+            open.push(i);
+            t.vars[i].iter().for_each(|&g| c.var(g));
+        }
+        let (sizes, contributions) = c.finish_recorded();
+        assert_eq!(triples(&sizes), brute(&t));
+        let mut out = Vec::new();
+        for _ in 0..5 {
+            let keep: HashSet<u32> = (0..40).filter(|_| rng.gen_bool(0.4)).collect();
+            contributions.count(keep.iter().copied(), &mut out);
+            let subset = Tree {
+                parent: t.parent.clone(),
+                vars: t
+                    .vars
+                    .iter()
+                    .map(|v| v.iter().copied().filter(|g| keep.contains(g)).collect())
+                    .collect(),
+            };
+            assert_eq!(out, brute(&subset).iter().map(|x| x.0).collect::<Vec<_>>());
+        }
+    }
+}
+
 #[test]
 fn finish_closes_open_scopes() {
     let mut c = Census::new();

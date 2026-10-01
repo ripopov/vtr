@@ -654,6 +654,8 @@ pub struct App {
     pub panels: Panels,
     pub scopes: ScopeTreeModel,
     pub variables: MemberListModel,
+    /// The scope rows' activity in the viewport (docs/hierarchy-activity.html).
+    pub activity: crate::sidebar::ActivityModel,
     pub sidebar_width: f32,
     pub sidebar_visible: bool,
     /// Height of the scope tree as a fraction of the sidebar.
@@ -696,6 +698,7 @@ impl App {
             panels: Panels::new(),
             scopes: ScopeTreeModel::default(),
             variables: MemberListModel::default(),
+            activity: Default::default(),
             sidebar_width: 280.0,
             sidebar_visible: true,
             scopes_fraction: 0.42,
@@ -801,8 +804,18 @@ impl App {
     // -- the pull-based load loop --------------------------------------------------
 
     /// Loads the frontend should perform, then hand to [`App::deliver`].
+    /// Taken every frame, they also bring the scope meters to the current
+    /// viewport (see [`crate::sidebar::activity`]).
     pub fn take_requests(&mut self) -> Vec<LoadRequest> {
         let mut requests = self.doc.take_requests();
+        if self.sidebar_visible {
+            let budget = self.table_memory_budget();
+            requests.extend(self.activity.sync(
+                self.doc.traces(),
+                self.activity_viewport(),
+                &budget,
+            ));
+        }
         if requests
             .iter()
             .any(|r| matches!(r, LoadRequest::Signals { .. }))
@@ -843,7 +856,57 @@ impl App {
             .collect()
     }
 
+    /// The viewport scope meters follow: the focused panel's, when it has
+    /// a time axis, else the document's shared one.
+    pub fn activity_viewport(&self) -> crate::wave::Viewport {
+        self.panels
+            .focused()
+            .kind
+            .nav()
+            .map_or(self.doc.shared.viewport.value, |nav| {
+                nav.viewport(&self.doc)
+            })
+    }
+
+    /// A scope row's activity in the viewport, once its trace's activity
+    /// index and scope sizes are counted; `None` for trace rows and traces
+    /// without an index.
+    pub fn scope_activity(
+        &self,
+        node: crate::sidebar::TreeNode,
+    ) -> Option<crate::data::ScopeActivity> {
+        let total = ScopeTreeModel::size(self.doc.traces(), node)?.signals;
+        let slot = self.doc.traces().get(node.trace)?;
+        let window =
+            crate::sidebar::activity::trace_window(self.activity_viewport(), slot.placement());
+        let (changing, upper) =
+            self.activity
+                .get(node.trace, slot.generation(), window, node.scope?)?;
+        Some(crate::data::ScopeActivity {
+            changing,
+            upper,
+            total,
+        })
+    }
+
     pub fn deliver(&mut self, mut result: LoadResult) {
+        if matches!(
+            result,
+            LoadResult::ActivityCounter { .. }
+                | LoadResult::Activity { .. }
+                | LoadResult::ActivityResolved { .. }
+        ) {
+            let viewport = self.activity_viewport();
+            match self.activity.deliver(result, self.doc.traces(), viewport) {
+                Ok(true) => self.changed(),
+                Ok(false) => {}
+                Err(error) => {
+                    self.events.push(Event::Notice(format!("{error:#}")));
+                    self.changed();
+                }
+            }
+            return;
+        }
         if let LoadResult::Opened { result: opened, .. } = &mut result
             && opened
                 .as_ref()

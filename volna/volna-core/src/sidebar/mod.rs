@@ -1,10 +1,12 @@
 //! Hierarchy browser models: a container tree and a separate, filterable member
 //! list. Frontends render these rows with their own list widgets.
 
+pub mod activity;
 pub mod icons;
 pub mod members;
 pub mod scopes;
 
+pub use activity::ActivityModel;
 pub use members::MemberListModel;
 pub use scopes::{ScopeTreeModel, TreeNode};
 

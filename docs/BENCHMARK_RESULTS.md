@@ -273,6 +273,33 @@ The FST rows index the workload's fstapi zlib file, whose blocks its writer chos
 | wide_bus | VTR | 0.03s | 77.70 ns | 3 MiB | 43.1 KiB | 0.31% | 396.5 KiB | 8,192 | 35% | 73% | 132.3 ns | 7.6 ms |
 | wide_bus | FST zlib | 0.04s | 71.72 ns | 3 MiB | 30.9 KiB | 0.21% | 297.9 KiB | 4,096 | 50% | 90% | 99.7 ns | 5.4 ms |
 
+### Volna scope meters
+
+`volna-core/examples/activity_cost.rs` measures the loader work behind the
+meters on C910's 67,144 signals, 204,905 variables and 6,958 scopes. On the
+Intel Core Ultra 7 265K, pinned to P-cores 0–7, each of seven windows centred
+on the run's midpoint is measured best-of-five: widths of 504,138, 50,413,
+5,041, 504, 50, 5 and 1 trace units (0.1 ns each). These are classification
+and scope-count times, excluding frontend painting. The read is the session's
+single loader-thread path; it is separate from the 16-thread CLI read above.
+The existing trace sizes and recording times are unchanged.
+
+| Source | Census build | Census storage | Classification and counts | Undecided read |
+|---|---:|---:|---:|---:|
+| C910 VTR | 2.2 ms | 1.4 MiB | 0.45–0.55 ms | 33.2–75.8 ms |
+| C910 FST zlib | 2.4 ms | 1.4 MiB | 0.66–0.74 ms | 16.2–86.5 ms |
+
+Reproduce from the repository root:
+
+```sh
+cargo build --release -p volna-core --example activity_cost
+cargo build --release -p vtr-cli --bin vtr
+taskset -c 0-7 target/release/vtr index bench/results/latest/c910_coremark.vtr
+taskset -c 0-7 target/release/vtr index bench/results/latest/c910_coremark_fstapi_zlib.fst
+taskset -c 0-7 target/release/examples/activity_cost bench/results/latest/c910_coremark.vtr
+taskset -c 0-7 target/release/examples/activity_cost bench/results/latest/c910_coremark_fstapi_zlib.fst
+```
+
 ## Log workloads: VTR versus NanoLog, binlog, Quill and CLP
 
 Every logger receives the same messages (see `docs/BENCHMARKS.md`, *Log workloads*): one producer thread, simulation-time stamps, 13 call sites with integer, hex, float and string arguments. `hot path` is the message loop alone (asynchronous loggers queue and return); `total` includes the flush/close that puts everything on disk; `cpu` is user+system time of the whole process, background threads included. `+zstd` is the size after compressing the output with zstd level 3 in 4 MiB frames, for the loggers that write uncompressed output (VTR, NanoLog and the CLP IR stream are already compressed). `read back` renders every record to text again (VTR: `vtr_log_rec_format`; CLP: IR decoder; NanoLog: its `decompressor`; binlog: `bread`; Quill and the text baseline already are text).

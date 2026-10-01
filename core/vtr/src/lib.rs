@@ -124,7 +124,7 @@ pub mod varint;
 pub mod writer;
 pub mod xform;
 
-pub use census::{Census, ScopeSizes};
+pub use census::{Census, Contributions, ScopeSizes};
 pub use clock::{ClockId, ClockInfo, ClockTimeline, CycleAt, Stretch};
 pub use clock::STREAM_KIND as CLOCK_STREAM_KIND;
 pub use codec::{Codec, Compression};

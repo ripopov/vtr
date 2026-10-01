@@ -15,6 +15,12 @@
 //! plus scopes (with the near-constant union-find factor). Memory is 24
 //! bytes per scope and 4 per signal; variables are never stored.
 //!
+//! A [`recording`](Census::recording) census also keeps each signal's +1 and
+//! −1 weights as [`Contributions`], so the distinct count of any subset of
+//! signals, such as the signals that change in a window, is a sum over the
+//! subset's lists and one subtree pass: linear in the subset's variables plus
+//! the scopes, however often it is asked.
+//!
 //! ```
 //! let mut c = vtr::Census::new();
 //! let top = c.enter();
@@ -51,11 +57,27 @@ pub struct Census {
     /// Last scope that held each signal.
     last: Vec<u32>,
     open: Vec<u32>,
+    /// With [`recording`](Self::recording): every weight as (signal, scope
+    /// with [`NEGATIVE`] set for −1).
+    record: Option<Vec<(u32, u32)>>,
 }
+
+/// Marks a −1 weight in [`Contributions`].
+const NEGATIVE: u32 = 1 << 31;
 
 impl Census {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A census that also keeps every signal's weights for
+    /// [`finish_recorded`](Self::finish_recorded): 8 bytes per recorded
+    /// weight while counting, 4 once finished, at most two weights per variable.
+    pub fn recording() -> Self {
+        Census {
+            record: Some(Vec::new()),
+            ..Self::default()
+        }
     }
 
     /// Opens a scope inside the innermost open one (or as a root) and
@@ -87,12 +109,18 @@ impl Census {
             return;
         }
         self.signals[i as usize] = self.signals[i as usize].wrapping_add(1);
+        if let Some(r) = &mut self.record {
+            r.push((signal, i));
+        }
         if prev != NONE {
             let root = self.find(prev);
             let l = self.anc[root as usize];
             // A signal shared across roots has no common ancestor.
             if l != NONE {
                 self.signals[l as usize] = self.signals[l as usize].wrapping_sub(1);
+                if let Some(r) = &mut self.record {
+                    r.push((signal, l | NEGATIVE));
+                }
             }
         }
         self.last[g] = i;
@@ -118,6 +146,37 @@ impl Census {
     /// Number of scopes open (entered and not yet left).
     pub fn depth(&self) -> usize {
         self.open.len()
+    }
+
+    /// [`finish`](Self::finish), and the recorded weights grouped by signal
+    /// (empty unless the census was [`recording`](Self::recording)).
+    pub fn finish_recorded(mut self) -> (ScopeSizes, Contributions) {
+        let record = self.record.take().unwrap_or_default();
+        let signals = record
+            .iter()
+            .map(|&(s, _)| s as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut off = vec![0u32; signals + 1];
+        for &(s, _) in &record {
+            off[s as usize + 1] += 1;
+        }
+        for i in 0..signals {
+            off[i + 1] += off[i];
+        }
+        let mut next = off.clone();
+        let mut weights = vec![0u32; record.len()];
+        for (s, w) in record {
+            weights[next[s as usize] as usize] = w;
+            next[s as usize] += 1;
+        }
+        let sizes = self.finish();
+        let contributions = Contributions {
+            parent: sizes.parent.clone(),
+            off,
+            weights,
+        };
+        (sizes, contributions)
     }
 
     /// Closes any scopes still open and sums the subtrees.
@@ -150,6 +209,64 @@ impl Census {
             x = n;
         }
         r
+    }
+}
+
+/// Every signal's weights from a [`recording`](Census::recording) census:
+/// +1 at each scope holding it, −1 at the lowest common ancestor of each
+/// consecutive pair of them. Summed over a set of signals and then over each
+/// subtree, they give every scope's number of distinct signals of the set.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Contributions {
+    parent: Vec<u32>,
+    /// Weights of signal `s` are `weights[off[s]..off[s + 1]]`.
+    off: Vec<u32>,
+    weights: Vec<u32>,
+}
+
+impl Contributions {
+    /// Number of scopes counted.
+    pub fn len(&self) -> usize {
+        self.parent.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.parent.is_empty()
+    }
+
+    /// Heap bytes held.
+    pub fn memory_bytes(&self) -> u64 {
+        ((self.parent.len() + self.off.len() + self.weights.len()) * 4) as u64
+    }
+
+    /// Writes into `out` (one entry per scope, in the order scopes were
+    /// entered) how many distinct signals of `signals` each scope holds,
+    /// subscopes included. `signals` must not repeat a signal; signals the
+    /// census never saw count nowhere.
+    pub fn count(&self, signals: impl IntoIterator<Item = u32>, out: &mut Vec<u32>) {
+        out.clear();
+        out.resize(self.parent.len(), 0);
+        let known = self.off.len().saturating_sub(1);
+        for s in signals {
+            let s = s as usize;
+            if s >= known {
+                continue;
+            }
+            for &w in &self.weights[self.off[s] as usize..self.off[s + 1] as usize] {
+                let c = &mut out[(w & !NEGATIVE) as usize];
+                *c = if w & NEGATIVE == 0 {
+                    c.wrapping_add(1)
+                } else {
+                    c.wrapping_sub(1)
+                };
+            }
+        }
+        for i in (0..self.parent.len()).rev() {
+            let p = self.parent[i];
+            if p != NONE {
+                out[p as usize] = out[p as usize].wrapping_add(out[i]);
+            }
+        }
     }
 }
 

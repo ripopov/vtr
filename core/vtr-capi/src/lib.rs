@@ -2438,6 +2438,74 @@ pub extern "C" fn vtr_census_new() -> *mut vtr_census {
     })
 }
 
+/// A counter that also records every signal's weights (`Census::recording`).
+#[no_mangle]
+pub extern "C" fn vtr_census_new_recording() -> *mut vtr_census {
+    ffi(|| Box::into_raw(Box::new(vtr_census(vtr::Census::recording()))))
+}
+
+/// Every signal's census weights (`vtr::Contributions`).
+pub struct vtr_contributions(vtr::Contributions);
+
+/// Consumes a recording counter: its sizes, and its weights in `*out`.
+/// NULL in, NULL out.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_census_finish_recorded(
+    c: *mut vtr_census,
+    out: *mut *mut vtr_contributions,
+) -> *mut vtr_scope_sizes {
+    ffi(|| {
+        if c.is_null() {
+            return ptr::null_mut();
+        }
+        let (sizes, contributions) = Box::from_raw(c).0.finish_recorded();
+        if let Some(out) = out.as_mut() {
+            *out = Box::into_raw(Box::new(vtr_contributions(contributions)));
+        }
+        Box::into_raw(Box::new(vtr_scope_sizes {
+            nodes: Vec::new(),
+            sizes,
+        }))
+    })
+}
+
+/// Distinct signals of `signals` (`n`, no repeats) at or below every scope,
+/// written to `out` (room for `cap`) in the order scopes were entered;
+/// returns the number of scopes.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_contributions_count(
+    x: *const vtr_contributions,
+    signals: *const u32,
+    n: usize,
+    out: *mut u32,
+    cap: usize,
+) -> usize {
+    ffi(|| {
+        let Some(x) = x.as_ref() else { return 0 };
+        let signals: &[u32] = if n == 0 || signals.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(signals, n)
+        };
+        let mut counts = Vec::new();
+        x.0.count(signals.iter().copied(), &mut counts);
+        if !out.is_null() {
+            std::slice::from_raw_parts_mut(out, cap.min(counts.len()))
+                .copy_from_slice(&counts[..cap.min(counts.len())]);
+        }
+        counts.len()
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_contributions_free(x: *mut vtr_contributions) {
+    ffi(|| {
+        if !x.is_null() {
+            drop(Box::from_raw(x));
+        }
+    })
+}
+
 /// Opens a scope and returns its index, `VTR_NONE` for a null handle.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_census_enter(c: *mut vtr_census) -> u32 {

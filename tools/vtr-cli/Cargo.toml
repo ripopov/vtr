@@ -14,15 +14,21 @@ path = "src/lib.rs"
 [[bin]]
 name = "vtr"
 path = "src/main.rs"
+required-features = ["vcd"]
 
 [[bin]]
 name = "vtr2vcd"
 path = "src/bin/vtr2vcd.rs"
 
+[features]
+default = ["vcd"]
+# VCD input through wellen, for the `vtr` command; the viewer does without it.
+vcd = ["dep:wellen"]
+
 [dependencies]
 vtr = { path = "../../core/vtr" }
 fst-reader = "0.17"
-wellen = "0.25"
+wellen = { version = "0.25", optional = true }
 flate2 = "1"
 lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-decode"] }
 serde_json = "1"

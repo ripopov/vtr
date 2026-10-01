@@ -557,8 +557,13 @@ int      vtr_reader_find_node(const vtr_reader *r, const char *path, char sep, u
  * innermost open one and returns its index, var() adds a variable of a signal
  * to it, leave() closes it (both INVALID when no scope is open). finish()
  * consumes the counter. reader_scope_sizes() counts the reader's scopes in
- * preorder and names each index's node. Free results with scope_sizes_free. */
+ * preorder and names each index's node. Free results with scope_sizes_free.
+ * A census_new_recording() counter also keeps every signal's weights:
+ * census_finish_recorded() hands them out as vtr_contributions, and
+ * contributions_count() then counts any set of signals (no repeats) per
+ * scope, returning the number of scopes and writing at most cap of them. */
 typedef struct vtr_census vtr_census;
+typedef struct vtr_contributions vtr_contributions;
 typedef struct vtr_scope_sizes vtr_scope_sizes;
 typedef struct vtr_scope_size {
     uint32_t node;      /* scope node; VTR_NONE when counted by a vtr_census */
@@ -571,6 +576,11 @@ int              vtr_census_var(vtr_census *c, uint32_t signal);
 int              vtr_census_leave(vtr_census *c);
 vtr_scope_sizes *vtr_census_finish(vtr_census *c);
 void             vtr_census_free(vtr_census *c);
+vtr_census      *vtr_census_new_recording(void);
+vtr_scope_sizes *vtr_census_finish_recorded(vtr_census *c, vtr_contributions **out);
+size_t           vtr_contributions_count(const vtr_contributions *x, const uint32_t *signals, size_t n,
+                                         uint32_t *out, size_t cap);
+void             vtr_contributions_free(vtr_contributions *x);
 vtr_scope_sizes *vtr_reader_scope_sizes(const vtr_reader *r);   /* NULL on error */
 size_t           vtr_scope_sizes_len(const vtr_scope_sizes *s);
 int              vtr_scope_sizes_get(const vtr_scope_sizes *s, size_t i, vtr_scope_size *out);

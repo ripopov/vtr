@@ -140,6 +140,23 @@ impl FstTrace {
         FstTrace::parse(map, None)
     }
 
+    /// The identity of the FST file at `path`, as [`open`](Self::open)
+    /// computes it, without unwrapping a gzip-wrapped file: what a viewer
+    /// checks a sidecar against before it needs the blocks.
+    pub fn identity_of(path: impl AsRef<Path>) -> Result<Identity> {
+        let file = std::fs::File::open(path.as_ref())?;
+        // Safety: the file is only read; concurrent modification is a documented caller error.
+        let map = unsafe { Mmap::map(&file)? };
+        if map.first() == Some(&BL_GZIP_WRAPPER) {
+            return Ok(Identity {
+                format: SourceFormat::Fst,
+                length: map.len() as u64,
+                toc_crc: crc32fast::hash(&map),
+            });
+        }
+        Ok(FstTrace::parse(map, None)?.identity)
+    }
+
     fn parse(map: Mmap, unwrapped: Option<PathBuf>) -> Result<FstTrace> {
         let b: &[u8] = &map;
         let (mut t_min, mut timescale, mut geometry, mut toc) = (None, 0i8, None, crc32fast::Hasher::new());

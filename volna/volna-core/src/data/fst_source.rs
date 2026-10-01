@@ -20,6 +20,15 @@ pub(crate) struct FstSession {
     hierarchy: Hierarchy,
     shapes: BTreeMap<SignalRef, SignalShape>,
     source_bytes: u64,
+    activity: Option<FstActivity>,
+}
+
+/// The activity index of an FST opened from a path, and the block scanner
+/// that reads its undecided signals, mapped on the first read.
+struct FstActivity {
+    index: Arc<vtr::activity::Index>,
+    path: std::path::PathBuf,
+    blocks: std::sync::OnceLock<Result<vtr_cli::fst::activity::FstTrace, String>>,
 }
 
 impl FstSession {
@@ -163,7 +172,22 @@ impl FstSession {
             hierarchy: hierarchy.finish(),
             shapes,
             source_bytes,
+            activity: None,
         })
+    }
+
+    /// Look for an activity index of the FST file at `path`, beside it or
+    /// in the user cache, valid for this file.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn find_activity(&mut self, path: &std::path::Path) {
+        let Ok(id) = vtr_cli::fst::activity::FstTrace::identity_of(path) else {
+            return;
+        };
+        self.activity = super::activity::find_index(path, &id).map(|index| FstActivity {
+            index,
+            path: path.to_path_buf(),
+            blocks: std::sync::OnceLock::new(),
+        });
     }
 
     fn read_batch(
@@ -323,6 +347,35 @@ impl Session for FstSession {
         self.source_bytes
             + self.hierarchy.resident_bytes()
             + (self.shapes.len() * std::mem::size_of::<(SignalRef, SignalShape)>()) as u64
+            + self.activity.as_ref().map_or(0, |a| a.index.memory_bytes())
+    }
+    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+        self.activity.as_ref().map(|a| Arc::clone(&a.index))
+    }
+    fn resolve_activity(
+        &self,
+        signals: &[SignalRef],
+        t0: u64,
+        t1: u64,
+    ) -> anyhow::Result<Vec<SignalRef>> {
+        let a = self
+            .activity
+            .as_ref()
+            .ok_or_else(|| anyhow!("this FST has no activity index"))?;
+        let blocks = a
+            .blocks
+            .get_or_init(|| {
+                vtr_cli::fst::activity::FstTrace::open(&a.path)
+                    .map_err(|e| format!("{}: {e}", a.path.display()))
+            })
+            .as_ref()
+            .map_err(|e| anyhow!("{e}"))?;
+        let ids: Vec<vtr::SignalId> = signals.iter().map(|s| vtr::SignalId(s.0)).collect();
+        Ok(blocks
+            .resolve(&ids, t0, t1)?
+            .into_iter()
+            .map(|s| SignalRef(s.0))
+            .collect())
     }
     fn format(&self) -> Option<&'static str> {
         Some("FST")

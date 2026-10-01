@@ -419,6 +419,28 @@ transient. Measure expansion and workspace capture without opening a window:
 taskset -c 0-7 cargo run --release -p volna-core --example hierarchy_cost -- TRACE
 ```
 
+A trace opened beside a valid activity index (`<trace>.index`, or the user
+cache; see [docs/hierarchy-activity.html](../../docs/hierarchy-activity.html))
+gives every scope row the signals below it that change in the viewport, over
+its size, and a meter: solid for the share that surely changes, hatched while
+a range. `sidebar::activity::ActivityModel`, owned by `App`, follows the
+focused panel's viewport, else the shared one, converted to each trace's
+times through its placement. As `App::take_requests` runs every frame, it keeps
+at most one `LoadRequest::Activity` (classify every signal, then count per
+scope) and one `ResolveActivity` (read the undecided signals through
+`Session::resolve_activity`) in flight per trace. Classifications and reads install
+only when their trace generation and window still match the current view;
+counts from an earlier view stay hidden while the new classification loads.
+A failed request clears pending meters, reports a notice and stops retrying
+that window. Counting uses each
+signal's census weights (`ActivityCounter`, one `vtr::Census::recording`
+pass per trace, `LoadRequest::ActivityCounter`), so a frame costs the changing
+signals' variables plus one pass over the scopes: 0.5 ms for C910's 67,144
+signals and 6,958 scopes (`examples/activity_cost.rs`). A scope none of whose
+signals can change is drawn faint. Meters are derived view state, outside the
+journal and the workspace; traces without an index keep the size column. egui
+keeps its rows.
+
 Raw metadata includes container roles, component names, enum references,
 generator declarations/attributes and the producer's time unit. Remote framing
 version **5** rejects older peers before decoding the catalog and hierarchy-page schema.
@@ -963,8 +985,11 @@ honoured through the configuration path.
 
 ## The session seam
 
-All trace data is reached through the `Session` trait: resident `info()` and
-`hierarchy()`, and expensive `load_signal()`/`load_signals()` queries.
+All trace data is reached through the `Session` trait: resident `info()`,
+`hierarchy()` and `activity()` (the activity index found at open, if any), and
+expensive `load_signal()`/`load_signals()` and `resolve_activity()` queries.
+VTR sessions read undecided signals through `vtr::activity::resolve`; FST
+sessions through `vtr_cli::fst::activity::FstTrace`, mapped on the first read.
 `LocalSession` derives event shapes from `Reader::signal_var_type`, using the
 VTR hierarchy's existing declaration index. It keeps no separate event registry;
 variable rows and loaded histories follow the same declaration.

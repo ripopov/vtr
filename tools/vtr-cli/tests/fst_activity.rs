@@ -64,6 +64,7 @@ fn windows(rng: &mut StdRng, ch: &[Vec<u64>], lo: u64, hi: u64, n: usize) -> Vec
 /// against the recorded values in every window; returns the index.
 fn check(path: &Path, threads: usize, seed: u64) -> (FstTrace, Index) {
     let f = FstTrace::open(path).unwrap();
+    assert_eq!(FstTrace::identity_of(path).unwrap(), f.identity(), "{}: identity without unwrapping", path.display());
     let mut image = Vec::new();
     let summary = f.build(&mut image, &BuildOptions { threads, ..Default::default() }).unwrap();
     let index = Index::decode(&image, &f.identity()).unwrap();

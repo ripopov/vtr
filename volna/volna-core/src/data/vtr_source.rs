@@ -18,6 +18,8 @@ pub struct LocalSession {
     info: TraceInfo,
     hierarchy: Hierarchy,
     source_bytes: u64,
+    /// The activity index found beside the trace or in the user cache.
+    activity: Option<Arc<vtr::activity::Index>>,
 }
 
 impl LocalSession {
@@ -29,7 +31,12 @@ impl LocalSession {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Self::from_reader(name, reader, source_bytes)
+        let activity = vtr::activity::Identity::of(&reader)
+            .ok()
+            .and_then(|id| super::activity::find_index(path, &id));
+        let mut session = Self::from_reader(name, reader, source_bytes)?;
+        session.activity = activity;
+        Ok(session)
     }
 
     pub fn from_bytes(name: impl Into<String>, bytes: Vec<u8>) -> anyhow::Result<Self> {
@@ -67,6 +74,7 @@ impl LocalSession {
             info,
             hierarchy,
             source_bytes,
+            activity: None,
         })
     }
 }
@@ -336,6 +344,22 @@ impl Session for LocalSession {
             + self.reader.hierarchy().resident_bytes()
             + self.reader.strings().resident_bytes()
             + self.hierarchy.resident_bytes()
+            + self.activity.as_ref().map_or(0, |a| a.memory_bytes())
+    }
+    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+        self.activity.clone()
+    }
+    fn resolve_activity(
+        &self,
+        signals: &[SignalRef],
+        t0: u64,
+        t1: u64,
+    ) -> anyhow::Result<Vec<SignalRef>> {
+        let ids: Vec<vtr::SignalId> = signals.iter().map(|s| vtr::SignalId(s.0)).collect();
+        Ok(vtr::activity::resolve(&self.reader, &ids, t0, t1)?
+            .into_iter()
+            .map(|s| SignalRef(s.0))
+            .collect())
     }
     fn load_track(
         &self,

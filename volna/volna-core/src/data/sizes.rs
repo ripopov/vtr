@@ -40,7 +40,7 @@ impl ScopeSize {
 }
 
 /// `16261` → `16,261`.
-fn grouped(n: u32) -> String {
+pub(crate) fn grouped(n: u32) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {

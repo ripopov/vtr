@@ -87,6 +87,23 @@ pub trait Session: Send + Sync {
     fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
         None
     }
+    /// The trace's activity index (docs/hierarchy-activity.html), when a
+    /// sidecar valid for this trace was found as the session opened.
+    /// Resident and shared; counted in [`resident_bytes`](Self::resident_bytes).
+    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+        None
+    }
+    /// The signals among `signals` that change in `[t0, t1]` (trace times,
+    /// both included), read from the trace: the exact answer for those the
+    /// activity index leaves undecided. Blocking work for a loader executor.
+    fn resolve_activity(
+        &self,
+        _signals: &[SignalRef],
+        _t0: u64,
+        _t1: u64,
+    ) -> anyhow::Result<Vec<SignalRef>> {
+        anyhow::bail!("this trace cannot read activity")
+    }
     /// Load all records and incident relations of a stream or generator,
     /// including empty member generators. Invalid identities and unsupported
     /// backends return errors. This is blocking work for a loader executor,
@@ -179,6 +196,17 @@ impl Session for AccountedSession {
     }
     fn scope_sizes(&self) -> Option<Arc<crate::data::ScopeSizes>> {
         self.inner.scope_sizes()
+    }
+    fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
+        self.inner.activity()
+    }
+    fn resolve_activity(
+        &self,
+        signals: &[SignalRef],
+        t0: u64,
+        t1: u64,
+    ) -> anyhow::Result<Vec<SignalRef>> {
+        self.inner.resolve_activity(signals, t0, t1)
     }
     fn load_track(
         &self,
@@ -328,10 +356,10 @@ impl OpenSpec {
                         .unwrap_or_default()
                         .to_string_lossy()
                         .into_owned();
-                    Ok(Arc::new(crate::data::fst_source::FstSession::open(
-                        name,
-                        Box::new(input),
-                    )?))
+                    let mut session =
+                        crate::data::fst_source::FstSession::open(name, Box::new(input))?;
+                    session.find_activity(&p);
+                    Ok(Arc::new(session))
                 } else {
                     Ok(Arc::new(LocalSession::open(&p)?))
                 }
@@ -394,6 +422,35 @@ pub enum LoadRequest {
         generation: u64,
         session: Arc<dyn Session>,
     },
+    /// Build the census weights that count a trace's changing signals per
+    /// scope (client-side work over its hierarchy), once per trace with an
+    /// activity index.
+    ActivityCounter {
+        trace: TraceId,
+        generation: u64,
+        session: Arc<dyn Session>,
+        budget: crate::remote::memory::MemoryBudget,
+    },
+    /// Classify every signal of a trace in `window` (trace times) with its
+    /// activity index and count per scope (client-side work).
+    Activity {
+        trace: TraceId,
+        generation: u64,
+        window: (u64, u64),
+        index: Arc<vtr::activity::Index>,
+        counter: Arc<crate::data::ActivityCounter>,
+        budget: crate::remote::memory::MemoryBudget,
+    },
+    /// Read the signals `counts` leaves undecided from the trace and count
+    /// them in: the window's exact answer.
+    ResolveActivity {
+        trace: TraceId,
+        generation: u64,
+        session: Arc<dyn Session>,
+        counter: Arc<crate::data::ActivityCounter>,
+        counts: Arc<crate::data::ActivityCounts>,
+        budget: crate::remote::memory::MemoryBudget,
+    },
     /// Summarize a resident history for analog drawing (client-side work).
     Summary {
         generation: u64,
@@ -432,9 +489,13 @@ impl LoadRequest {
     /// from its OpenSpec before a server identity exists.
     pub fn remote_id(&self) -> Option<u64> {
         match self {
-            Self::Signals { session, .. } | Self::Track { session, .. } => session.remote_id(),
+            Self::Signals { session, .. }
+            | Self::Track { session, .. }
+            | Self::ResolveActivity { session, .. } => session.remote_id(),
             Self::Open { .. }
             | Self::Sizes { .. }
+            | Self::ActivityCounter { .. }
+            | Self::Activity { .. }
             | Self::Summary { .. }
             | Self::GroupSummary { .. }
             | Self::Integral { .. }
@@ -483,6 +544,35 @@ impl LoadRequest {
             } => LoadResult::Sizes {
                 trace,
                 generation,
+                result: Err(error),
+            },
+            Self::ActivityCounter {
+                trace, generation, ..
+            } => LoadResult::ActivityCounter {
+                trace,
+                generation,
+                result: Err(error),
+            },
+            Self::Activity {
+                trace,
+                generation,
+                window,
+                ..
+            } => LoadResult::Activity {
+                trace,
+                generation,
+                window,
+                result: Err(error),
+            },
+            Self::ResolveActivity {
+                trace,
+                generation,
+                counts,
+                ..
+            } => LoadResult::ActivityResolved {
+                trace,
+                generation,
+                window: counts.window,
                 result: Err(error),
             },
             Self::Summary {
@@ -574,6 +664,49 @@ impl LoadRequest {
                     session.hierarchy(),
                 ))),
             },
+            LoadRequest::ActivityCounter {
+                trace,
+                generation,
+                session,
+                budget,
+            } => LoadResult::ActivityCounter {
+                trace,
+                generation,
+                result: crate::data::ActivityCounter::build(session.hierarchy())
+                    .account(&budget)
+                    .map(Arc::new),
+            },
+            LoadRequest::Activity {
+                trace,
+                generation,
+                window,
+                index,
+                counter,
+                budget,
+            } => LoadResult::Activity {
+                trace,
+                generation,
+                window,
+                result: crate::data::ActivityCounts::classify(&index, &counter, window)
+                    .account(&budget)
+                    .map(Arc::new),
+            },
+            LoadRequest::ResolveActivity {
+                trace,
+                generation,
+                session,
+                counter,
+                counts,
+                budget,
+            } => LoadResult::ActivityResolved {
+                trace,
+                generation,
+                window: counts.window,
+                result: session
+                    .resolve_activity(&counts.undecided, counts.window.0, counts.window.1)
+                    .and_then(|changed| counts.resolved(&counter, &changed).account(&budget))
+                    .map(Arc::new),
+            },
             LoadRequest::Summary {
                 generation,
                 signal,
@@ -655,6 +788,25 @@ pub enum LoadResult {
         trace: TraceId,
         generation: u64,
         result: anyhow::Result<Arc<crate::data::ScopeSizes>>,
+    },
+    ActivityCounter {
+        trace: TraceId,
+        generation: u64,
+        result: anyhow::Result<Arc<crate::data::ActivityCounter>>,
+    },
+    /// What the activity index says about `window` (trace times).
+    Activity {
+        trace: TraceId,
+        generation: u64,
+        window: (u64, u64),
+        result: anyhow::Result<Arc<crate::data::ActivityCounts>>,
+    },
+    /// `window`'s exact counts, its undecided signals read from the trace.
+    ActivityResolved {
+        trace: TraceId,
+        generation: u64,
+        window: (u64, u64),
+        result: anyhow::Result<Arc<crate::data::ActivityCounts>>,
     },
     Summary {
         generation: u64,

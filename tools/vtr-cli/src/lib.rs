@@ -4,5 +4,6 @@ pub mod fst;
 pub mod ftr;
 pub mod kanata;
 pub mod otlp;
+#[cfg(feature = "vcd")]
 pub mod vcd;
 pub mod vcdout;

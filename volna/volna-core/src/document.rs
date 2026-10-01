@@ -602,6 +602,9 @@ impl Document {
         self.requests.retain(|r| match r {
             LoadRequest::Open { trace: t, .. }
             | LoadRequest::Sizes { trace: t, .. }
+            | LoadRequest::ActivityCounter { trace: t, .. }
+            | LoadRequest::Activity { trace: t, .. }
+            | LoadRequest::ResolveActivity { trace: t, .. }
             | LoadRequest::Signals { trace: t, .. }
             | LoadRequest::Track { trace: t, .. } => *t != trace,
             LoadRequest::Summary { signal, .. } => signal.trace != trace,
@@ -1116,6 +1119,10 @@ impl Document {
     /// what it brought on the session timeline.
     pub fn deliver(&mut self, result: LoadResult) -> Option<Delivered> {
         match result {
+            // The sidebar's activity model owns these (`App::deliver`).
+            LoadResult::ActivityCounter { .. }
+            | LoadResult::Activity { .. }
+            | LoadResult::ActivityResolved { .. } => None,
             LoadResult::Track {
                 trace,
                 generation,

@@ -1,6 +1,7 @@
 //! Model layer: signal values, change histories, value translators and the
 //! hierarchy model. Sessions (`crate::session`) produce these.
 
+pub mod activity;
 pub mod compact;
 pub(crate) mod fst_source;
 pub mod history;
@@ -15,6 +16,7 @@ pub mod value_view;
 pub mod vtr_source;
 mod vtr_transactions;
 
+pub use activity::{ActivityCounter, ActivityCounts, ScopeActivity};
 pub use history::SignalHistory;
 pub use sizes::{ScopeSize, ScopeSizes};
 pub use source::{

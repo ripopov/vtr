@@ -2954,3 +2954,35 @@ would give up decoding headers only and would still need the hierarchy's
 event types, whose repeats are real. Verilator's FST writer records only
 changes, and an FST and a VTR that record the same values give the same
 answers, which a test checks through `vtr convert` with deduplication off.
+
+**Meters in Volna.** A session reports the index it found at open
+(`Session::activity`) and reads undecided signals for the viewer
+(`Session::resolve_activity`), so the hierarchy browser never asks which
+format it has. The model follows the focused panel's viewport because
+unlinked panels can show different times; a panel without a time axis falls
+back to the shared one. A session-time window becomes each trace's own
+window through its placement, `[⌈s0/k⌉, ⌊s1/k⌋]`, which contains exactly the
+trace times drawn inside the view. Requests are reconciled when the frontend
+takes them, which GPUI does every frame, animation frames included. There is
+at most one classification and one read in flight per trace, so a fast pan
+coalesces to the newest window instead of queueing. A classification or
+read installs only while its trace generation and
+window still match the current view, checked again on delivery. This also
+drops a read arriving after a pan but before the next classification.
+Counts of the previous view stay hidden until the new classification
+arrives; a failed request clears the pending meters and reports a notice.
+
+Per-scope counts come from each signal's census weights (`vtr::Contributions`
+from a recording `vtr::Census`): +1 at each scope holding it, −1 at each
+lowest common ancestor of consecutive holders. A frame sums the changing
+signals' weights and makes one subtree pass, and the count of changing or
+undecided signals is the sum over the two disjoint lists. Each recorded
+weight costs 4 bytes, with at most two weights per variable.
+The counter, including its signal offsets and scope maps, retains 1.4 MiB
+and takes 2.2 ms to build for C910; classification and counts cost
+0.45–0.55 ms per window (see the
+[benchmark report](BENCHMARK_RESULTS.md#volna-scope-meters)). The stamp walk of the design (up from each variable until a stamped scope) costs
+the scope–signal pairs every frame, 826,739 steps on C910, and grows with
+depth, which gate-level hierarchies have. The per-frame numbers come from
+`volna-core/examples/activity_cost.rs`, because the `frame_times` harness
+renders only with Metal on macOS.
