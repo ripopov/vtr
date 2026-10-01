@@ -26,9 +26,24 @@ pub(crate) struct FstSession {
 /// The activity index of an FST opened from a path, and the block scanner
 /// that reads its undecided signals, mapped on the first read.
 struct FstActivity {
-    index: Arc<vtr::activity::Index>,
-    path: std::path::PathBuf,
+    source: super::activity::ActivitySource,
     blocks: std::sync::OnceLock<Result<vtr_cli::fst::activity::FstTrace, String>>,
+}
+
+impl FstActivity {
+    fn blocks(&self) -> anyhow::Result<&vtr_cli::fst::activity::FstTrace> {
+        self.blocks
+            .get_or_init(|| {
+                let trace = vtr_cli::fst::activity::FstTrace::open(&self.source.path)
+                    .map_err(|e| format!("{}: {e}", self.source.path.display()))?;
+                if trace.identity() != self.source.identity {
+                    return Err("the FST file was replaced after it was opened".into());
+                }
+                Ok(trace)
+            })
+            .as_ref()
+            .map_err(|e| anyhow!("{e}"))
+    }
 }
 
 impl FstSession {
@@ -183,9 +198,8 @@ impl FstSession {
         let Ok(id) = vtr_cli::fst::activity::FstTrace::identity_of(path) else {
             return;
         };
-        self.activity = super::activity::find_index(path, &id).map(|index| FstActivity {
-            index,
-            path: path.to_path_buf(),
+        self.activity = Some(FstActivity {
+            source: super::activity::ActivitySource::new(path, id),
             blocks: std::sync::OnceLock::new(),
         });
     }
@@ -347,10 +361,32 @@ impl Session for FstSession {
         self.source_bytes
             + self.hierarchy.resident_bytes()
             + (self.shapes.len() * std::mem::size_of::<(SignalRef, SignalShape)>()) as u64
-            + self.activity.as_ref().map_or(0, |a| a.index.memory_bytes())
+            + self
+                .activity
+                .as_ref()
+                .map_or(0, |a| a.source.resident_bytes())
     }
     fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
-        self.activity.as_ref().map(|a| Arc::clone(&a.index))
+        self.activity.as_ref().and_then(|a| a.source.index())
+    }
+    fn activity_build_info(&self) -> Option<super::ActivityBuildInfo> {
+        self.activity.as_ref().map(|a| a.source.info())
+    }
+    fn build_activity(
+        &self,
+        options: &vtr::activity::BuildOptions,
+        budget: &crate::remote::memory::MemoryBudget,
+        cache_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<()> {
+        let a = self
+            .activity
+            .as_ref()
+            .ok_or_else(|| anyhow!("this FST cannot build an activity index"))?;
+        let blocks = a.blocks()?;
+        a.source
+            .build(options, budget, cache_dir, self.info.signal_count, |w| {
+                blocks.build(w, options)
+            })
     }
     fn resolve_activity(
         &self,
@@ -362,14 +398,7 @@ impl Session for FstSession {
             .activity
             .as_ref()
             .ok_or_else(|| anyhow!("this FST has no activity index"))?;
-        let blocks = a
-            .blocks
-            .get_or_init(|| {
-                vtr_cli::fst::activity::FstTrace::open(&a.path)
-                    .map_err(|e| format!("{}: {e}", a.path.display()))
-            })
-            .as_ref()
-            .map_err(|e| anyhow!("{e}"))?;
+        let blocks = a.blocks()?;
         let ids: Vec<vtr::SignalId> = signals.iter().map(|s| vtr::SignalId(s.0)).collect();
         Ok(blocks
             .resolve(&ids, t0, t1)?

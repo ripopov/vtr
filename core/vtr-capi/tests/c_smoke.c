@@ -77,6 +77,18 @@ static int activity_smoke(const char *path) {
     vtr_activity_summary sum;
     CHECK(vtr_activity_write(rd, path, NULL, 2, 0, &sum));
     ASSERT(sum.signals == 2 && sum.blocks >= 1 && sum.bytes > 0 && sum.delta_min >= 1);
+    vtr_activity_control *control = vtr_activity_control_new();
+    ASSERT(control != NULL && vtr_activity_control_cancel(control) == 1);
+    ASSERT(vtr_activity_control_is_cancelled(control) == 1);
+    ASSERT(vtr_activity_write_controlled(rd, path, NULL, 2, 0, control, &sum) == VTR_ERR_STATE);
+    vtr_activity_control_free(control);
+    control = vtr_activity_control_new();
+    CHECK(vtr_activity_write_controlled(rd, path, NULL, 2, 0, control, &sum));
+    size_t completed = 0, total = 0;
+    vtr_activity_control_progress(control, &completed, &total);
+    ASSERT(total == sum.blocks && completed == total);
+    ASSERT(vtr_activity_control_cancel(control) == 0);
+    vtr_activity_control_free(control);
     vtr_activity_index *x = vtr_activity_load(rd, path, NULL);
     ASSERT(x != NULL);
     /* While the clock is stopped nothing changes; around t=500 only the clock and the counter do. */

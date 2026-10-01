@@ -2648,6 +2648,46 @@ unsafe fn activity_cache(cache_dir: *const c_char) -> Option<std::path::PathBuf>
 /// `trace_path` or, when that directory refuses it, in `cache_dir`.
 #[no_mangle]
 pub unsafe extern "C" fn vtr_activity_write(r: *const vtr_reader, trace_path: *const c_char, cache_dir: *const c_char, threads: u32, memory: u64, out: *mut vtr_activity_summary) -> c_int {
+    vtr_activity_write_controlled(r, trace_path, cache_dir, threads, memory, ptr::null(), out)
+}
+
+/// A shared progress/cancellation handle for one index build.
+pub struct vtr_activity_control(std::sync::Arc<vtr::activity::BuildControl>);
+
+#[no_mangle]
+pub extern "C" fn vtr_activity_control_new() -> *mut vtr_activity_control {
+    ffi(|| Box::into_raw(Box::new(vtr_activity_control(std::sync::Arc::new(vtr::activity::BuildControl::default())))))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_control_free(c: *mut vtr_activity_control) {
+    ffi(|| { if !c.is_null() { drop(Box::from_raw(c)); } })
+}
+
+/// Returns 1 when cancellation was accepted, 0 after publication or for NULL.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_control_cancel(c: *const vtr_activity_control) -> c_int {
+    ffi(|| c.as_ref().is_some_and(|c| c.0.cancel()) as c_int)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_control_is_cancelled(c: *const vtr_activity_control) -> c_int {
+    ffi(|| c.as_ref().is_some_and(|c| c.0.is_cancelled()) as c_int)
+}
+
+/// Snapshot of stitched blocks; NULL control reports zeros.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_control_progress(c: *const vtr_activity_control, completed: *mut usize, total: *mut usize) {
+    ffi(|| {
+        let p = c.as_ref().map_or(Default::default(), |c| c.0.progress());
+        if let Some(out) = completed.as_mut() { *out = p.completed; }
+        if let Some(out) = total.as_mut() { *out = p.total; }
+    })
+}
+
+/// `vtr_activity_write` with shared control; NULL control builds normally.
+#[no_mangle]
+pub unsafe extern "C" fn vtr_activity_write_controlled(r: *const vtr_reader, trace_path: *const c_char, cache_dir: *const c_char, threads: u32, memory: u64, control: *const vtr_activity_control, out: *mut vtr_activity_summary) -> c_int {
     ffi(|| {
         let r = need_ref!(r);
         let path = need_str!(trace_path);
@@ -2656,8 +2696,14 @@ pub unsafe extern "C" fn vtr_activity_write(r: *const vtr_reader, trace_path: *c
         if memory != 0 {
             opts.memory = memory;
         }
+        opts.control = control.as_ref().map(|c| std::sync::Arc::clone(&c.0));
         let written = vtr::activity::Identity::of(&r.0).and_then(|id| {
-            vtr::activity::Sidecar::new(path.as_ref(), &id, cache.as_deref()).write(|w| vtr::activity::build(&r.0, w, &opts))
+            let sidecar = vtr::activity::Sidecar::new(path.as_ref(), &id, cache.as_deref());
+            let build = |w: &mut dyn std::io::Write| vtr::activity::build(&r.0, w, &opts);
+            match &opts.control {
+                Some(c) => sidecar.write_with_control(c, build),
+                None => sidecar.write(build),
+            }
         });
         match written {
             Ok((_, s)) => {

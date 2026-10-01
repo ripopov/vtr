@@ -561,3 +561,233 @@ fn a_row_labels_its_count_and_range() {
         .quiet()
     );
 }
+
+fn build_views(app: &App) -> Vec<volna_core::sidebar::activity::ActivityBuildView> {
+    app.activity.builds(
+        app.doc.traces(),
+        app.settings.resolved().hierarchy.activity_index,
+    )
+}
+
+#[test]
+fn build_offer_obeys_policy_and_not_now() {
+    use volna_core::app::Command;
+    use volna_core::sidebar::activity::ActivityBuildState;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    assert!(matches!(
+        build_views(&app)[0].state,
+        ActivityBuildState::Offer {
+            estimated_seconds: 1
+        }
+    ));
+    assert!(session.activity().is_none());
+    app.handle(Command::DismissActivity(TraceId::A));
+    settle(&mut app);
+    assert!(build_views(&app).is_empty());
+    app.settings_loaded(r#"{"hierarchy.activityIndex": "always"}"#);
+    let requests = app.take_requests();
+    assert!(matches!(
+        requests.as_slice(),
+        [LoadRequest::BuildActivity { .. }]
+    ));
+    for r in requests {
+        app.deliver(r.perform());
+    }
+    settle(&mut app);
+    assert!(session.activity().is_some());
+    assert!(build_views(&app).is_empty());
+    // Byte images have no destination and no build offer.
+    let session = OpenSpec::Bytes {
+        name: "bytes.vtr".into(),
+        bytes: std::fs::read(&path).unwrap(),
+    }
+    .open()
+    .unwrap();
+    app.set_session(session);
+    settle(&mut app);
+    assert!(build_views(&app).is_empty());
+}
+
+#[test]
+fn never_hides_the_offer_and_always_builds_with_the_sidebar_hidden() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    app.settings_loaded(r#"{"hierarchy.activityIndex": "never"}"#);
+    settle(&mut app);
+    assert!(build_views(&app).is_empty());
+    assert!(session.activity().is_none());
+    app.sidebar_visible = false;
+    app.settings_loaded(r#"{"hierarchy.activityIndex": "always"}"#);
+    settle(&mut app);
+    assert!(session.activity().is_some());
+    assert!(build_views(&app).is_empty());
+}
+
+#[test]
+fn explicit_build_installs_meters_and_reports_block_progress() {
+    use volna_core::app::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    app.handle(Command::AddVars(vec![Traced::new(TraceId::A, 0)]));
+    settle(&mut app);
+    let undo = app.undo_label().map(str::to_owned);
+    let resident = session.resident_bytes();
+    app.handle(Command::BuildActivity(TraceId::A));
+    let r = app.take_requests().pop().unwrap();
+    let LoadRequest::BuildActivity { options, .. } = &r else {
+        panic!("expected build")
+    };
+    let control = Arc::clone(options.control.as_ref().unwrap());
+    assert_eq!(control.progress().completed, 0);
+    app.handle(Command::BuildActivity(TraceId::A));
+    assert!(app.take_requests().is_empty(), "one build per trace");
+    app.deliver(r.perform());
+    assert!(
+        session.resident_bytes() > resident,
+        "session owns the new immutable index"
+    );
+    let p = control.progress();
+    assert!(p.total > 1 && p.completed == p.total, "{p:?}");
+    assert!(
+        !control.cancel(),
+        "completed publication wins over late cancellation"
+    );
+    settle(&mut app);
+    assert_eq!(
+        app.undo_label(),
+        undo.as_deref(),
+        "building is not journaled"
+    );
+    view(&mut app, 100, 1_000);
+    settle(&mut app);
+    check_exact(&app, &session, 100, 1_000);
+    let reopened = OpenSpec::Path(path).open().unwrap();
+    assert!(
+        reopened.activity().is_some(),
+        "the next open uses the sidecar"
+    );
+}
+
+#[test]
+fn cancelled_and_closed_builds_leave_no_sidecar_or_temporary_file() {
+    use volna_core::app::Command;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    // Cancellation before the request is taken also works.
+    app.handle(Command::BuildActivity(TraceId::A));
+    app.handle(Command::CancelActivity(TraceId::A));
+    assert!(app.take_requests().is_empty());
+    for close in [false, true] {
+        app.handle(Command::BuildActivity(TraceId::A));
+        let r = app.take_requests().pop().unwrap();
+        if close {
+            app.handle(Command::CloseTrace);
+        } else {
+            app.handle(Command::CancelActivity(TraceId::A));
+        }
+        app.deliver(r.perform());
+        settle(&mut app);
+        assert!(session.activity().is_none());
+        assert!(build_views(&app).is_empty());
+        let files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|p| p.unwrap().file_name())
+            .collect();
+        assert_eq!(files, [std::ffi::OsString::from("run.vtr")]);
+    }
+}
+
+#[test]
+fn a_failed_build_can_be_retried_explicitly() {
+    use volna_core::app::{Command, Event};
+    use volna_core::sidebar::activity::ActivityBuildState;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    app.handle(Command::BuildActivity(TraceId::A));
+    let mut r = app.take_requests().pop().unwrap();
+    let LoadRequest::BuildActivity { options, .. } = &mut r else {
+        panic!("expected build")
+    };
+    options.memory = 1;
+    app.deliver(r.perform());
+    assert!(matches!(
+        build_views(&app)[0].state,
+        ActivityBuildState::Failed { .. }
+    ));
+    assert!(
+        app.take_events()
+            .iter()
+            .any(|e| matches!(e, Event::Notice(message) if message.contains("memory limit")))
+    );
+    assert!(
+        app.take_requests().is_empty(),
+        "failure does not automatically loop"
+    );
+    app.handle(Command::BuildActivity(TraceId::A));
+    settle(&mut app);
+    assert!(session.activity().is_some());
+    assert!(build_views(&app).is_empty());
+}
+
+#[test]
+fn fst_build_from_the_viewer_installs_the_same_meters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("run.fst");
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/vtr-cli/tests/fixtures/activity/zlib.fst");
+    std::fs::copy(fixture, &path).unwrap();
+    let (mut app, session) = open(&path);
+    app.handle(volna_core::app::Command::BuildActivity(TraceId::A));
+    settle(&mut app);
+    assert!(session.activity().is_some());
+    for (t0, t1) in [(0, 20_000_000), (100_000, 100_004)] {
+        view(&mut app, t0, t1);
+        settle(&mut app);
+        check_exact(&app, &session, t0, t1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn viewer_builds_use_the_cache_for_a_read_only_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let traces = dir.path().join("traces");
+    let cache = dir.path().join("cache");
+    std::fs::create_dir(&traces).unwrap();
+    let path = traces.join("run.vtr");
+    write_trace(&path, 6);
+    let (mut app, session) = open(&path);
+    app.handle(volna_core::app::Command::BuildActivity(TraceId::A));
+    let mut r = app.take_requests().pop().unwrap();
+    let LoadRequest::BuildActivity { cache_dir, .. } = &mut r else {
+        panic!("expected build")
+    };
+    *cache_dir = Some(cache.clone());
+    std::fs::set_permissions(&traces, std::fs::Permissions::from_mode(0o555)).unwrap();
+    assert!(
+        std::fs::File::create(traces.join("probe")).is_err(),
+        "this test requires an unprivileged user"
+    );
+    let result = r.perform();
+    std::fs::set_permissions(&traces, std::fs::Permissions::from_mode(0o755)).unwrap();
+    app.deliver(result);
+    settle(&mut app);
+    assert!(session.activity().is_some());
+    let reader = vtr::Reader::open(&path).unwrap();
+    let identity = vtr::activity::Identity::of(&reader).unwrap();
+    let sidecar = vtr::activity::Sidecar::new(&path, &identity, Some(&cache));
+    assert!(!sidecar.beside.exists());
+    assert_eq!(sidecar.load(&identity).unwrap().0, sidecar.cached.unwrap());
+}

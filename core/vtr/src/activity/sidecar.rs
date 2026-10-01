@@ -1,6 +1,6 @@
 //! Where a trace's index lives, and writing one safely.
 
-use super::{Identity, Index, Summary};
+use super::{BuildControl, Identity, Index, Summary};
 use crate::error::Result;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -38,10 +38,21 @@ impl Sidecar {
 
     /// Writes an index through `build`, which receives the output stream,
     /// beside the trace or, when its directory refuses the file, in the
-    /// cache. The index goes to `<path>.tmp` and is renamed into place only
-    /// when complete, so an interrupted build never leaves a file a reader
+    /// cache. The index goes to a unique temporary file beside its destination
+    /// and is renamed into place only when complete, so an interrupted build never leaves a file a reader
     /// would load; a failed one removes its temporary file.
     pub fn write(&self, build: impl FnOnce(&mut dyn Write) -> Result<Summary>) -> Result<(PathBuf, Summary)> {
+        self.write_inner(None, build)
+    }
+
+    /// [`write`](Self::write) with cancellation serialized against publication.
+    /// Pass the same control in the builder's [`super::BuildOptions`].
+    pub fn write_with_control(&self, control: &BuildControl, build: impl FnOnce(&mut dyn Write) -> Result<Summary>) -> Result<(PathBuf, Summary)> {
+        self.write_inner(Some(control), build)
+    }
+
+    fn write_inner(&self, control: Option<&BuildControl>, build: impl FnOnce(&mut dyn Write) -> Result<Summary>) -> Result<(PathBuf, Summary)> {
+        if let Some(control) = control { control.check()?; }
         let (path, file, tmp) = match create_tmp(&self.beside) {
             Ok((file, tmp)) => (self.beside.clone(), file, tmp),
             Err(e) => {
@@ -57,7 +68,8 @@ impl Sidecar {
             let mut w = BufWriter::new(file);
             let summary = build(&mut w)?;
             w.into_inner().map_err(|e| e.into_error())?;
-            std::fs::rename(&tmp, &path)?;
+            let publish = || { std::fs::rename(&tmp, &path)?; Ok(()) };
+            if let Some(control) = control { control.publish(publish)?; } else { publish()?; }
             Ok(summary)
         })();
         match done {
@@ -71,10 +83,17 @@ impl Sidecar {
 }
 
 fn create_tmp(path: &Path) -> std::io::Result<(std::fs::File, PathBuf)> {
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
-    Ok((std::fs::File::create(&tmp)?, tmp))
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    loop {
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(format!(".tmp.{}.{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        let tmp = PathBuf::from(tmp);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(file) => return Ok((file, tmp)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// The user's cache directory for activity indexes: `$XDG_CACHE_HOME/vtr/index`,

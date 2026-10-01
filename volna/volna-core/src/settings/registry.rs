@@ -59,6 +59,7 @@ impl Apply {
 pub enum Page {
     Appearance,
     Waves,
+    Hierarchy,
     Workspace,
     Memory,
     Remote,
@@ -68,6 +69,7 @@ impl Page {
     pub const ALL: &'static [Page] = &[
         Page::Appearance,
         Page::Waves,
+        Page::Hierarchy,
         Page::Workspace,
         Page::Memory,
         Page::Remote,
@@ -77,6 +79,7 @@ impl Page {
         match self {
             Page::Appearance => "appearance",
             Page::Waves => "waves",
+            Page::Hierarchy => "hierarchy",
             Page::Workspace => "workspace",
             Page::Memory => "memory",
             Page::Remote => "remote",
@@ -86,6 +89,7 @@ impl Page {
         match self {
             Page::Appearance => "Appearance",
             Page::Waves => "Waves",
+            Page::Hierarchy => "Hierarchy",
             Page::Workspace => "Workspace",
             Page::Memory => "Memory",
             Page::Remote => "Remote",
@@ -95,6 +99,7 @@ impl Page {
         match self {
             Page::Appearance => "Theme and chrome.",
             Page::Waves => "Waveform panels and navigation.",
+            Page::Hierarchy => "Scope browsing and activity meters.",
             Page::Workspace => "How sessions are saved beside traces.",
             Page::Memory => "How much loaded trace data the viewer may hold.",
             Page::Remote => "The server for traces on a remote host.",
@@ -105,6 +110,7 @@ impl Page {
         match self {
             Page::Appearance => IconName::Type,
             Page::Waves => IconName::AudioWaveform,
+            Page::Hierarchy => IconName::Activity,
             Page::Workspace => IconName::Folder,
             Page::Memory => IconName::Cpu,
             Page::Remote => IconName::Box,
@@ -299,6 +305,22 @@ pub const ZOOM_STEP: f64 = 0.1;
 
 /// Every setting, in the order the editor shows them.
 pub static REGISTRY: &[Spec] = &[
+    Spec {
+        id: "hierarchy.activityIndex",
+        page: Page::Hierarchy,
+        group: "Activity",
+        title: "Activity index",
+        description: "Build an activity index for a trace that has none: choose ask to offer Build and Not now, always to start a background build, or never to hide the offer. The trace remains usable while building. Indexes enable exact scope activity meters and are cached beside the trace or in the user cache.",
+        keywords: &["scope", "meter", "signals", "sidecar", "build", "cache"],
+        kind: Kind::Enum(&[
+            choice("ask", "Ask"),
+            choice("always", "Always"),
+            choice("never", "Never"),
+        ]),
+        default: Literal::Text("ask"),
+        apply: Apply::Live,
+        hosts: Hosts::ALL,
+    },
     Spec {
         id: "appearance.theme",
         page: Page::Appearance,

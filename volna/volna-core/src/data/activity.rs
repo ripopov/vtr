@@ -225,3 +225,103 @@ pub(crate) fn find_index(
         .load(id)
         .map(|(_, index)| std::sync::Arc::new(index))
 }
+
+/// A local recording that can build its missing activity index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActivityBuildInfo {
+    pub bytes: u64,
+    pub format: vtr::activity::SourceFormat,
+}
+
+impl ActivityBuildInfo {
+    /// A coarse estimate from compressed size, rounded up to seconds.
+    /// VTR scans about 1 GiB/s and FST about 400 MiB/s on C910.
+    pub fn estimated_seconds(self) -> u64 {
+        let rate = match self.format {
+            vtr::activity::SourceFormat::Vtr => 1 << 30,
+            vtr::activity::SourceFormat::Fst => 400 << 20,
+        };
+        self.bytes.div_ceil(rate).max(1)
+    }
+}
+
+/// The owning session's source identity and shared, immutable activity index.
+/// A late-built index pays for itself; an index found at open is included in
+/// the session's initial resident-byte admission.
+pub(crate) struct ActivitySource {
+    pub path: std::path::PathBuf,
+    pub identity: vtr::activity::Identity,
+    loaded: std::sync::OnceLock<ResidentIndex>,
+}
+
+struct ResidentIndex {
+    index: std::sync::Arc<vtr::activity::Index>,
+    _reservation: Option<Reservation>,
+}
+
+impl ActivitySource {
+    #[cfg(not(target_family = "wasm"))]
+    pub fn new(path: &std::path::Path, identity: vtr::activity::Identity) -> Self {
+        let loaded = std::sync::OnceLock::new();
+        if let Some(index) = find_index(path, &identity) {
+            let _ = loaded.set(ResidentIndex {
+                index,
+                _reservation: None,
+            });
+        }
+        Self {
+            path: path.to_owned(),
+            identity,
+            loaded,
+        }
+    }
+
+    pub fn index(&self) -> Option<std::sync::Arc<vtr::activity::Index>> {
+        self.loaded.get().map(|l| std::sync::Arc::clone(&l.index))
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        self.loaded.get().map_or(0, |l| l.index.memory_bytes())
+    }
+
+    pub fn info(&self) -> ActivityBuildInfo {
+        ActivityBuildInfo {
+            bytes: self.identity.length,
+            format: self.identity.format,
+        }
+    }
+
+    pub fn build(
+        &self,
+        options: &vtr::activity::BuildOptions,
+        budget: &MemoryBudget,
+        cache_dir: Option<&std::path::Path>,
+        signals: usize,
+        build: impl FnOnce(&mut dyn std::io::Write) -> vtr::Result<vtr::activity::Summary>,
+    ) -> anyhow::Result<()> {
+        if self.loaded.get().is_some() {
+            return Ok(());
+        }
+        let control = options
+            .control
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("activity build needs a control"))?;
+        let sidecar = vtr::activity::Sidecar::new(&self.path, &self.identity, cache_dir);
+        let (path, _) = sidecar.write_with_control(control, |w| {
+            let scratch = options
+                .memory
+                .saturating_add((signals as u64).saturating_mul(24));
+            let _reservation = budget
+                .reserve(scratch)
+                .map_err(|e| vtr::Error::Invalid(e.to_string()))?;
+            build(w)
+        })?;
+        let index = vtr::activity::Index::open(&path, &self.identity)?;
+        let reservation = budget.reserve_object("the activity index", index.memory_bytes())?;
+        let _ = self.loaded.set(ResidentIndex {
+            index: std::sync::Arc::new(index),
+            _reservation: Some(reservation),
+        });
+        Ok(())
+    }
+}

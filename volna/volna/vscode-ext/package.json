@@ -319,6 +319,21 @@
     "configuration": {
       "title": "Volna",
       "properties": {
+        "volna.hierarchy.activityIndex": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Ask",
+            "Always",
+            "Never"
+          ],
+          "default": "ask",
+          "markdownDescription": "Build an activity index for a trace that has none: choose ask to offer Build and Not now, always to start a background build, or never to hide the offer. The trace remains usable while building. Indexes enable exact scope activity meters and are cached beside the trace or in the user cache."
+        },
         "volna.appearance.zoom": {
           "type": "number",
           "minimum": 0.5,

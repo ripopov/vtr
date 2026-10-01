@@ -217,6 +217,20 @@ pub struct RemoteSettings {
     pub server_path: String,
 }
 
+/// Policy for a recording without an activity index.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ActivityIndexPolicy {
+    #[default]
+    Ask,
+    Always,
+    Never,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HierarchySettings {
+    pub activity_index: ActivityIndexPolicy,
+}
+
 /// The resolved settings the viewer reads. Every field has a registry entry;
 /// invalid or missing document values fall back to that entry's default.
 #[derive(Clone, Debug, PartialEq)]
@@ -228,6 +242,7 @@ pub struct Settings {
     pub transaction: TransactionSettings,
     pub memory: MemorySettings,
     pub remote: RemoteSettings,
+    pub hierarchy: HierarchySettings,
 }
 
 impl Default for Settings {
@@ -242,6 +257,13 @@ impl Settings {
         let text = |id: &str| value(id).as_str().unwrap_or_default().to_owned();
         let int = |id: &str| value(id).as_i64().unwrap_or_default();
         Settings {
+            hierarchy: HierarchySettings {
+                activity_index: match text("hierarchy.activityIndex").as_str() {
+                    "always" => ActivityIndexPolicy::Always,
+                    "never" => ActivityIndexPolicy::Never,
+                    _ => ActivityIndexPolicy::Ask,
+                },
+            },
             appearance: AppearanceSettings {
                 theme: text("appearance.theme"),
                 zoom: normalize_zoom(value("appearance.zoom").as_f64().unwrap_or(1.0)),

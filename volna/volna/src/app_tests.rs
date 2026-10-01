@@ -2851,6 +2851,11 @@ fn trace_chips_and_rows_show_every_open_trace(cx: &mut TestAppContext) {
     };
     window
         .update(cx, |ws, _, cx| {
+            // This test needs both trace rows in view; build banners have their own test.
+            ws.app.handle(Command::Settings(SettingsCommand::Set {
+                id: "hierarchy.activityIndex".into(),
+                value: volna_core::settings::Value::Text("never".into()),
+            }));
             ws.open_paths(vec![a.clone(), b.clone()], cx)
         })
         .unwrap();
@@ -3040,4 +3045,105 @@ fn settings_search_takes_wave_keys_while_a_trace_is_open(cx: &mut TestAppContext
         .unwrap();
     assert_eq!(query, "mfs");
     assert_eq!(markers, 0, "`m` did not drop a marker");
+}
+
+#[gpui_kit::test]
+fn activity_build_banner_drives_build_dismiss_and_cancel(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, VisualTestContext};
+    init(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("run.vtr");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/picorv32.vtr"),
+        &trace,
+    )
+    .unwrap();
+    let window = cx.add_window(Workspace::new);
+    window
+        .update(cx, |ws, _, cx| ws.open_path(trace.clone(), cx))
+        .unwrap();
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let offer = vcx.debug_bounds("activity-banner-A").expect("build offer");
+    let build = vcx.debug_bounds("activity-build-A").expect("Build button");
+    let dismiss = vcx
+        .debug_bounds("activity-dismiss-A")
+        .expect("Not now button");
+    assert!(offer.contains(&build.center()) && offer.contains(&dismiss.center()));
+    vcx.simulate_click(dismiss.center(), Modifiers::default());
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(vcx.debug_bounds("activity-banner-A").is_none());
+    assert!(!trace.with_extension("vtr.index").exists());
+    // Reopening offers again; Build installs the index through the executor.
+    window
+        .update(&mut vcx, |ws, _, cx| ws.open_path(trace.clone(), cx))
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let build = vcx
+        .debug_bounds("activity-build-A")
+        .expect("Build after reopen");
+    vcx.simulate_click(build.center(), Modifiers::default());
+    vcx.run_until_parked();
+    // The build and then the census/classification finish through the load loop.
+    for _ in 0..3 {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+    assert!(trace.with_extension("vtr.index").exists());
+    assert!(vcx.debug_bounds("activity-banner-A").is_none());
+    window
+        .update(&mut vcx, |ws, _, _| {
+            assert!(ws.app.doc.session(TraceId::A).unwrap().activity().is_some());
+        })
+        .unwrap();
+    // Hold the queued load to draw and click Cancel deterministically.
+    let other = dir.path().join("other.vtr");
+    std::fs::copy(&trace, &other).unwrap();
+    window
+        .update(&mut vcx, |ws, _, cx| ws.open_path(other.clone(), cx))
+        .unwrap();
+    vcx.run_until_parked();
+    let request = window
+        .update(&mut vcx, |ws, _, _| {
+            ws.app.handle(Command::BuildActivity(TraceId::A));
+            ws.app.take_requests().pop().expect("build request")
+        })
+        .unwrap();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(vcx.debug_bounds("activity-progress-A").is_some());
+    let cancel = vcx
+        .debug_bounds("activity-cancel-A")
+        .expect("Cancel button");
+    vcx.simulate_click(cancel.center(), Modifiers::default());
+    let result = request.perform();
+    window
+        .update(&mut vcx, |ws, _, cx| {
+            ws.app.deliver(result);
+            ws.after(None, cx);
+        })
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(vcx.debug_bounds("activity-banner-A").is_none());
+    assert!(!other.with_extension("vtr.index").exists());
+    // Several missing indexes keep the scope tree usable rather than filling its panel.
+    let mut paths = Vec::new();
+    for i in 0..4 {
+        let path = dir.path().join(format!("trace-{i}.vtr"));
+        std::fs::copy(&trace, &path).unwrap();
+        paths.push(path);
+    }
+    window
+        .update(&mut vcx, |ws, _, cx| ws.open_paths(paths, cx))
+        .unwrap();
+    vcx.run_until_parked();
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
+    let panel = vcx.debug_bounds("scopes-panel").expect("scope panel");
+    let banners = vcx.debug_bounds("activity-banners").expect("build offers");
+    let tree = vcx.debug_bounds("scope-tree").expect("scope tree");
+    assert!(banners.size.height <= panel.size.height * 0.4 + gpui_kit::px(1.0));
+    assert!(tree.size.height >= panel.size.height * 0.4);
 }

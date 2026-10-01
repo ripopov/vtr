@@ -109,6 +109,7 @@ impl RemoteClient {
                 return Err(request.fail(anyhow::anyhow!("remote traces cannot read activity yet")));
             }
             LoadRequest::Open { .. }
+            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
@@ -189,6 +190,7 @@ impl RemoteClient {
                 command
             }
             LoadRequest::Open { .. }
+            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
@@ -235,6 +237,7 @@ impl RemoteClient {
                 .doc
                 .wants_track_request(*trace, *generation, *request_id, *track),
             LoadRequest::Open { .. }
+            | LoadRequest::BuildActivity { .. }
             | LoadRequest::Sizes { .. }
             | LoadRequest::ActivityCounter { .. }
             | LoadRequest::Activity { .. }
@@ -293,6 +296,7 @@ impl RemoteClient {
                     }
                 }
                 LoadResult::Track { .. }
+                | LoadResult::ActivityBuilt { .. }
                 | LoadResult::Sizes { .. }
                 | LoadResult::ActivityCounter { .. }
                 | LoadResult::Activity { .. }

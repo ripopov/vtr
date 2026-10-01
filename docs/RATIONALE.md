@@ -2986,3 +2986,30 @@ the scope–signal pairs every frame, 826,739 steps on C910, and grows with
 depth, which gate-level hierarchies have. The per-frame numbers come from
 `volna-core/examples/activity_cost.rs`, because the `frame_times` harness
 renders only with Metal on macOS.
+
+
+**Building from Volna.** Background builds reuse the existing session/load
+loop instead of spawning the CLI or adding a second job executor. Source
+identity, path and the immutable index belong in the local session, which
+installs a late-built index once and holds its shared-budget reservation.
+The activity model owns only the offer, dismissal, retry and control for each
+trace generation. Build, Not now and Cancel change no cockpit state and stay
+out of the undo journal and workspace. `hierarchy.activityIndex` lives in the
+settings registry, with ask/always/never policy; always also works while the
+sidebar is hidden. Failures stop automatic retries until the user chooses Build.
+
+Progress is stitched source blocks, read directly from a shared `BuildControl`
+on GPUI animation frames. A separate stream of progress events would queue
+obsolete updates on the loader and add no useful state. Cancellation is checked
+between blocks, leaving each format's scanner and output bytes unchanged.
+The final rename shares the control's lock: accepted cancellation cannot race
+publication. Temporary names include the process and a serial and are created
+exclusively, so two sessions indexing the same recording cannot truncate or
+remove one another's temporary files. Cancelled builds and builder failures remove their
+own temporary file and retain any previous valid sidecar. If the completed
+index cannot fit the viewer budget, its valid sidecar remains on disk and
+the session reports the admission failure. A read-only trace
+directory uses the existing identity-addressed user cache. Builder tests verify
+byte-identical controlled builds, cancellation during a scan and before the
+rename, and concurrent temporary files; session and headless GPUI tests cover
+policy, buttons, VTR/FST builds, close, retry and cache fallback.

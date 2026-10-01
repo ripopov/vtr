@@ -601,6 +601,7 @@ impl Document {
         self.pending.retain(|s| s.trace != trace);
         self.requests.retain(|r| match r {
             LoadRequest::Open { trace: t, .. }
+            | LoadRequest::BuildActivity { trace: t, .. }
             | LoadRequest::Sizes { trace: t, .. }
             | LoadRequest::ActivityCounter { trace: t, .. }
             | LoadRequest::Activity { trace: t, .. }
@@ -1120,7 +1121,8 @@ impl Document {
     pub fn deliver(&mut self, result: LoadResult) -> Option<Delivered> {
         match result {
             // The sidebar's activity model owns these (`App::deliver`).
-            LoadResult::ActivityCounter { .. }
+            LoadResult::ActivityBuilt { .. }
+            | LoadResult::ActivityCounter { .. }
             | LoadResult::Activity { .. }
             | LoadResult::ActivityResolved { .. } => None,
             LoadResult::Track {

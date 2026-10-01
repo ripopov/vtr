@@ -610,6 +610,19 @@ typedef struct vtr_activity_summary {
 } vtr_activity_summary;
 int                   vtr_activity_write(const vtr_reader *r, const char *trace_path, const char *cache_dir,
                                          uint32_t threads, uint64_t memory, vtr_activity_summary *out);
+/* One control per build. Progress counts stitched source blocks. cancel()
+ * returns 1 if accepted, 0 after publication; workers stop between blocks.
+ * Accepted cancellation removes the temporary output and publishes no index.
+ * Keep the handle alive while calls use it; cancel/progress may run on another
+ * thread during write_controlled(). NULL control builds without monitoring. */
+typedef struct vtr_activity_control vtr_activity_control;
+vtr_activity_control *vtr_activity_control_new(void);
+void                  vtr_activity_control_free(vtr_activity_control *c);
+int                   vtr_activity_control_cancel(const vtr_activity_control *c);
+int                   vtr_activity_control_is_cancelled(const vtr_activity_control *c);
+void                  vtr_activity_control_progress(const vtr_activity_control *c, size_t *completed, size_t *total);
+int                   vtr_activity_write_controlled(const vtr_reader *r, const char *trace_path, const char *cache_dir,
+                                         uint32_t threads, uint64_t memory, const vtr_activity_control *control, vtr_activity_summary *out);
 vtr_activity_index   *vtr_activity_load(const vtr_reader *r, const char *trace_path, const char *cache_dir);
 void                  vtr_activity_free(vtr_activity_index *x);
 uint64_t              vtr_activity_exact_width(const vtr_activity_index *x, uint64_t t0, uint64_t t1);

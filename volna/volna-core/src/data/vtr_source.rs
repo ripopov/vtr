@@ -18,8 +18,8 @@ pub struct LocalSession {
     info: TraceInfo,
     hierarchy: Hierarchy,
     source_bytes: u64,
-    /// The activity index found beside the trace or in the user cache.
-    activity: Option<Arc<vtr::activity::Index>>,
+    /// The local source and activity index, found at open or built later.
+    activity: Option<super::activity::ActivitySource>,
 }
 
 impl LocalSession {
@@ -33,7 +33,7 @@ impl LocalSession {
             .unwrap_or_default();
         let activity = vtr::activity::Identity::of(&reader)
             .ok()
-            .and_then(|id| super::activity::find_index(path, &id));
+            .map(|id| super::activity::ActivitySource::new(path, id));
         let mut session = Self::from_reader(name, reader, source_bytes)?;
         session.activity = activity;
         Ok(session)
@@ -344,10 +344,27 @@ impl Session for LocalSession {
             + self.reader.hierarchy().resident_bytes()
             + self.reader.strings().resident_bytes()
             + self.hierarchy.resident_bytes()
-            + self.activity.as_ref().map_or(0, |a| a.memory_bytes())
+            + self.activity.as_ref().map_or(0, |a| a.resident_bytes())
     }
     fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
-        self.activity.clone()
+        self.activity.as_ref().and_then(|a| a.index())
+    }
+    fn activity_build_info(&self) -> Option<super::ActivityBuildInfo> {
+        self.activity.as_ref().map(|a| a.info())
+    }
+    fn build_activity(
+        &self,
+        options: &vtr::activity::BuildOptions,
+        budget: &crate::remote::memory::MemoryBudget,
+        cache_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<()> {
+        let source = self
+            .activity
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("this trace cannot build an activity index"))?;
+        source.build(options, budget, cache_dir, self.info.signal_count, |w| {
+            vtr::activity::build(&self.reader, w, options)
+        })
     }
     fn resolve_activity(
         &self,

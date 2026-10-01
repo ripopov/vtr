@@ -16,7 +16,7 @@ pub mod value_view;
 pub mod vtr_source;
 mod vtr_transactions;
 
-pub use activity::{ActivityCounter, ActivityCounts, ScopeActivity};
+pub use activity::{ActivityBuildInfo, ActivityCounter, ActivityCounts, ScopeActivity};
 pub use history::SignalHistory;
 pub use sizes::{ScopeSize, ScopeSizes};
 pub use source::{

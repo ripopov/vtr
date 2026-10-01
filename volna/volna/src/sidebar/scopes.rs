@@ -1,5 +1,7 @@
 //! The scope tree panel: GPUI rows over `ScopeTreeModel`.
 
+use gpui_kit::base::Disableable;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::prelude::*;
@@ -45,6 +47,131 @@ fn activity_meter(a: volna_core::data::ScopeActivity, t: &crate::theme::Theme) -
 }
 
 impl Workspace {
+    fn activity_banners(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use volna_core::sidebar::activity::ActivityBuildState;
+        let views = self.app.activity.builds(
+            self.app.doc.traces(),
+            self.app.settings.resolved().hierarchy.activity_index,
+        );
+        let t = *theme(cx);
+        views
+            .into_iter()
+            .map(|view| {
+                let trace = view.trace;
+                let mut banner = div()
+                    .debug_selector(move || format!("activity-banner-{trace}"))
+                    .flex_none()
+                    .m_1()
+                    .p_2()
+                    .border_1()
+                    .border_color(t.border)
+                    .rounded(t.px(4.0))
+                    .bg(t.panel.bg)
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .text_size(px(t.ui_size_small))
+                    .child(SharedString::from(format!(
+                        "{}: {}",
+                        view.name,
+                        view.message()
+                    )));
+                match view.state {
+                    ActivityBuildState::Offer { .. } | ActivityBuildState::Failed { .. } => {
+                        banner = banner.child(
+                            div()
+                                .flex()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .debug_selector(move || format!("activity-build-{trace}"))
+                                        .child(
+                                            Button::new(SharedString::from(format!(
+                                                "activity-build-{trace}"
+                                            )))
+                                            .label("Build")
+                                            .primary()
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.dispatch(
+                                                    Command::BuildActivity(trace),
+                                                    Some(window),
+                                                    cx,
+                                                )
+                                            })),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .debug_selector(move || format!("activity-dismiss-{trace}"))
+                                        .child(
+                                            Button::new(SharedString::from(format!(
+                                                "activity-dismiss-{trace}"
+                                            )))
+                                            .label("Not now")
+                                            .ghost()
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.dispatch(
+                                                    Command::DismissActivity(trace),
+                                                    Some(window),
+                                                    cx,
+                                                )
+                                            })),
+                                        ),
+                                ),
+                        );
+                    }
+                    ActivityBuildState::Building {
+                        progress,
+                        cancelling,
+                    } => {
+                        window.request_animation_frame();
+                        let share = if progress.total == 0 {
+                            0.0
+                        } else {
+                            progress.completed as f32 / progress.total as f32
+                        };
+                        banner = banner
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("activity-progress-{trace}"))
+                                    .w_full()
+                                    .h(t.px(3.0))
+                                    .bg(t.border)
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .w(gpui_kit::relative(share))
+                                            .bg(t.wave_signal),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("activity-cancel-{trace}"))
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "activity-cancel-{trace}"
+                                        )))
+                                        .label("Cancel")
+                                        .ghost()
+                                        .disabled(cancelling)
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                this.dispatch(
+                                                    Command::CancelActivity(trace),
+                                                    Some(window),
+                                                    cx,
+                                                )
+                                            }),
+                                        ),
+                                    ),
+                            );
+                    }
+                }
+                banner.into_any_element()
+            })
+            .collect()
+    }
+
     fn scopes_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if ev.keystroke.key == "tab" {
             window.focus(&self.variables_focus, cx);
@@ -432,8 +559,10 @@ impl Workspace {
         .flex_1()
         .size_full();
 
+        let banners = self.activity_banners(window, cx);
         div()
             .id("scopes-panel")
+            .debug_selector(|| "scopes-panel".into())
             .track_focus(&self.scopes_focus)
             .on_key_down(cx.listener(Self::scopes_key))
             .flex()
@@ -441,8 +570,20 @@ impl Workspace {
             .size_full()
             .bg(t.panel.bg)
             .child(header)
+            .when(!banners.is_empty(), |panel| {
+                panel.child(
+                    div()
+                        .id("activity-banners")
+                        .debug_selector(|| "activity-banners".into())
+                        .flex_none()
+                        .max_h(gpui_kit::relative(0.4))
+                        .overflow_y_scroll()
+                        .children(banners),
+                )
+            })
             .child(
                 div()
+                    .debug_selector(|| "scope-tree".into())
                     .flex_1()
                     .min_h_0()
                     .py_1()

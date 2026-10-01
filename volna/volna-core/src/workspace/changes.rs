@@ -75,6 +75,9 @@ impl Stamp {
         if matches!(
             command,
             Command::MenuDismiss(_)
+                | Command::BuildActivity(_)
+                | Command::DismissActivity(_)
+                | Command::CancelActivity(_)
                 | Command::OpenSignalMenu(_)
                 | Command::SelectVar { .. }
                 | Command::ChromeDragStart(_)

@@ -88,10 +88,26 @@ pub trait Session: Send + Sync {
         None
     }
     /// The trace's activity index (docs/hierarchy-activity.html), when a
-    /// sidecar valid for this trace was found as the session opened.
+    /// valid sidecar was found at open or built later by the session.
     /// Resident and shared; counted in [`resident_bytes`](Self::resident_bytes).
     fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
         None
+    }
+    /// Whether this session can build a local activity sidecar. Byte images,
+    /// recovered files and remote sessions have no local build source.
+    fn activity_build_info(&self) -> Option<crate::data::ActivityBuildInfo> {
+        None
+    }
+    /// Builds and installs an immutable activity index through the library.
+    /// Blocking work for the loader; supply a control in `options` for
+    /// progress and cancellation. The late-built index is charged to `budget`.
+    fn build_activity(
+        &self,
+        _options: &vtr::activity::BuildOptions,
+        _budget: &crate::remote::memory::MemoryBudget,
+        _cache_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("this session cannot build an activity index")
     }
     /// The signals among `signals` that change in `[t0, t1]` (trace times,
     /// both included), read from the trace: the exact answer for those the
@@ -199,6 +215,17 @@ impl Session for AccountedSession {
     }
     fn activity(&self) -> Option<Arc<vtr::activity::Index>> {
         self.inner.activity()
+    }
+    fn activity_build_info(&self) -> Option<crate::data::ActivityBuildInfo> {
+        self.inner.activity_build_info()
+    }
+    fn build_activity(
+        &self,
+        options: &vtr::activity::BuildOptions,
+        budget: &crate::remote::memory::MemoryBudget,
+        cache_dir: Option<&std::path::Path>,
+    ) -> anyhow::Result<()> {
+        self.inner.build_activity(options, budget, cache_dir)
     }
     fn resolve_activity(
         &self,
@@ -397,6 +424,16 @@ fn is_fst(bytes: &[u8]) -> anyhow::Result<bool> {
 /// document places what they return on the session timeline as it arrives
 /// ([`crate::trace::Placement`]), so executors hand back trace times.
 pub enum LoadRequest {
+    /// Build a missing local sidecar off the UI thread. Progress and
+    /// cancellation travel through `options.control`.
+    BuildActivity {
+        trace: TraceId,
+        generation: u64,
+        session: Arc<dyn Session>,
+        options: vtr::activity::BuildOptions,
+        cache_dir: Option<std::path::PathBuf>,
+        budget: crate::remote::memory::MemoryBudget,
+    },
     Track {
         trace: TraceId,
         generation: u64,
@@ -493,6 +530,7 @@ impl LoadRequest {
             | Self::Track { session, .. }
             | Self::ResolveActivity { session, .. } => session.remote_id(),
             Self::Open { .. }
+            | Self::BuildActivity { .. }
             | Self::Sizes { .. }
             | Self::ActivityCounter { .. }
             | Self::Activity { .. }
@@ -506,6 +544,13 @@ impl LoadRequest {
     /// Complete failed work with its original document and object identities.
     pub fn fail(self, error: anyhow::Error) -> LoadResult {
         match self {
+            Self::BuildActivity {
+                trace, generation, ..
+            } => LoadResult::ActivityBuilt {
+                trace,
+                generation,
+                result: Err(error),
+            },
             Self::Open {
                 trace, generation, ..
             } => LoadResult::Opened {
@@ -621,6 +666,18 @@ impl LoadRequest {
     /// Perform the request. Blocking; run it off the UI thread where possible.
     pub fn perform(self) -> LoadResult {
         match self {
+            Self::BuildActivity {
+                trace,
+                generation,
+                session,
+                options,
+                cache_dir,
+                budget,
+            } => LoadResult::ActivityBuilt {
+                trace,
+                generation,
+                result: session.build_activity(&options, &budget, cache_dir.as_deref()),
+            },
             LoadRequest::Track {
                 trace,
                 generation,
@@ -767,6 +824,11 @@ impl LoadRequest {
 
 /// The outcome of a [`LoadRequest`], to hand to [`crate::app::App::deliver`].
 pub enum LoadResult {
+    ActivityBuilt {
+        trace: TraceId,
+        generation: u64,
+        result: anyhow::Result<()>,
+    },
     Track {
         trace: TraceId,
         generation: u64,

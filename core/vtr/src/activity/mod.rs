@@ -62,6 +62,7 @@
 //! ```
 
 mod builder;
+mod control;
 mod driver;
 mod format;
 mod index;
@@ -70,6 +71,7 @@ mod sidecar;
 mod vtr_source;
 
 pub use builder::Builder;
+pub use control::{BuildControl, BuildProgress};
 pub use index::{Classification, Index, IndexBlock, Stretch};
 pub use scan::BlockScan;
 pub use sidecar::{default_cache_dir, Sidecar};
@@ -205,7 +207,7 @@ pub struct Block {
 }
 
 /// Settings of a build.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct BuildOptions {
     /// Worker threads scanning blocks; 0 = available parallelism.
     pub threads: usize,
@@ -215,11 +217,13 @@ pub struct BuildOptions {
     /// whose scan alone would need more is refused with an error naming it.
     /// Default 512 MiB.
     pub memory: u64,
+    /// Progress and cooperative cancellation of this build, when supplied.
+    pub control: Option<std::sync::Arc<BuildControl>>,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        BuildOptions { threads: 0, budget: Budget::default(), memory: 512 << 20 }
+        BuildOptions { threads: 0, budget: Budget::default(), memory: 512 << 20, control: None }
     }
 }
 

@@ -441,6 +441,23 @@ signals can change is drawn faint. Meters are derived view state, outside the
 journal and the workspace; traces without an index keep the size column. egui
 keeps its rows.
 
+For a local path without an index, the same model exposes a per-trace build
+offer, progress or retry banner. `hierarchy.activityIndex` is `ask` by default;
+`always` queues a build even when the sidebar is hidden, and `never` hides the
+offer. `BuildActivity`, `DismissActivity` and `CancelActivity` are derived view
+or file actions outside the workspace and journal. `LoadRequest::BuildActivity`
+runs on the normal loader, charges scan memory to the shared budget, and calls
+`Session::build_activity`. The session owns an `ActivitySource` with its path,
+identity and a `OnceLock` of the immutable index; an index built after open
+holds its own memory reservation. VTR uses its existing reader; FST lazily maps
+the same `FstTrace` used for exact reads. `BuildControl` reports stitched blocks
+and checks cancellation between scans. It serializes cancellation with the
+final rename, so an accepted cancellation never publishes; failed or cancelled
+builds remove their unique temporary file. Closing or replacing a trace cancels
+its control, and stale completions are dropped by generation. GPUI refreshes
+progress on animation frames and keeps multiple banners in a bounded scrolling
+area. Failed builds report a notice and require an explicit retry.
+
 Raw metadata includes container roles, component names, enum references,
 generator declarations/attributes and the producer's time unit. Remote framing
 version **5** rejects older peers before decoding the catalog and hierarchy-page schema.
@@ -986,8 +1003,11 @@ honoured through the configuration path.
 ## The session seam
 
 All trace data is reached through the `Session` trait: resident `info()`,
-`hierarchy()` and `activity()` (the activity index found at open, if any), and
-expensive `load_signal()`/`load_signals()` and `resolve_activity()` queries.
+`hierarchy()` and `activity()` (the immutable activity index, found at open or
+built later), and expensive `load_signal()`/`load_signals()` and
+`resolve_activity()` queries. `activity_build_info()` identifies buildable local
+paths; `build_activity()` builds and installs their index through the same
+loader. Byte-backed and remote sessions do not offer local builds.
 VTR sessions read undecided signals through `vtr::activity::resolve`; FST
 sessions through `vtr_cli::fst::activity::FstTrace`, mapped on the first read.
 `LocalSession` derives event shapes from `Reader::signal_var_type`, using the

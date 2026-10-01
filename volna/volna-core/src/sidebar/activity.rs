@@ -17,12 +17,14 @@ use std::sync::Arc;
 use crate::data::{ActivityCounter, ActivityCounts, ScopeId};
 use crate::remote::memory::MemoryBudget;
 use crate::session::{LoadRequest, LoadResult};
+use crate::settings::ActivityIndexPolicy;
 use crate::trace::{Placement, TraceId, TraceSet};
 use crate::wave::Viewport;
 
 #[derive(Default)]
 pub struct ActivityModel {
     traces: HashMap<TraceId, TraceActivity>,
+    policy: Option<ActivityIndexPolicy>,
 }
 
 struct TraceActivity {
@@ -36,9 +38,77 @@ struct TraceActivity {
     resolving: Option<(u64, u64)>,
     /// A window whose classification or read failed: not asked again.
     failed: Option<(u64, u64)>,
+    build: Build,
+}
+
+enum Build {
+    Offered,
+    Queued,
+    Running {
+        control: Arc<vtr::activity::BuildControl>,
+        cancelling: bool,
+    },
+    Dismissed,
+    Failed(String),
+}
+
+impl Drop for TraceActivity {
+    fn drop(&mut self) {
+        if let Build::Running { control, .. } = &self.build {
+            control.cancel();
+        }
+    }
+}
+
+/// The build banner's toolkit-independent state for one trace.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActivityBuildState {
+    Offer {
+        estimated_seconds: u64,
+    },
+    Building {
+        progress: vtr::activity::BuildProgress,
+        cancelling: bool,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActivityBuildView {
+    pub trace: TraceId,
+    pub name: String,
+    pub state: ActivityBuildState,
+}
+
+impl ActivityBuildView {
+    pub fn message(&self) -> String {
+        match &self.state {
+            ActivityBuildState::Offer { estimated_seconds } => {
+                format!("No activity index yet · about {estimated_seconds} s")
+            }
+            ActivityBuildState::Building {
+                progress,
+                cancelling: true,
+            } => format!(
+                "Cancelling · {} of {} blocks",
+                progress.completed, progress.total
+            ),
+            ActivityBuildState::Building { progress, .. } if progress.total == 0 => {
+                "Preparing the activity index…".into()
+            }
+            ActivityBuildState::Building { progress, .. } => format!(
+                "Building the activity index · {} of {} blocks",
+                progress.completed, progress.total
+            ),
+            ActivityBuildState::Failed { message } => format!("Activity index failed: {message}"),
+        }
+    }
 }
 
 enum Counter {
+    Absent,
     Requested,
     Ready(Arc<ActivityCounter>),
     Failed,
@@ -64,36 +134,75 @@ impl ActivityModel {
         traces: &TraceSet,
         viewport: Viewport,
         budget: &MemoryBudget,
+        policy: ActivityIndexPolicy,
+        meters_visible: bool,
     ) -> Vec<LoadRequest> {
         let mut requests = Vec::new();
-        self.traces.retain(|&t, a| {
-            traces
-                .get(t)
-                .is_some_and(|slot| slot.generation() == a.generation && slot.session().is_some())
-        });
+        let policy_changed = self.policy.replace(policy) != Some(policy);
+        self.prune(traces);
         for slot in traces.iter() {
             let (Some(session), trace) = (slot.session(), slot.id) else {
                 continue;
             };
+            if session.activity().is_none() && session.activity_build_info().is_none() {
+                continue;
+            }
+            let a = self.traces.entry(trace).or_insert_with(|| TraceActivity {
+                generation: slot.generation(),
+                counter: Counter::Absent,
+                shown: None,
+                classifying: None,
+                resolving: None,
+                failed: None,
+                build: Build::Offered,
+            });
             let Some(index) = session.activity() else {
+                if session.activity_build_info().is_some() {
+                    if policy == ActivityIndexPolicy::Always
+                        && (matches!(a.build, Build::Offered)
+                            || policy_changed && matches!(a.build, Build::Dismissed))
+                    {
+                        a.build = Build::Queued;
+                    }
+                    if matches!(a.build, Build::Queued) {
+                        let control = Arc::new(vtr::activity::BuildControl::default());
+                        a.build = Build::Running {
+                            control: Arc::clone(&control),
+                            cancelling: false,
+                        };
+                        requests.push(LoadRequest::BuildActivity {
+                            trace,
+                            generation: a.generation,
+                            session: Arc::clone(session),
+                            options: vtr::activity::BuildOptions {
+                                control: Some(control),
+                                memory: (512u64 << 20).min(
+                                    (budget.limit().saturating_sub(budget.used()) / 2)
+                                        .saturating_sub(
+                                            (session.info().signal_count as u64).saturating_mul(24),
+                                        ),
+                                ),
+                                ..Default::default()
+                            },
+                            cache_dir: vtr::activity::default_cache_dir(),
+                            budget: budget.clone(),
+                        });
+                    }
+                }
                 continue;
             };
-            let a = self.traces.entry(trace).or_insert_with(|| {
+            if !meters_visible {
+                continue;
+            }
+            if matches!(a.counter, Counter::Absent) {
+                a.counter = Counter::Requested;
                 requests.push(LoadRequest::ActivityCounter {
                     trace,
-                    generation: slot.generation(),
+                    generation: a.generation,
                     session: Arc::clone(session),
                     budget: budget.clone(),
                 });
-                TraceActivity {
-                    generation: slot.generation(),
-                    counter: Counter::Requested,
-                    shown: None,
-                    classifying: None,
-                    resolving: None,
-                    failed: None,
-                }
-            });
+            }
             let Counter::Ready(counter) = &a.counter else {
                 continue;
             };
@@ -139,7 +248,10 @@ impl ActivityModel {
         viewport: Viewport,
     ) -> anyhow::Result<bool> {
         let (trace, generation) = match &result {
-            LoadResult::ActivityCounter {
+            LoadResult::ActivityBuilt {
+                trace, generation, ..
+            }
+            | LoadResult::ActivityCounter {
                 trace, generation, ..
             }
             | LoadResult::Activity {
@@ -158,6 +270,32 @@ impl ActivityModel {
         };
         let want = trace_window(viewport, slot.placement());
         match result {
+            LoadResult::ActivityBuilt {
+                trace,
+                generation,
+                result,
+            } => {
+                let Some(a) = self.current(trace, generation) else {
+                    return Ok(false);
+                };
+                let Build::Running { control, .. } = &a.build else {
+                    return Ok(false);
+                };
+                if control.is_cancelled() {
+                    a.build = Build::Dismissed;
+                    return Ok(true);
+                }
+                match result {
+                    Ok(()) => {
+                        a.build = Build::Dismissed;
+                        Ok(true)
+                    }
+                    Err(error) => {
+                        a.build = Build::Failed(format!("{error:#}"));
+                        Err(error.context(format!("Activity index of trace {trace}")))
+                    }
+                }
+            }
             LoadResult::ActivityCounter {
                 trace,
                 generation,
@@ -240,6 +378,95 @@ impl ActivityModel {
         self.traces
             .get_mut(&trace)
             .filter(|a| a.generation == generation)
+    }
+
+    /// Queue an explicit build. A running build cannot be queued again.
+    pub(crate) fn start_build(&mut self, trace: TraceId) {
+        if let Some(a) = self.traces.get_mut(&trace)
+            && !matches!(a.build, Build::Running { .. })
+        {
+            a.build = Build::Queued;
+        }
+    }
+
+    pub(crate) fn dismiss_build(&mut self, trace: TraceId) {
+        if let Some(a) = self.traces.get_mut(&trace)
+            && !matches!(a.build, Build::Running { .. })
+        {
+            a.build = Build::Dismissed;
+        }
+    }
+
+    pub(crate) fn cancel_build(&mut self, trace: TraceId) {
+        if let Some(a) = self.traces.get_mut(&trace) {
+            if matches!(a.build, Build::Queued) {
+                a.build = Build::Dismissed;
+            }
+            if let Build::Running {
+                control,
+                cancelling,
+            } = &mut a.build
+                && control.cancel()
+            {
+                *cancelling = true;
+            }
+        }
+    }
+
+    /// Cancels builds and releases derived state of closed/replaced traces.
+    pub(crate) fn prune(&mut self, traces: &TraceSet) {
+        self.traces.retain(|&t, a| {
+            traces
+                .get(t)
+                .is_some_and(|slot| slot.generation() == a.generation && slot.session().is_some())
+        });
+    }
+
+    /// Build offers and progress for locally buildable, unindexed traces.
+    pub fn builds(&self, traces: &TraceSet, policy: ActivityIndexPolicy) -> Vec<ActivityBuildView> {
+        traces
+            .iter()
+            .filter_map(|slot| {
+                let session = slot.session()?;
+                if session.activity().is_some() {
+                    return None;
+                }
+                let info = session.activity_build_info()?;
+                let a = self
+                    .traces
+                    .get(&slot.id)
+                    .filter(|a| a.generation == slot.generation())?;
+                let state = match &a.build {
+                    Build::Running {
+                        control,
+                        cancelling,
+                    } => ActivityBuildState::Building {
+                        progress: control.progress(),
+                        cancelling: *cancelling,
+                    },
+                    Build::Queued => ActivityBuildState::Building {
+                        progress: Default::default(),
+                        cancelling: false,
+                    },
+                    Build::Offered if policy != ActivityIndexPolicy::Never => {
+                        ActivityBuildState::Offer {
+                            estimated_seconds: info.estimated_seconds(),
+                        }
+                    }
+                    Build::Failed(message) if policy != ActivityIndexPolicy::Never => {
+                        ActivityBuildState::Failed {
+                            message: message.clone(),
+                        }
+                    }
+                    _ => return None,
+                };
+                Some(ActivityBuildView {
+                    trace: slot.id,
+                    name: session.info().name.clone(),
+                    state,
+                })
+            })
+            .collect()
     }
 
     /// The counts a trace shows, for the window they name.

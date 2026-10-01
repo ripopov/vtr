@@ -47,6 +47,7 @@ pub trait Source: Sync {
 pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -> Result<Summary> {
     let blocks = source.blocks();
     let n = blocks.len();
+    if let Some(control) = &opts.control { control.begin(n)?; }
     let (t_min, budget) = (source.t_min(), opts.budget);
     let mut cost = Vec::with_capacity(n);
     for (i, b) in blocks.iter().enumerate() {
@@ -82,12 +83,13 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
             sc.spawn(move || {
                 let mut worker = source.worker();
                 loop {
+                    if opts.control.as_ref().is_some_and(|c| c.is_cancelled()) { return; }
                     let i = {
                         let mut g = gate.lock().unwrap();
                         while !g.stop && g.next < n && (g.next >= g.stitched + depth || (g.held > 0 && g.held + cost[g.next] > opts.memory)) {
                             g = moved.wait(g).unwrap();
                         }
-                        if g.stop || g.next >= n {
+                        if g.stop || g.next >= n || opts.control.as_ref().is_some_and(|c| c.is_cancelled()) {
                             return;
                         }
                         g.held += cost[g.next];
@@ -106,12 +108,14 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
         let mut pending = BTreeMap::new();
         let mut stitch = || -> Result<()> {
             for (i, scan) in rx.iter() {
+                if let Some(control) = &opts.control { control.check()?; }
                 pending.insert(i, scan);
                 while let Some(scan) = pending.remove(&builder.blocks_added()) {
                     builder.add(scan?)?;
                     let mut g = gate.lock().unwrap();
                     g.held -= cost[g.stitched];
                     g.stitched += 1;
+                    if let Some(control) = &opts.control { control.advance(g.stitched); }
                     moved.notify_all();
                 }
             }
@@ -124,6 +128,7 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
         }
         done
     })?;
+    if let Some(control) = &opts.control { control.check()?; }
     if builder.blocks_added() != n {
         return Err(Error::State("an activity scan worker stopped early"));
     }

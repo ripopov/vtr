@@ -224,6 +224,10 @@ pub enum Command {
     /// Frontend-owned operations (clipboard, dialogs) report a concise error
     /// through the same accessible notice path as core failures.
     Notice(String),
+    /// File actions and derived state; outside the workspace and undo journal.
+    BuildActivity(TraceId),
+    DismissActivity(TraceId),
+    CancelActivity(TraceId),
     /// Start opening a trace in place of the open ones.
     Open(OpenSpec),
     /// Start opening another trace beside the open ones
@@ -772,6 +776,7 @@ impl App {
     /// The document now shows other traces from scratch (an open, a close,
     /// or the first trace of a document arriving).
     fn on_session_changed(&mut self) {
+        self.activity = Default::default();
         self.reset_recent_view();
         self.history.clear();
         self.announcement = None;
@@ -808,12 +813,14 @@ impl App {
     /// viewport (see [`crate::sidebar::activity`]).
     pub fn take_requests(&mut self) -> Vec<LoadRequest> {
         let mut requests = self.doc.take_requests();
-        if self.sidebar_visible {
+        {
             let budget = self.table_memory_budget();
             requests.extend(self.activity.sync(
                 self.doc.traces(),
                 self.activity_viewport(),
                 &budget,
+                self.settings.resolved().hierarchy.activity_index,
+                self.sidebar_visible,
             ));
         }
         if requests
@@ -892,7 +899,8 @@ impl App {
     pub fn deliver(&mut self, mut result: LoadResult) {
         if matches!(
             result,
-            LoadResult::ActivityCounter { .. }
+            LoadResult::ActivityBuilt { .. }
+                | LoadResult::ActivityCounter { .. }
                 | LoadResult::Activity { .. }
                 | LoadResult::ActivityResolved { .. }
         ) {
@@ -1214,6 +1222,7 @@ impl App {
             self.changed();
         }
         self.dispatch(command, now);
+        self.activity.prune(self.doc.traces());
         // Pointer input moves rows but never adds or removes them; a press
         // or release may fold a group.
         if !pointer {
@@ -1514,6 +1523,18 @@ impl App {
                 self.changed();
             }
             Command::Settings(command) => self.settings_command(command, now),
+            Command::BuildActivity(trace) => {
+                self.activity.start_build(trace);
+                self.changed();
+            }
+            Command::DismissActivity(trace) => {
+                self.activity.dismiss_build(trace);
+                self.changed();
+            }
+            Command::CancelActivity(trace) => {
+                self.activity.cancel_build(trace);
+                self.changed();
+            }
             Command::Recent(command) => self.recent_command(command),
         }
     }
