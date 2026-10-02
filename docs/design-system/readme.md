@@ -99,7 +99,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 - `ui_kits/website/` — click-through site: Landing, Benchmarks, VTR format, Docs, Download.
 - `assets/screens/` — product screenshots. Logo and icons are not copied: they are referenced from `volna/volna/assets/app-icon/` and `volna/volna-core/assets/icons/`.
 - `fonts/` — WOFF2 built by `fonts/build.sh` from the viewer's TTFs in `volna/volna-core/assets/fonts/` (originals and licences). Neither Inter nor JetBrains Mono reserves a font name, so both are subset to Latin, Cyrillic and the symbols the site uses. `tokens/fonts.css` falls back to the original TTFs.
-- `SKILL.md` — agent skill entry.
+- [SKILL.md](SKILL.md) — agent-independent skill entry. `.agents/skills/volna-design` links to this directory so Codex and OpenCode discover the skill automatically. `AGENTS.md` also links to it as repository guidance.
 
 ## Components
 

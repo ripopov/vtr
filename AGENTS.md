@@ -113,8 +113,9 @@ volna-core` provides platform-independent headless coverage, while
 ## Web pages and design system
 
 `docs/design-system` is the design system for every HTML page in the
-repository and the source of truth; edit it here. Read its `readme.md` (also
-the `volna-design` project skill) before creating or restyling a page.
+repository and the source of truth; edit it here. Before creating or restyling
+a page, read the agent-independent [volna-design skill](docs/design-system/SKILL.md)
+and its [readme](docs/design-system/readme.md).
 
 - New pages, and existing pages under `docs/` when they are substantially
   revised, link `docs/design-system/styles.css` and compose its tokens and
