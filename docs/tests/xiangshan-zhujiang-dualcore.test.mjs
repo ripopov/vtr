@@ -1,7 +1,7 @@
 // node --test --test-concurrency=1 docs/tests/xiangshan-zhujiang-dualcore.test.mjs
 // Owns a headless browser and loopback fixture; assertions are the review gate.
-// The source test needs ext/XiangShan with its XSCache, XSCache/ZhuJiang and difftest
-// submodules checked out; a missing checkout is a failure, not a skip.
+// CI checks out the pinned external source fixture at ext/XiangShan with its
+// XSCache, XSCache/ZhuJiang and difftest submodules. A missing fixture fails.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -64,7 +64,8 @@ test('cited lines, pins and topology match the pinned XiangShan source', {timeou
   assert.equal(gitlink('.', 'XSCache'), PIN.xsc, 'XiangShan records the XSCache pin');
   assert.equal(gitlink('.', 'difftest'), PIN.dt, 'XiangShan records the difftest pin');
   assert.equal(gitlink('XSCache/', 'ZhuJiang'), PIN.zj, 'XSCache records the ZhuJiang pin');
-  assert.equal(execFileSync('git', ['-C', new URL('../../', import.meta.url).pathname, 'ls-tree', 'HEAD', 'ext/XiangShan'], {encoding: 'utf8'}).split(/\s+/)[2], PIN.xs, 'this repository records the XiangShan pin');
+  const workflow = await readFile(new URL('../../.github/workflows/xiangshan-zhujiang-dualcore.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes(`ref: ${PIN.xs}`), 'CI checks out the XiangShan pin');
   // Source links open the cited file in the checkout.
   const hrefs = await b.evaluate(`[...new Set([...document.querySelectorAll('a.srcpath')].map(a => a.getAttribute('href')))]`);
   assert.ok(hrefs.length >= 100);

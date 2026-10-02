@@ -5,14 +5,12 @@ on:
       - 'docs/xiangshan-zhujiang-dualcore.html'
       - 'docs/tests/xiangshan-zhujiang-dualcore.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
-      - 'ext/XiangShan'
       - '.github/workflows/xiangshan-zhujiang-dualcore.yml'
   pull_request:
     paths:
       - 'docs/xiangshan-zhujiang-dualcore.html'
       - 'docs/tests/xiangshan-zhujiang-dualcore.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
-      - 'ext/XiangShan'
       - '.github/workflows/xiangshan-zhujiang-dualcore.yml'
   workflow_dispatch:
 permissions:
@@ -30,8 +28,13 @@ jobs:
       # The source test re-reads and hashes every cited line range at the pinned
       # commits, so it needs XiangShan with its XSCache, ZhuJiang and difftest sources.
       - name: Check out the pinned XiangShan sources
+        uses: actions/checkout@v4
+        with:
+          repository: ripopov/XiangShan
+          ref: aa6b52033add528a504bdb2c2b726100d89f070a
+          path: ext/XiangShan
+      - name: Check out the cited nested sources
         run: |
-          git submodule update --init --depth 1 ext/XiangShan
           git -C ext/XiangShan submodule update --init --depth 1 XSCache difftest
           git -C ext/XiangShan/XSCache submodule update --init --depth 1 ZhuJiang
       - uses: actions/setup-node@v4
