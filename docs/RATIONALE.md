@@ -48,6 +48,14 @@ pixels at every size, validate staged metadata and inspect the linked Windows
 resources; the CI matrix builds on macOS, Linux and Windows without opening
 desktop windows.
 
+The canonical icon is Soft Tile: a pearl-white seal enlarged by 6%, V-shaped
+waves made 20% taller about y=1138, and a slate-to-midnight tile with a fine
+edge. The composition is inset by 10% for transparent space around the tile.
+Four two-stop gradients provide gentle shading without specular overlays or
+blur effects. All PNG, ICO and ICNS assets are rendered from this SVG. Docs
+logos and favicons reference the canonical assets directly; the single-colour
+welcome and docs mark uses the same seal enlargement and wave-height change.
+
 ## Volna hierarchy browser
 
 Scopes and streams share the existing container tree; variables and generators

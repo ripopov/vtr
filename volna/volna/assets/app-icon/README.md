@@ -1,6 +1,8 @@
 # Volna application icon
 
 `volna.svg` is the canonical, first-party vector artwork.
+It uses the selected Soft Tile design: taller V-shaped blue waves, a slightly
+larger pearl-white seal, and a softly shaded navy tile with transparent margins.
 All PNG, ICO and ICNS files in this directory are
 generated from it; do not edit those files independently.
 
@@ -8,6 +10,10 @@ generated from it; do not edit those files independently.
 the welcome screen and trace start panel. This hand-drawn vector mark inherits
 the current theme colours and is embedded by the GPUI asset source on both
 native and web builds; it is not a generated desktop icon.
+Its seal and wave proportions match the canonical artwork.
+
+Docs logos and favicons reference this directory directly, so regenerating the
+canonical assets updates the documentation branding without copying icons.
 
 From the repository root, with [uv](https://docs.astral.sh/uv/) installed:
 

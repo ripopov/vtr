@@ -87,7 +87,7 @@ Waveform, marker and pipeline-stage colours come straight from the viewer.
 - On the site, the `Icon` component loads Lucide from CDN (`lucide-static@0.469.0`) as a CSS mask so it takes `currentColor`. Icons the viewer set lacks (copy, check, download, github, sun, moon, monitor, laptop, globe, square-code, menu) come from the same Lucide set — no substitution of style.
 - Icons are functional: nav, buttons, feature cards, callouts. Never decorative clusters.
 - No emoji. Unicode arrows (→ ↗ ↓) and × are used as typographic glyphs in links, ratios and captions.
-- Logo: `volna/volna/assets/app-icon/volna.svg` (seal on a wave, canonical app icon) and `volna-mark.svg` (single-colour mark). Pair the icon with the word "Volna" in Inter 600. Never recolour the app icon.
+- Logo: `volna/volna/assets/app-icon/volna.svg` (Soft Tile: pearl seal, taller V waves and a shaded navy tile) and `volna-mark.svg` (single-colour mark with matching proportions). Docs logos and favicons reference the canonical assets directly. Pair the icon with the word "Volna" in Inter 600. Never recolour the app icon.
 
 ## Index
 

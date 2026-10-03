@@ -1,182 +1,53 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
   <title id="title">Volna</title>
-  <desc id="desc">A white seal rising out of curling blue, violet, and cyan waves on a rounded midnight-blue tile.</desc>
+  <desc id="desc">A pearl-white seal resting among tall blue V-shaped waves on a softly shaded slate-to-midnight tile with transparent corners.</desc>
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#223a87"/>
-      <stop offset=".23" stop-color="#0d173c"/>
-      <stop offset=".65" stop-color="#071331"/>
-      <stop offset="1" stop-color="#19265f"/>
+    <linearGradient id="sealShade" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FBFCFF"/>
+      <stop offset="1" stop-color="#D5E2F2"/>
     </linearGradient>
-    <radialGradient id="tileLight" cx=".97" cy=".03" r="1.05">
-      <stop stop-color="#5429d9" stop-opacity=".85"/>
-      <stop offset=".37" stop-color="#121343" stop-opacity="0"/>
-      <stop offset=".72" stop-color="#101646" stop-opacity="0"/>
-      <stop offset="1" stop-color="#4731db" stop-opacity=".6"/>
-    </radialGradient>
-    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#94b7ff"/>
-      <stop offset=".13" stop-color="#4349ff"/>
-      <stop offset=".46" stop-color="#a047ff"/>
-      <stop offset=".68" stop-color="#252ca0"/>
-      <stop offset=".86" stop-color="#7d4cff"/>
-      <stop offset="1" stop-color="#3548eb"/>
+    <linearGradient id="waveShade" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#7088E7"/>
+      <stop offset="1" stop-color="#3C62BD"/>
     </linearGradient>
-    <linearGradient id="backWave" x1=".13" y1=".2" x2=".78" y2=".82">
-      <stop stop-color="#b1fcff"/>
-      <stop offset=".21" stop-color="#478eee"/>
-      <stop offset=".47" stop-color="#183fba"/>
-      <stop offset=".68" stop-color="#4031cc"/>
-      <stop offset="1" stop-color="#0a164e"/>
+    <linearGradient id="crestShade" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#A1E7ED"/>
+      <stop offset="1" stop-color="#58B5D9"/>
     </linearGradient>
-    <linearGradient id="crest" x1=".3" y1=".9" x2=".67" y2=".04">
-      <stop stop-color="#1550c1"/>
-      <stop offset=".52" stop-color="#46bafa"/>
-      <stop offset=".85" stop-color="#a8f6fa"/>
-      <stop offset="1" stop-color="#eeffff"/>
-    </linearGradient>
-    <linearGradient id="seal" x1=".32" y1=".23" x2=".83" y2=".87">
-      <stop stop-color="#fffffb"/>
-      <stop offset=".4" stop-color="#fffdf5"/>
-      <stop offset=".69" stop-color="#f1ebee"/>
-      <stop offset=".88" stop-color="#c2c1f2"/>
-      <stop offset="1" stop-color="#9fa1eb"/>
-    </linearGradient>
-    <linearGradient id="sealSide" x1=".33" y1=".25" x2=".68" y2=".88">
-      <stop stop-color="#fffef7"/>
-      <stop offset=".32" stop-color="#eee9f3"/>
-      <stop offset=".62" stop-color="#b9bcea"/>
-      <stop offset=".86" stop-color="#9395e7"/>
-      <stop offset="1" stop-color="#9779ee"/>
-    </linearGradient>
-    <linearGradient id="belly" x1=".4" y1=".22" x2=".72" y2=".96">
-      <stop stop-color="#fffef7"/>
-      <stop offset=".54" stop-color="#faf5ef"/>
-      <stop offset="1" stop-color="#c3bdec"/>
-    </linearGradient>
-    <linearGradient id="nose" x1=".23" y1="0" x2=".63" y2=".86">
-      <stop stop-color="#f8fbff"/>
-      <stop offset=".25" stop-color="#a6b6d0"/>
-      <stop offset=".49" stop-color="#344a75"/>
-      <stop offset=".7" stop-color="#061333"/>
-      <stop offset="1" stop-color="#071735"/>
-    </linearGradient>
-    <radialGradient id="noseShine" cx=".55" cy=".25" r=".65">
-      <stop stop-color="#fff"/>
-      <stop offset=".28" stop-color="#e8ecfa" stop-opacity=".9"/>
-      <stop offset="1" stop-color="#cbd8f5" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="eye" x1=".6" y1="0" x2=".25" y2="1">
-      <stop stop-color="#030c28"/>
-      <stop offset=".68" stop-color="#07143d"/>
-      <stop offset="1" stop-color="#203275"/>
-    </linearGradient>
-    <linearGradient id="outerWave" x1=".12" y1=".27" x2=".85" y2=".82">
-      <stop stop-color="#b4f6ff"/>
-      <stop offset=".19" stop-color="#6bcefa"/>
-      <stop offset=".37" stop-color="#3855ee"/>
-      <stop offset=".58" stop-color="#2032ac"/>
-      <stop offset=".79" stop-color="#092caa"/>
-      <stop offset="1" stop-color="#5030e6"/>
-    </linearGradient>
-    <linearGradient id="lowerGlow" x1=".37" y1="1" x2=".52" y2=".44">
-      <stop stop-color="#12ccfb"/>
-      <stop offset=".28" stop-color="#285cf9" stop-opacity=".8"/>
-      <stop offset="1" stop-color="#2838c4" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="insideWave" x1=".05" y1=".1" x2=".75" y2=".85">
-      <stop stop-color="#6151fd"/>
-      <stop offset=".35" stop-color="#3e2dce"/>
-      <stop offset=".62" stop-color="#101c74"/>
-      <stop offset="1" stop-color="#052774"/>
-    </linearGradient>
-    <linearGradient id="ribbon" x1=".13" y1=".2" x2=".67" y2=".64">
-      <stop stop-color="#f3ffff"/>
-      <stop offset=".2" stop-color="#ded0ff"/>
-      <stop offset=".39" stop-color="#94adff"/>
-      <stop offset=".67" stop-color="#49ccf4"/>
-      <stop offset=".84" stop-color="#75e6fb"/>
-      <stop offset="1" stop-color="#a7faff"/>
-    </linearGradient>
-    <linearGradient id="ribbonEdge" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#fff"/>
-      <stop offset=".54" stop-color="#f7ffff"/>
-      <stop offset="1" stop-color="#46d7fa"/>
-    </linearGradient>
-    <linearGradient id="violetLip" x1=".02" y1=".23" x2=".92" y2=".9">
-      <stop stop-color="#e4fcff"/>
-      <stop offset=".25" stop-color="#c3b2ff"/>
-      <stop offset=".53" stop-color="#c5a8ff"/>
-      <stop offset=".78" stop-color="#655cf6"/>
-      <stop offset="1" stop-color="#423af1"/>
-    </linearGradient>
-    <linearGradient id="frontWave" x1=".83" y1=".07" x2=".26" y2=".97">
-      <stop stop-color="#fff3ff"/>
-      <stop offset=".17" stop-color="#a8f3fc"/>
-      <stop offset=".43" stop-color="#63cafa"/>
-      <stop offset=".67" stop-color="#3ca7f5"/>
-      <stop offset=".84" stop-color="#65e5fb"/>
-      <stop offset="1" stop-color="#13cafa"/>
-    </linearGradient>
-    <linearGradient id="spray" x1=".1" y1=".93" x2=".84" y2=".02">
-      <stop stop-color="#20caff"/>
-      <stop offset=".46" stop-color="#80ecff"/>
-      <stop offset=".78" stop-color="#d6eaff"/>
-      <stop offset="1" stop-color="#b590ff"/>
+    <linearGradient id="tileShade" x1="0" y1="0" x2="0.35" y2="1">
+      <stop stop-color="#34435F"/>
+      <stop offset="1" stop-color="#141F34"/>
     </linearGradient>
   </defs>
 
-  <!-- Rounded application tile; the canvas outside its rim is transparent. -->
-  <path id="tileShape" fill="url(#tile)" stroke="url(#rim)" stroke-width="7" d="M283 26H972C1134 26 1225 116 1225 281V973C1225 1139 1138 1216 969 1216H285C117 1216 26 1140 26 972V284C26 121 117 26 283 26Z"/>
-  <path fill="url(#tileLight)" d="M283 30H972C1131 30 1221 119 1221 281V973C1221 1136 1136 1212 969 1212H285C120 1212 30 1137 30 972V284C30 124 120 30 283 30Z"/>
+  <!-- Canonical app artwork: taller waves, a larger mascot, and an inset soft tile. -->
+  <g id="dockInset" transform="translate(62.7 62.7) scale(0.9)">
+    <path id="tile" fill="url(#tileShade)" stroke="#536580" stroke-width="3" d="M283 26H972C1134 26 1225 116 1225 281V973C1225 1139 1138 1216 969 1216H285C117 1216 26 1140 26 972V284C26 121 117 26 283 26Z"/>
+    <path id="backWave" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#526DCA" d="M237 675C184 591 241 493 352 484C451 474 530 556 610 591C695 630 783 548 875 504C959 466 1046 465 1101 499C1140 523 1163 562 1167 606C1147 543 1104 522 1059 529C958 536 897 629 844 711C804 775 794 824 737 846L592 915L342 811Z"/>
+    <path id="crest" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#9ADFE8" d="M746 580C791 540 840 518 881 501C960 469 1037 469 1094 495C1136 517 1163 558 1167 606C1155 554 1117 525 1065 528C1001 527 938 554 881 594C829 630 789 671 741 704Z"/>
+    <g id="mascot" transform="matrix(1.06 0 0 1.06 -33.6 -48)">
+      <path id="seal" fill="url(#sealShade)" d="M230 683C291 623 320 574 354 497C393 402 449 326 521 277C577 237 638 214 688 216C737 215 755 235 782 234L813 229Q821 226 819 243C843 256 852 277 850 309C850 371 831 417 806 475C791 510 787 532 785 569C782 670 737 759 670 816C642 841 614 859 589 876L353 815Z"/>
 
-  <!-- Far wave, with its crest passing behind the seal. -->
-  <path fill="url(#backWave)" d="M237 675C184 591 241 493 352 484C451 474 530 556 610 591C695 630 783 548 875 504C959 466 1046 465 1101 499C1140 523 1163 562 1167 606C1147 543 1104 522 1059 529C958 536 897 629 844 711C804 775 794 824 737 846L592 915L342 811Z"/>
-  <path fill="url(#crest)" d="M746 580C791 540 840 518 881 501C960 469 1037 469 1094 495C1136 517 1163 558 1167 606C1155 554 1117 525 1065 528C1001 527 938 554 881 594C829 630 789 671 741 704Z"/>
-  <path fill="none" stroke="#c8fcff" stroke-width="5" stroke-linecap="round" d="M791 551C872 499 949 475 1006 481C1040 481 1073 487 1096 499"/>
+      <!-- Closed eye, nose, smile, and whisker dots. -->
+      <path id="eye" fill="#23314C" d="M595 327C621 326 650 314 654 291C667 300 664 320 650 332C635 346 609 344 596 335Q590 330 595 327Z"/>
+      <path id="nose" fill="#23314C" d="M813 230C799 231 776 238 766 249C760 255 758 264 766 268L790 275Q801 280 809 272C818 263 820 252 817 244Q821 227 813 230Z"/>
+      <path id="smile" fill="#23314C" d="M806 273L810 275L809 293C823 299 832 310 837 326C830 310 819 301 808 297C794 329 773 352 742 370C774 348 792 324 805 294Z"/>
+      <g fill="#23314C">
+        <ellipse cx="718.5" cy="307" rx="3.5" ry="1.4" transform="rotate(-40 718.5 307)"/>
+        <ellipse cx="736" cy="302" rx="3.5" ry="1.7" transform="rotate(-43 736 302)"/>
+        <ellipse cx="753" cy="303" rx="3" ry="1.6" transform="rotate(-55 753 303)"/>
+        <ellipse cx="715" cy="327" rx="7" ry="1.7" transform="rotate(-41 715 327)"/>
+        <ellipse cx="739" cy="323" rx="4.5" ry="1.6" transform="rotate(-47 739 323)"/>
+        <ellipse cx="716" cy="348" rx="4" ry="1.3" transform="rotate(-48 716 348)"/>
+      </g>
+    </g>
 
-  <!-- Seal silhouette, shoulder, and softly shaded breast. -->
-  <path fill="url(#seal)" d="M230 683C291 623 320 574 354 497C393 402 449 326 521 277C577 237 638 214 688 216C737 215 755 235 782 234L813 229Q821 226 819 243C843 256 852 277 850 309C850 371 831 417 806 475C791 510 787 532 785 569C782 670 737 759 670 816C642 841 614 859 589 876L353 815Z"/>
-  <path fill="url(#sealSide)" d="M237 678C313 609 348 552 385 473C422 393 475 350 545 314C578 297 606 277 626 261C644 258 666 273 671 292C682 295 701 283 722 269C746 252 761 242 781 235C735 269 711 305 677 342C626 397 601 452 555 504C514 552 460 574 416 619C368 667 317 704 273 709Z"/>
-  <path fill="url(#belly)" d="M276 710C340 691 386 650 436 606C484 565 534 545 575 492C622 432 661 371 713 317C747 281 779 257 815 245C841 259 851 281 846 317C841 371 821 416 802 459C783 502 783 544 778 579C774 637 752 682 713 704C678 725 650 715 626 752L584 799L491 746C546 702 569 655 591 590C619 508 654 450 694 401C650 443 616 486 582 524C532 582 465 627 409 672C365 706 328 722 302 721Z"/>
-  <path fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="3" d="M353 498C393 402 449 326 521 277C577 237 638 214 688 216C737 215 755 235 782 234"/>
-
-  <!-- Closed eye and muzzle. -->
-  <path fill="#fff" fill-opacity=".85" d="M592 326C619 325 648 312 653 290C671 301 668 322 653 337C637 351 607 348 594 334Q589 329 592 326Z"/>
-  <path fill="url(#eye)" d="M595 327C621 326 650 314 654 291C667 300 664 320 650 332C635 346 609 344 596 335Q590 330 595 327Z"/>
-  <path fill="url(#nose)" stroke="#fff" stroke-width="3" stroke-linejoin="round" d="M813 230C799 231 776 238 766 249C760 255 758 264 766 268L790 275Q801 280 809 272C818 263 820 252 817 244Q821 227 813 230Z"/>
-  <path fill="url(#noseShine)" d="M769 250C781 239 802 234 812 234L812 247C803 243 798 251 790 253C782 249 775 251 768 258Z"/>
-  <ellipse cx="789" cy="264" rx="6.5" ry="3.8" fill="#01091c" transform="rotate(-12 789 264)"/>
-  <path fill="#253863" d="M806 273L810 275L809 293C823 299 832 310 837 326C830 310 819 301 808 297C794 329 773 352 742 370C774 348 792 324 805 294Z"/>
-  <g fill="#344f87">
-    <ellipse cx="718.5" cy="307" rx="3.5" ry="1.4" transform="rotate(-40 718.5 307)"/>
-    <ellipse cx="736" cy="302" rx="3.5" ry="1.7" transform="rotate(-43 736 302)"/>
-    <ellipse cx="753" cy="303" rx="3" ry="1.6" transform="rotate(-55 753 303)"/>
-    <ellipse cx="715" cy="327" rx="7" ry="1.7" transform="rotate(-41 715 327)"/>
-    <ellipse cx="739" cy="323" rx="4.5" ry="1.6" transform="rotate(-47 739 323)"/>
-    <ellipse cx="716" cy="348" rx="4" ry="1.3" transform="rotate(-48 716 348)"/>
+    <!-- Splash, circular wave, waveform ribbon, and rising foreground crest. -->
+    <path id="spray" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#9ADFE8" d="M104 634C104 584 127 536 163 509C191 488 224 477 259 477C207 503 157 555 104 634Z"/>
+    <path id="outerWave" transform="matrix(1 0 0 1.20 0 -227.6)" fill="url(#waveShade)" d="M272 510C180 558 120 651 120 744C114 871 184 971 290 1040C376 1097 447 1136 595 1138C738 1141 871 1097 963 1019C1047 948 1092 847 1081 737L1073 683L978 732L854 926L725 1077C663 1083 618 1039 584 980C552 923 531 887 477 884C437 880 400 893 359 888C277 883 206 834 178 755C143 657 171 572 272 510Z"/>
+    <path id="insideWave" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#30477F" d="M266 514C189 562 154 623 167 694C178 773 229 831 309 860C383 887 427 868 475 879C536 890 554 926 585 980C621 1043 667 1078 720 1078C785 1036 835 948 876 874L831 906C811 904 819 857 795 844C780 836 746 840 727 841C708 840 699 852 689 874L664 925Q654 943 647 921L610 832C581 763 552 734 497 728C438 719 400 735 350 731C271 731 222 694 220 634C217 584 237 541 266 514Z"/>
+    <path id="ribbon" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#D0EAF5" d="M281 503C238 523 207 552 188 591C166 638 177 685 206 724C239 770 292 797 349 800C400 803 430 783 477 792C533 802 558 843 585 894C600 923 614 958 632 982C642 996 662 997 676 981C691 962 711 908 726 883Q731 874 741 874H771Q780 874 781 882L785 918Q786 932 799 933L823 932L841 900L830 902Q819 902 816 885L811 863C808 849 798 840 783 840H732C714 840 704 845 696 860L666 923Q656 944 647 925C624 884 611 841 591 800C572 759 547 741 516 731C463 713 421 729 370 731C307 734 259 714 235 675C204 624 218 553 281 503Z"/>
+    <path id="violetLip" transform="matrix(1 0 0 1.20 0 -227.6)" fill="#A5B8EB" d="M178 577C129 626 116 699 133 767C150 837 206 895 278 923C338 947 376 936 424 924C479 907 510 927 541 962C574 1000 595 1041 642 1062C667 1074 689 1079 714 1076C661 1074 624 1035 593 980C563 926 548 891 491 882C444 874 417 889 367 887C282 885 211 839 180 762C155 699 153 642 178 577Z"/>
+    <path id="frontWave" transform="matrix(1 0 0 1.20 0 -227.6)" fill="url(#crestShade)" d="M476 1118C589 1123 666 1101 722 1056C786 1005 823 935 863 858L946 703C974 651 1006 613 1047 597C1084 583 1118 591 1135 616C1103 628 1085 658 1075 697C1057 783 1026 857 969 923C914 987 844 1036 762 1070C667 1110 567 1124 476 1118Z"/>
   </g>
-
-  <!-- Detached splash on the left. -->
-  <path fill="url(#spray)" d="M104 634C104 584 127 536 163 509C191 488 224 477 259 477C207 503 157 555 104 634Z"/>
-  <path fill="none" stroke="#c9efff" stroke-width="2" d="M105 626C110 550 169 484 250 478"/>
-
-  <!-- The broad circular wave and the dark hollow within it. -->
-  <path fill="url(#outerWave)" d="M272 510C180 558 120 651 120 744C114 871 184 971 290 1040C376 1097 447 1136 595 1138C738 1141 871 1097 963 1019C1047 948 1092 847 1081 737L1073 683L978 732L854 926L725 1077C663 1083 618 1039 584 980C552 923 531 887 477 884C437 880 400 893 359 888C277 883 206 834 178 755C143 657 171 572 272 510Z"/>
-  <path fill="url(#lowerGlow)" d="M272 510C180 558 120 651 120 744C114 871 184 971 290 1040C376 1097 447 1136 595 1138C738 1141 871 1097 963 1019C1047 948 1092 847 1081 737L1073 683L978 732L854 926L725 1077C663 1083 618 1039 584 980C552 923 531 887 477 884C437 880 400 893 359 888C277 883 206 834 178 755C143 657 171 572 272 510Z"/>
-  <path fill="url(#insideWave)" d="M266 514C189 562 154 623 167 694C178 773 229 831 309 860C383 887 427 868 475 879C536 890 554 926 585 980C621 1043 667 1078 720 1078C785 1036 835 948 876 874L831 906C811 904 819 857 795 844C780 836 746 840 727 841C708 840 699 852 689 874L664 925Q654 943 647 921L610 832C581 763 552 734 497 728C438 719 400 735 350 731C271 731 222 694 220 634C217 584 237 541 266 514Z"/>
-
-  <!-- Pale curling lip, becoming the small waveform across the foreground. -->
-  <path fill="url(#ribbon)" d="M281 503C238 523 207 552 188 591C166 638 177 685 206 724C239 770 292 797 349 800C400 803 430 783 477 792C533 802 558 843 585 894C600 923 614 958 632 982C642 996 662 997 676 981C691 962 711 908 726 883Q731 874 741 874H771Q780 874 781 882L785 918Q786 932 799 933L823 932L841 900L830 902Q819 902 816 885L811 863C808 849 798 840 783 840H732C714 840 704 845 696 860L666 923Q656 944 647 925C624 884 611 841 591 800C572 759 547 741 516 731C463 713 421 729 370 731C307 734 259 714 235 675C204 624 218 553 281 503Z"/>
-  <path fill="none" stroke="url(#ribbonEdge)" stroke-width="5" stroke-linecap="round" d="M279 505C218 550 204 622 235 675C259 714 307 734 370 731C421 729 463 713 516 731C547 741 572 759 591 800C611 841 624 884 647 925Q656 944 666 923L696 860C704 845 714 840 732 842H781"/>
-  <path fill="none" stroke="#55d9fb" stroke-opacity=".65" stroke-width="3" d="M348 799C400 802 430 782 477 791C533 801 558 842 585 893C600 922 614 957 632 981C642 995 662 996 676 980C691 961 711 907 726 882Q731 873 741 873H771Q780 873 781 881"/>
-
-  <!-- Violet inner rim sweeps into the base of the rising cyan crest. -->
-  <path fill="url(#violetLip)" d="M178 577C129 626 116 699 133 767C150 837 206 895 278 923C338 947 376 936 424 924C479 907 510 927 541 962C574 1000 595 1041 642 1062C667 1074 689 1079 714 1076C661 1074 624 1035 593 980C563 926 548 891 491 882C444 874 417 889 367 887C282 885 211 839 180 762C155 699 153 642 178 577Z"/>
-  <path fill="none" stroke="#e7d4ff" stroke-opacity=".6" stroke-width="3" d="M175 759C207 839 282 885 367 887C417 889 444 874 491 882C548 891 563 926 593 980"/>
-
-  <!-- Front crest folds over the circular wave. -->
-  <path fill="url(#frontWave)" d="M476 1118C589 1123 666 1101 722 1056C786 1005 823 935 863 858L946 703C974 651 1006 613 1047 597C1084 583 1118 591 1135 616C1103 628 1085 658 1075 697C1057 783 1026 857 969 923C914 987 844 1036 762 1070C667 1110 567 1124 476 1118Z"/>
-  <path fill="none" stroke="#d8fcff" stroke-opacity=".84" stroke-width="4" stroke-linecap="round" d="M714 1064C781 1017 823 935 863 858L946 703C974 651 1006 613 1047 597C1084 583 1118 591 1133 614"/>
-  <path fill="none" stroke="#65e3ff" stroke-opacity=".7" stroke-width="3" d="M482 1119C595 1121 678 1106 762 1070C844 1036 914 987 969 923C1026 857 1057 783 1075 697"/>
 </svg>
