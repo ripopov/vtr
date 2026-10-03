@@ -1,7 +1,7 @@
 //! The `memory.*` settings a trace is opened with, for local and remote traces.
 
 /// Total and per-object limits in MiB (defaults 512 and 256, each within
-/// `1..=MAX_MEMORY_MIB`). Hosts take them from [`crate::settings::Settings::limits`].
+/// `1..=MAX_MEMORY_MIB`). Hosts take them from their settings.
 /// A remote trace keeps the object limit it sent with its Open command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(default)]
@@ -11,6 +11,9 @@ pub struct Limits {
     #[serde(rename = "objectMiB")]
     pub object_mib: u64,
 }
+
+/// Maximum admitted total or object limit, in MiB.
+pub const MAX_MEMORY_MIB: u64 = 256 * 1024;
 
 impl Default for Limits {
     fn default() -> Self {
@@ -25,7 +28,7 @@ impl Limits {
     /// These bound admitted data, not the browser's total process RSS. A host
     /// can still run out of address space below a user-selected large limit.
     pub fn bytes(self) -> anyhow::Result<(u64, u64)> {
-        let max = crate::settings::MAX_MEMORY_MIB as u64;
+        let max = MAX_MEMORY_MIB;
         anyhow::ensure!(
             (1..=max).contains(&self.memory_mib),
             "memory budget must be between 1 and {max} MiB"

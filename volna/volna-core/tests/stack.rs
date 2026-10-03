@@ -11,12 +11,10 @@ use std::sync::Arc;
 
 use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
-use volna_core::data::history::VecHistory;
-use volna_core::data::{NumericKind, SignalHistory, SignalShape, WaveValue};
+use volna_core::data::NumericKind;
 use volna_core::geometry::{Point, Rect, point};
 use volna_core::panels::PanelId;
 use volna_core::scene::{MonoMeasure, Prim, Scene};
-use volna_core::session::{OpenSpec, Session};
 use volna_core::testing::a;
 use volna_core::trace::TraceId;
 use volna_core::wave::analog::Sample;
@@ -25,6 +23,9 @@ use volna_core::wave::stack::{self, IntegralSummary, Layer, Reading, TotalSummar
 use volna_core::wave::viewport::Viewport;
 use volna_core::wave::{GroupStyle, PointerEvent};
 use volna_core::workspace::Workspace;
+use volna_trace::data::history::VecHistory;
+use volna_trace::data::{SignalHistory, SignalShape, WaveValue};
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/stack.vtr";
 const LOCATION: &str = "file:///tmp/stack.vtr.volna.json";
@@ -796,9 +797,9 @@ fn frame(app: &mut App, id: PanelId) -> &Scene {
     app.render_panel(id, &theme, &mut MonoMeasure)
 }
 
-fn scope(app: &App, path: &[&str]) -> volna_core::data::ScopeId {
+fn scope(app: &App, path: &[&str]) -> volna_trace::data::ScopeId {
     match app.doc.hierarchy(TraceId::A).unwrap().find_scope(path) {
-        volna_core::data::source::Lookup::Found(s) => s,
+        volna_trace::data::source::Lookup::Found(s) => s,
         other => panic!("{path:?}: {other:?}"),
     }
 }
@@ -1084,7 +1085,7 @@ fn signed_members_stack_below_zero_with_a_net_line() {
         .hierarchy(TraceId::A)
         .unwrap()
         .find_var(&["other", "flow"], None);
-    let volna_core::data::source::Lookup::Found(flow) = flow else {
+    let volna_trace::data::source::Lookup::Found(flow) = flow else {
         panic!()
     };
     app.handle(Command::AddVars(vec![a(flow)]));

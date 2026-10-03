@@ -10,16 +10,16 @@ use super::layout::{MAX_PREPARED_ROWS, ROW_HEIGHT, RowViewport, TableLayout};
 use super::source::TableSource;
 use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::text::{append_exact, format_attribute, push_limited, truncate, truncate_ref};
-use crate::data::transactions::{Transaction, TransactionRef};
-use crate::data::value_view::ValueView;
-use crate::data::{SignalHistory, SignalRef};
 use crate::document::{Document, TrackLoadState};
 use crate::geometry::{MouseButton, Rect};
 use crate::nav::{Link, NavState};
-use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::theme::Theme;
 use crate::trace::Traced;
 use crate::wave::model::PointerEvent;
+use volna_trace::data::transactions::{Transaction, TransactionRef};
+use volna_trace::data::value_view::ValueView;
+use volna_trace::data::{SignalHistory, SignalRef};
+use volna_trace::remote::memory::{MemoryBudget, Reservation};
 
 pub use crate::data::text::{COPY_BYTES, PREVIEW_BYTES};
 
@@ -1428,11 +1428,11 @@ impl TableModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::history::VecHistory;
-    use crate::data::transactions::{AttributeValue, TransactionAttribute, TxKind, TxStatus};
-    use crate::data::{SignalShape, WaveValue};
     use crate::pipeline::TrackSource;
     use crate::table::SignalSource;
+    use volna_trace::data::history::VecHistory;
+    use volna_trace::data::transactions::{AttributeValue, TransactionAttribute, TxKind, TxStatus};
+    use volna_trace::data::{SignalShape, WaveValue};
 
     fn history(times: &[u64], values: &[&str]) -> Arc<dyn SignalHistory> {
         Arc::new(VecHistory {
@@ -1616,11 +1616,11 @@ mod tests {
             fn value(&self, _: Option<usize>) -> WaveValue {
                 panic!("table must not clone the complete signal value")
             }
-            fn value_view(&self, _: Option<usize>) -> crate::data::value_view::ValueView<'_> {
-                crate::data::value_view::ValueView::Text(self.value.as_str().into())
+            fn value_view(&self, _: Option<usize>) -> volna_trace::data::value_view::ValueView<'_> {
+                volna_trace::data::value_view::ValueView::Text(self.value.as_str().into())
             }
-            fn bit(&self, _: Option<usize>) -> crate::data::Bit {
-                crate::data::Bit::Other
+            fn bit(&self, _: Option<usize>) -> volna_trace::data::Bit {
+                volna_trace::data::Bit::Other
             }
         }
 
@@ -1644,7 +1644,7 @@ mod tests {
     fn transaction(id: u64, begin: u64, label: &str) -> Transaction {
         Transaction {
             id: TransactionRef(id),
-            generator: crate::data::transactions::TrackRef(7),
+            generator: volna_trace::data::transactions::TrackRef(7),
             begin,
             end: begin + 8,
             status: TxStatus::Ok,
@@ -1672,7 +1672,7 @@ mod tests {
             .collect();
         let generator = Arc::new(
             LoadedGenerator::new(
-                crate::data::transactions::TrackRef(7),
+                volna_trace::data::transactions::TrackRef(7),
                 records,
                 HashMap::new(),
                 vec![],
@@ -1683,7 +1683,7 @@ mod tests {
             TableSource::Generator(TrackSource::Resolved {
                 track: Traced::new(
                     crate::trace::TraceId::A,
-                    crate::data::transactions::TrackRef(7),
+                    volna_trace::data::transactions::TrackRef(7),
                 ),
                 path: vec!["soc".into(), "request".into()],
             }),

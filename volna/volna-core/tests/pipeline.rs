@@ -8,19 +8,20 @@ use volna_core::testing::{a, a_all};
 use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, Command, Event, PanelLayout};
-use volna_core::data::Member;
-use volna_core::data::source::Lookup;
-use volna_core::data::transactions::TrackRef;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::nav::LinkDim;
 use volna_core::panels::{Layout, PanelId, PanelsCommand};
 use volna_core::pipeline::{Hit, PipelineModel, RowView, Rows, TrackSource};
 use volna_core::scene::{MonoMeasure, Prim};
-use volna_core::session::{LoadRequest, OpenSpec, Session};
+use volna_core::session::LoadRequest;
 use volna_core::sidebar::Key;
 use volna_core::wave::PointerEvent;
 use volna_core::workspace::Workspace;
 use volna_core::{Instant, Theme};
+use volna_trace::data::Member;
+use volna_trace::data::source::Lookup;
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::session::{OpenSpec, Session};
 
 const STAGES: [&str; 3] = ["F", "D", "X"];
 
@@ -1834,8 +1835,8 @@ fn the_theme_showcase_runs_the_c910_stage_ladder_with_flushed_and_open_rows() {
 
 #[test]
 fn the_verilator_demo_counts_in_its_clock_and_feeds_the_transaction_panel() {
-    use volna_core::data::transactions::TransactionRef;
     use volna_core::transaction::TxPanelState;
+    use volna_trace::data::transactions::TransactionRef;
     // Written by integrations/verilator/pipeline/run.py --update-example: the
     // demo_core tracer's instructions and bus requests, and the tb clock.
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

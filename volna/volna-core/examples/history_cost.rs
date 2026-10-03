@@ -14,8 +14,9 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use volna_core::data::{SignalHistory, SignalShape, Translators};
-use volna_core::session::OpenSpec;
+use volna_core::data::Translators;
+use volna_trace::data::{SignalHistory, SignalShape};
+use volna_trace::session::OpenSpec;
 
 const QUERIES: usize = 2_000_000;
 const COLUMNS: u64 = 1400;

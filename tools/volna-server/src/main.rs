@@ -1,5 +1,6 @@
+mod server;
 use std::path::PathBuf;
-use volna_core::session::OpenSpec;
+use volna_trace::session::OpenSpec;
 
 fn main() {
     if let Err(error) = run() {
@@ -34,7 +35,7 @@ fn run() -> anyhow::Result<()> {
             break;
         }
     }
-    volna_core::remote::server::serve(
+    server::serve(
         std::io::stdin().lock(),
         std::io::stdout().lock(),
         u64::from_le_bytes(id),

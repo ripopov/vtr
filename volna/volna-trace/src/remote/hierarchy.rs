@@ -30,7 +30,8 @@ pub struct Header {
     pub server: String,
 }
 #[derive(Serialize)]
-pub(crate) struct HeaderView<'a> {
+/// Borrowed catalog serialization; shares recording strings and slices.
+pub struct HeaderView<'a> {
     info: &'a TraceInfo,
     capabilities: Capabilities,
     tracks: &'a [Track],
@@ -41,7 +42,8 @@ pub(crate) struct HeaderView<'a> {
     server: String,
 }
 impl Header {
-    pub(crate) fn borrowed(session: &dyn Session) -> anyhow::Result<HeaderView<'_>> {
+    /// Project resident raw metadata without copying record storage.
+    pub fn borrowed(session: &dyn Session, server: String) -> anyhow::Result<HeaderView<'_>> {
         Ok(HeaderView {
             info: session.info(),
             capabilities: session.capabilities(),
@@ -50,7 +52,7 @@ impl Header {
             scopes: session.hierarchy().scope_count().try_into()?,
             vars: session.hierarchy().var_count().try_into()?,
             activity: super::activity::Descriptor::from_session(session),
-            server: server_name(),
+            server,
         })
     }
     /// Owned catalog projection for fixtures; production serialization borrows.
@@ -63,7 +65,7 @@ impl Header {
             scopes: session.hierarchy().scope_count().try_into()?,
             vars: session.hierarchy().var_count().try_into()?,
             activity: super::activity::Descriptor::from_session(session),
-            server: server_name(),
+            server: session.activity_host().unwrap_or("remote server").into(),
         })
     }
     /// Number of required scope objects, including a partial last page.
@@ -73,17 +75,6 @@ impl Header {
     /// Number of required variable objects, including a partial last page.
     pub fn var_pages(&self) -> u32 {
         self.vars.div_ceil(PAGE_ENTRIES as u32)
-    }
-}
-
-fn server_name() -> String {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        gethostname::gethostname().to_string_lossy().into_owned()
-    }
-    #[cfg(target_family = "wasm")]
-    {
-        "remote server".into()
     }
 }
 

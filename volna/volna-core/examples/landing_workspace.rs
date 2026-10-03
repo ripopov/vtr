@@ -15,9 +15,9 @@ use std::path::PathBuf;
 
 use serde_json::{Value, json};
 use volna_core::App;
-use volna_core::data::transactions::{AttributeValue, Transaction};
-use volna_core::session::OpenSpec;
 use volna_core::workspace::Workspace;
+use volna_trace::data::transactions::{AttributeValue, Transaction};
+use volna_trace::session::OpenSpec;
 
 fn label(t: &Transaction) -> Option<&str> {
     t.attributes

@@ -12,6 +12,7 @@ name = "volna-egui"
 path = "src/main.rs"
 
 [dependencies]
+volna-trace = { path = "../volna-trace" }
 volna-core = { path = "../volna-core" }
 egui = "0.36.1"
 eframe = { version = "0.36.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }

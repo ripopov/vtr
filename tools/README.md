@@ -4,6 +4,13 @@
 inspection and conversion from FST, VCD, FTR, Kanata and OpenTelemetry JSON.
 It uses the shared trace library in `core/vtr`.
 
+[volna-server](volna-server/) is the standalone executable that serves raw
+complete recordings beside remote files. It uses
+[volna-trace](../volna/volna-trace/) for recording access and protocol objects;
+it does not depend on the viewer core or either frontend. Run its independent
+build, process/protocol tests and dependency checks with
+`python3 tools/check-volna-loading.py`.
+
 Run from the repository root:
 
 ```sh

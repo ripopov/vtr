@@ -3,7 +3,8 @@
 The headless server opens one immutable VTR or FST recording and supplies its
 complete metadata, selected signal histories, selected transaction tracks and
 activity sidecars.
-It imports no GUI toolkit. Opening and loading use the same `OpenSpec` and
+It depends on `volna-trace`, independently of the viewer core and frontends.
+Opening and loading use that library's `OpenSpec` and
 `Session` implementations as native Volna. The service adds framing, wire
 conversion, backpressure and immutable-file checks. It borrows complete track
 records during serialization; it keeps no second owned record cache.
@@ -15,7 +16,7 @@ cargo build -p volna-server --profile viewer
 target/viewer/volna-server path/to/trace.vtr
 ```
 
-Stdin and stdout carry `volna_core::remote::transport` packets. Diagnostics go
+Stdin and stdout carry `volna_trace::remote::transport` packets. Diagnostics go
 to stderr. The first command is `Open`; the response assigns a fresh nonzero
 session ID. Subsequent requests carry that ID and increasing request IDs.
 Every response packet requires an acknowledgement before the next is sent.
@@ -36,10 +37,13 @@ The packet format uses versioned framing, fixed little-endian bincode fields
 and independent checksummed LZ4 frames. The client supplies the per-object
 transfer limit at Open. This is a raw complete-object service; it has no
 viewport, presentation, search or VDB endpoints. Client memory admission and
-asynchronous object installation belong above the packet decoder.
+asynchronous object installation belong to `volna-trace`. The executable owns
+request handling in `src/server.rs`, process hosting and snapshot checks; there
+is no reusable server-library crate.
 
 ```sh
 cargo test --locked -p volna-server
+python3 tools/check-volna-loading.py
 ```
 
 Process tests compare VTR/FST signal results with local sessions, including

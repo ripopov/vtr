@@ -5,7 +5,7 @@
 use super::Value;
 
 /// Upper bound of both memory settings, in MiB (256 GiB).
-pub const MAX_MEMORY_MIB: i64 = 256 * 1024;
+pub const MAX_MEMORY_MIB: i64 = volna_trace::remote::limits::MAX_MEMORY_MIB as i64;
 
 /// The host the viewer runs on. Entries and enum members can be limited to hosts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

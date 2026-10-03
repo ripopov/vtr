@@ -3,7 +3,7 @@
 //! transaction panel and the clipboard agree on radix, escaping and the
 //! byte budget that stops a pathological value from being materialized.
 
-use super::transactions::AttributeValue;
+use volna_trace::data::transactions::AttributeValue;
 
 /// Bytes of one projected value (a table cell, one detail row).
 pub const PREVIEW_BYTES: usize = 256;

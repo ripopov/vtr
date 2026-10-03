@@ -9,15 +9,16 @@ use std::sync::Arc;
 
 use volna_core::Theme;
 use volna_core::app::{App, Command, Event};
-use volna_core::data::source::Lookup;
-use volna_core::data::{Member, VarId};
 use volna_core::geometry::Rect;
 use volna_core::panels::PanelId;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::{LoadRequest, OpenSpec};
+use volna_core::session::LoadRequest;
 use volna_core::trace::{TraceId, Traced};
 use volna_core::workspace::Workspace;
 use volna_core::workspace::persistence::{Candidate, Content, Persistence, Target};
+use volna_trace::data::source::Lookup;
+use volna_trace::data::{Member, VarId};
+use volna_trace::session::OpenSpec;
 
 /// The second trace.
 fn b() -> TraceId {
@@ -30,7 +31,7 @@ fn landing() -> PathBuf {
 
 /// Five changes of a few kinds, in picoseconds (`fixtures/fst_values.c`).
 fn values_fst() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/values.fst")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../volna-trace/tests/fixtures/values.fst")
 }
 
 fn pump(app: &mut App) {
@@ -62,7 +63,7 @@ fn var(app: &App, trace: TraceId, path: &str) -> Traced<VarId> {
 }
 
 /// The histories of the first wave panel's signal rows, by name.
-fn history(app: &App, trace: TraceId, name: &str) -> Arc<dyn volna_core::data::SignalHistory> {
+fn history(app: &App, trace: TraceId, name: &str) -> Arc<dyn volna_trace::data::SignalHistory> {
     let waves = app.panels.first_waves().and_then(|id| app.panels.waves(id));
     waves
         .unwrap()
@@ -393,21 +394,21 @@ fn a_workspace_reopens_every_trace_it_names() {
 
 /// A trace counted in cycles, with no seconds to place it by.
 struct Cycles {
-    info: volna_core::data::TraceInfo,
-    hierarchy: volna_core::data::Hierarchy,
+    info: volna_trace::data::TraceInfo,
+    hierarchy: volna_trace::data::Hierarchy,
 }
 
-impl volna_core::session::Session for Cycles {
-    fn info(&self) -> &volna_core::data::TraceInfo {
+impl volna_trace::session::Session for Cycles {
+    fn info(&self) -> &volna_trace::data::TraceInfo {
         &self.info
     }
-    fn hierarchy(&self) -> &volna_core::data::Hierarchy {
+    fn hierarchy(&self) -> &volna_trace::data::Hierarchy {
         &self.hierarchy
     }
     fn load_signal(
         &self,
-        _: volna_core::data::SignalRef,
-    ) -> anyhow::Result<Arc<dyn volna_core::data::SignalHistory>> {
+        _: volna_trace::data::SignalRef,
+    ) -> anyhow::Result<Arc<dyn volna_trace::data::SignalHistory>> {
         anyhow::bail!("no histories")
     }
 }
@@ -432,7 +433,7 @@ fn a_trace_in_cycles_does_not_join_one_in_seconds() {
         trace,
         generation,
         result: Ok(Arc::new(Cycles {
-            info: volna_core::data::TraceInfo {
+            info: volna_trace::data::TraceInfo {
                 name: "kanata.log".into(),
                 design_id: None,
                 timescale: 0,
@@ -463,11 +464,11 @@ fn landing_dram() -> PathBuf {
 }
 
 /// The value of a loaded row at `time`, as text.
-fn text_at(history: &dyn volna_core::data::SignalHistory, time: u64) -> String {
+fn text_at(history: &dyn volna_trace::data::SignalHistory, time: u64) -> String {
     match history.value(history.index_at(time)) {
-        volna_core::data::WaveValue::Text(text) => text,
-        volna_core::data::WaveValue::Bytes(bytes) => String::from_utf8(bytes).unwrap(),
-        volna_core::data::WaveValue::Bits(bits) => {
+        volna_trace::data::WaveValue::Text(text) => text,
+        volna_trace::data::WaveValue::Bytes(bytes) => String::from_utf8(bytes).unwrap(),
+        volna_trace::data::WaveValue::Bits(bits) => {
             u64::from_str_radix(&bits, 2).map_or(bits, |v| format!("{v:#x}"))
         }
         other => format!("{other:?}"),
@@ -514,7 +515,7 @@ fn the_landing_cpu_and_dram_traces_line_up_on_one_timeline() {
             .iter()
             .find(|a| a.key == "address")
             .map(|a| match a.value {
-                volna_core::data::transactions::AttributeValue::U64(v) => v,
+                volna_trace::data::transactions::AttributeValue::U64(v) => v,
                 ref other => panic!("{other:?}"),
             })
             .unwrap();
@@ -646,8 +647,9 @@ fn saved_times_follow_the_unit_of_the_traces_open_now() {
 #[test]
 fn open_workspace_flushes_the_old_one_before_changing_traces() {
     let dir = tempfile::tempdir().unwrap();
-    let cpu = copy_to(dir.path(), "cpu.vtr");
-    let (x, y) = (dir.path().join("x.fst"), dir.path().join("y.fst"));
+    let directory = dir.path().canonicalize().unwrap();
+    let cpu = copy_to(&directory, "cpu.vtr");
+    let (x, y) = (directory.join("x.fst"), directory.join("y.fst"));
     std::fs::copy(values_fst(), &x).unwrap();
     std::fs::copy(values_fst(), &y).unwrap();
     let mut app = reopen(&cpu, Content::Missing);
@@ -670,7 +672,7 @@ fn open_workspace_flushes_the_old_one_before_changing_traces() {
     w2["traces"][1]["path"] = "y.fst".into();
     app.handle(Command::AddVars(vec![var(&app, TraceId::A, "soc.cpu0.pc")]));
     let w2_target = Target::File {
-        uri: url::Url::from_file_path(dir.path().join("w2.volna.json"))
+        uri: url::Url::from_file_path(directory.join("w2.volna.json"))
             .unwrap()
             .to_string(),
     };

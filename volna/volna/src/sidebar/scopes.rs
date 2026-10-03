@@ -10,6 +10,7 @@ use gpui_kit::{
     div, px, uniform_list,
 };
 use volna_core::app::Command;
+use volna_core::data::sizes::ScopeSizeLabel;
 use volna_core::sidebar::icons::{scope_icon, stream_tag};
 use volna_core::sidebar::{Key, ScopeTreeModel, TreeNode};
 use volna_core::trace::Traced;

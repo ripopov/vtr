@@ -6,7 +6,8 @@ remain planned work.
 
 | Package | Responsibility |
 |---|---|
-| [volna-core](volna-core/) | Toolkit-independent document state, sessions, interaction and drawing |
+| [volna-trace](volna-trace/) | Standalone recording readers, immutable trace objects, loading and raw remote client/protocol |
+| [volna-core](volna-core/) | Toolkit-independent document state, viewer loading demand, analysis, interaction and drawing |
 | [volna](volna/README.md) | Main GPUI frontend for native, web and VS Code; web and extension assets live with this adapter |
 | [volna-egui](volna-egui/README.md) | Minimal native frontend used to verify toolkit independence |
 
@@ -15,6 +16,7 @@ Run from the repository root with Rust 1.96+ and the relevant platform SDK:
 ```sh
 cargo run -p volna --profile viewer -- volna/volna/examples/picorv32.vtr
 cargo test -p volna-core
+python3 tools/check-volna-loading.py
 volna/volna/check.sh
 volna/volna/web/build.sh
 ```

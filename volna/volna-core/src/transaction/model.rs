@@ -9,13 +9,13 @@ use web_time::Instant;
 
 use super::view::{SectionKey, TxView, VIEW_BYTES, ViewPrefs};
 use crate::data::text::{COPY_BYTES, Radix};
-use crate::data::transactions::{TrackRef, TransactionRef};
 use crate::document::{Document, TrackLoadState, TxSelection};
 use crate::history::{Before, Edit, History, MergeKey};
 use crate::pipeline::TrackSource;
-use crate::remote::memory::{MemoryBudget, Reservation};
 use crate::trace::Traced;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::transactions::{TrackRef, TransactionRef};
+use volna_trace::remote::memory::{MemoryBudget, Reservation};
 
 /// Bytes a Transaction panel admits: one prepared view.
 pub const PANEL_BYTES: u64 = VIEW_BYTES as u64;

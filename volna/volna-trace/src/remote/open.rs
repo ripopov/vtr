@@ -8,7 +8,6 @@ use super::metadata::{MetadataDecoder, MetadataStep, ValidatedMetadata};
 use super::session::RemoteSession;
 use super::transport::{Body, Command, ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::session::{LoadResult, Session};
-use crate::trace::TraceId;
 use std::sync::Arc;
 
 enum Decoding {
@@ -26,9 +25,9 @@ enum Decoded {
 }
 
 /// Drives a bounded Open response and acknowledges only consumed chunks.
-pub struct OpenTransfer {
+pub struct OpenTransfer<Tag = u64> {
     request: u64,
-    trace: TraceId,
+    tag: Tag,
     generation: u64,
     limit: u64,
     budget: MemoryBudget,
@@ -43,10 +42,10 @@ pub struct OpenTransfer {
     next_scope: u32,
     next_var: u32,
 }
-impl OpenTransfer {
+impl<Tag: Copy> OpenTransfer<Tag> {
     pub fn new(
         request: u64,
-        trace: TraceId,
+        tag: Tag,
         generation: u64,
         limit: u64,
         budget: MemoryBudget,
@@ -54,7 +53,7 @@ impl OpenTransfer {
         anyhow::ensure!(request != 0, "invalid Open request identity");
         Ok(Self {
             request,
-            trace,
+            tag,
             generation,
             limit,
             budget,
@@ -80,11 +79,11 @@ impl OpenTransfer {
             }),
         }
     }
-    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.accept_inner(packet);
         self.poison_on_error(result)
     }
-    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(!self.failed && !self.finished, "Open transfer finished");
         anyhow::ensure!(
             self.pending_ack.is_none(),
@@ -216,7 +215,7 @@ impl OpenTransfer {
                 return Ok(ClientStep::Complete {
                     ack,
                     result: LoadResult::Opened {
-                        trace: self.trace,
+                        tag: self.tag,
                         generation: self.generation,
                         result: Err(anyhow::anyhow!(message)),
                     },
@@ -225,11 +224,11 @@ impl OpenTransfer {
         }
         Ok(ClientStep::Ack(ack))
     }
-    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
+    pub fn step(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.step_inner();
         self.poison_on_error(result)
     }
-    fn step_inner(&mut self) -> anyhow::Result<ClientStep> {
+    fn step_inner(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(
             !self.failed && self.pending_ack.is_some(),
             "no pending Open decode"
@@ -271,7 +270,7 @@ impl OpenTransfer {
                     return Ok(ClientStep::Complete {
                         ack: self.pending_ack.take().unwrap(),
                         result: LoadResult::Opened {
-                            trace: self.trace,
+                            tag: self.tag,
                             generation: self.generation,
                             result: Ok(Arc::new(session) as Arc<dyn Session>),
                         },

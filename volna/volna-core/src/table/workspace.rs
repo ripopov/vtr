@@ -5,7 +5,6 @@ use super::{
     SignalSource, TableModel, TableSource,
     columns::{ColumnSet, TransactionColumn},
 };
-use crate::data::source::Lookup;
 use crate::panels::{Panel, PanelId, PanelKind, workspace::RestoreContext};
 use crate::pipeline::TrackSource;
 use crate::trace::{TraceId, Traced};
@@ -13,6 +12,7 @@ use crate::wave::model::Link;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use volna_trace::data::source::Lookup;
 
 pub(crate) const VERSION: u32 = 2;
 
@@ -114,7 +114,7 @@ pub(crate) fn restore(raw: &RawValue, ctx: &mut RestoreContext<'_>) -> Result<Pa
                 Lookup::Found(generator) => {
                     let h = ctx.traces.hierarchy(trace).expect("found in it");
                     TableSource::Generator(TrackSource::Resolved {
-                        track: Traced::new(trace, h.generators[generator].track),
+                        track: Traced::new(trace, h.generators()[generator].track),
                         path,
                     })
                 }

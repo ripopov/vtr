@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
-use crate::data::value_view::ValueView;
-use crate::data::{Bit, SignalHistory, SignalShape};
 use crate::wave::viewport::Viewport;
+use volna_trace::data::value_view::ValueView;
+use volna_trace::data::{Bit, SignalHistory, SignalShape};
 
 /// A view with at most this many member changes is walked directly; a
 /// folded group with more changes in total gets a [`GroupSummary`].
@@ -119,7 +119,7 @@ pub struct GroupSummary {
     start: u64,
     shift: u32,
     levels: Vec<SummaryLevel>,
-    reservation: Option<crate::remote::memory::Reservation>,
+    reservation: Option<volna_trace::remote::memory::Reservation>,
 }
 
 struct SummaryLevel {
@@ -212,7 +212,10 @@ impl GroupSummary {
     }
 
     /// Charge the summary to a memory budget for as long as it lives.
-    pub fn account(mut self, budget: &crate::remote::memory::MemoryBudget) -> anyhow::Result<Self> {
+    pub fn account(
+        mut self,
+        budget: &volna_trace::remote::memory::MemoryBudget,
+    ) -> anyhow::Result<Self> {
         self.reservation = Some(budget.reserve_object("the group summary", self.resident_bytes())?);
         Ok(self)
     }
@@ -322,8 +325,8 @@ impl Reading {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::WaveValue;
-    use crate::data::history::VecHistory;
+    use volna_trace::data::WaveValue;
+    use volna_trace::data::history::VecHistory;
 
     fn changes(shape: SignalShape, at: &[(u64, &str)]) -> Arc<dyn SignalHistory> {
         Arc::new(VecHistory {

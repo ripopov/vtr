@@ -23,10 +23,11 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
-use crate::data::value_view::ValueView;
-use crate::data::{Bit, NumericKind, SignalHistory, SignalShape, Translator};
+use crate::data::{NumericKind, Translator};
 use crate::wave::analog::{self, EXACT_RATIO, Sample};
 use crate::wave::viewport::Viewport;
+use volna_trace::data::value_view::ValueView;
+use volna_trace::data::{Bit, SignalHistory, SignalShape};
 
 /// Layers that change at most this often in total get their whole-trace
 /// scale from a walk on the UI thread; longer ones build it on the load
@@ -479,7 +480,7 @@ pub struct IntegralSummary {
     integral: Vec<f64>,
     /// `undefined[m]`: how many of those spans are undefined and last.
     undefined: Vec<u32>,
-    reservation: Option<crate::remote::memory::Reservation>,
+    reservation: Option<volna_trace::remote::memory::Reservation>,
 }
 
 impl std::fmt::Debug for IntegralSummary {
@@ -529,7 +530,10 @@ impl IntegralSummary {
     }
 
     /// Charge the summary to a memory budget for as long as it lives.
-    pub fn account(mut self, budget: &crate::remote::memory::MemoryBudget) -> anyhow::Result<Self> {
+    pub fn account(
+        mut self,
+        budget: &volna_trace::remote::memory::MemoryBudget,
+    ) -> anyhow::Result<Self> {
         self.reservation =
             Some(budget.reserve_object("the integral summary", self.resident_bytes())?);
         Ok(self)
@@ -968,7 +972,7 @@ pub struct TotalSummary {
     /// `levels[0]` has one extent per block of `1 << shift` ticks from
     /// `start`; each level above merges [`TOTAL_FANOUT`] of the one below.
     levels: Vec<Vec<Peak>>,
-    reservation: Option<crate::remote::memory::Reservation>,
+    reservation: Option<volna_trace::remote::memory::Reservation>,
 }
 
 impl TotalSummary {
@@ -1072,7 +1076,10 @@ impl TotalSummary {
     }
 
     /// Charge the summary to a memory budget for as long as it lives.
-    pub fn account(mut self, budget: &crate::remote::memory::MemoryBudget) -> anyhow::Result<Self> {
+    pub fn account(
+        mut self,
+        budget: &volna_trace::remote::memory::MemoryBudget,
+    ) -> anyhow::Result<Self> {
         self.reservation = Some(budget.reserve_object("the stack total", self.resident_bytes())?);
         Ok(self)
     }

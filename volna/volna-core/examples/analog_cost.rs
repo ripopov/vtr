@@ -13,10 +13,10 @@ use std::time::Instant;
 use volna_core::app::{App, Command};
 use volna_core::geometry::Rect;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::OpenSpec;
 use volna_core::wave::analog::{AnalogDraw, AnalogRange};
 use volna_core::wave::viewport::Viewport;
 use volna_core::{Action, Theme};
+use volna_trace::session::OpenSpec;
 
 fn write_trace(path: &std::path::Path, n: u64, states: u8) -> anyhow::Result<()> {
     let mut w = vtr::Writer::create(path)?;

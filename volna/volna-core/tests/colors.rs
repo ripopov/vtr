@@ -9,11 +9,11 @@ use volna_core::app::{Action, App, Command};
 use volna_core::geometry::{Point, Rect};
 use volna_core::panels::PanelId;
 use volna_core::scene::{MonoMeasure, Prim, Scene};
-use volna_core::session::{OpenSpec, Session};
 use volna_core::testing::a_all;
 use volna_core::wave::model::{MenuAction, WaveModel};
 use volna_core::wave::{MenuEntry, Tint};
 use volna_core::workspace::Workspace;
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/colors.vtr";
 const LOCATION: &str = "file:///tmp/colors.vtr.volna.json";

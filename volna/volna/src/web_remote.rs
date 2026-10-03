@@ -1,9 +1,11 @@
-//! Browser transport hosting. Decode, batching and memory admission live in core.
+//! Browser transport hosting. Raw decode/admission live in volna-trace; viewer demand lives in core.
 use crate::Workspace;
 use gpui_kit::Context;
 use std::cell::Cell;
-use volna_core::remote::{ClientStep, client::RemoteClient, memory::MemoryBudget, transport};
-use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
+use volna_core::remote::{ClientStep, client::RemoteClient};
+use volna_core::session::{LoadRequest, LoadResult};
+use volna_trace::remote::{memory::MemoryBudget, transport};
+use volna_trace::session::OpenSpec;
 use wasm_bindgen::{JsCast, JsValue};
 
 thread_local! { static NEXT: Cell<u64> = const { Cell::new(0) }; }

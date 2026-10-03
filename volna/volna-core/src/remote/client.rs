@@ -1,573 +1,355 @@
-//! One remote connection's complete-object queue. The host sends returned
-//! commands, drives bounded steps, and delivers results to the ordinary App.
-
+//! Viewer demand and analysis coordination over the standalone trace client.
 use super::ClientStep;
-use super::activity::ActivityTransfer;
-use super::memory::MemoryBudget;
-use super::open::OpenTransfer;
-use super::signals::SignalTransfer;
-use super::track_transfer::TrackTransfer;
-use super::transport::{Body, Command, MAX_BATCH, Packet};
 use crate::session::{LoadRequest, LoadResult};
 use crate::trace::TraceId;
-use std::collections::VecDeque;
+use std::sync::Arc;
+use volna_trace::remote::memory::MemoryBudget;
+use volna_trace::remote::transport::Packet;
+use volna_trace::remote::{ClientStep as RawStep, client::RemoteClient as TraceClient};
+use volna_trace::session::{LoadRequest as RawRequest, LoadResult as RawResult};
 
-struct Queued {
-    job: LoadRequest,
-    reservation: Option<super::memory::Reservation>,
+struct Preparation {
+    ack: Packet,
+    credits: Arc<std::sync::atomic::AtomicUsize>,
+    work: std::pin::Pin<Box<dyn std::future::Future<Output = LoadResult> + Send>>,
+    trace: TraceId,
+    generation: u64,
+    request_id: u64,
+    track: volna_trace::data::transactions::TrackRef,
 }
-impl Queued {
-    fn new(job: LoadRequest) -> Self {
-        Self {
-            job,
-            reservation: None,
-        }
-    }
-}
-
-enum Active {
-    Open {
-        trace: TraceId,
-        generation: u64,
-        transfer: OpenTransfer,
-    },
-    Signals {
-        job: LoadRequest,
-        transfer: SignalTransfer,
-    },
-    Track {
-        job: LoadRequest,
-        transfer: TrackTransfer,
-    },
-    Activity {
-        transfer: ActivityTransfer,
-    },
-    Resolve {
-        job: LoadRequest,
-        transfer: Option<SignalTransfer>,
-        next: usize,
-        changed: Vec<crate::data::SignalRef>,
-        error: Option<String>,
-        _reservation: super::memory::Reservation,
-    },
-}
-
-/// Queues Open, signal and track loads for one connection and runs one
-/// command at a time; signal requests are deduplicated and split into
-/// [`MAX_BATCH`] batches. Hosts send each [`ClientStep`] acknowledgement and
-/// deliver its result before [`take_command`](Self::take_command).
-pub struct RemoteClient {
-    session: Option<u64>,
-    request: u64,
-    limit: u64,
+struct Resolution {
+    trace: TraceId,
+    generation: u64,
+    window: (u64, u64),
+    counter: Arc<crate::data::ActivityCounter>,
+    counts: Arc<crate::data::ActivityCounts>,
     budget: MemoryBudget,
-    active: Option<Active>,
-    queued: VecDeque<Queued>,
-    opening: Option<Packet>,
-    connected: bool,
 }
-
+/// Adapts viewer requests and demand to raw loading; transport and decoding belong to `volna-trace`.
+pub struct RemoteClient {
+    inner: TraceClient<TraceId>,
+    resolutions: Vec<Resolution>,
+    preparing: Option<Preparation>,
+}
 impl RemoteClient {
-    /// A connection that opens the recording of trace `trace`.
     pub fn new(
         trace: TraceId,
         generation: u64,
         limit: u64,
         budget: MemoryBudget,
     ) -> anyhow::Result<Self> {
-        let request = 1;
-        let transfer = OpenTransfer::new(request, trace, generation, limit, budget.clone())?;
-        let opening = Some(transfer.command());
         Ok(Self {
-            session: None,
-            request,
-            limit,
-            budget,
-            active: Some(Active::Open {
-                trace,
-                generation,
-                transfer,
-            }),
-            queued: VecDeque::new(),
-            opening,
-            connected: true,
+            inner: TraceClient::new(trace, generation, limit, budget)?,
+            resolutions: Vec::new(),
+            preparing: None,
         })
     }
-
-    /// The server's identity for the open recording, once it is open.
     pub fn session(&self) -> Option<u64> {
-        self.session
+        self.inner.session()
     }
-
-    /// Submit the same work item used by the local executor. Rejected work
-    /// returns a normal completion for the document to deliver.
-    pub fn submit(&mut self, request: LoadRequest) -> Result<(), LoadResult> {
-        if !self.connected || self.session.is_none() || self.session != request.remote_id() {
-            return Err(request.fail(anyhow::anyhow!(
-                "remote connection is closed or belongs to another recording"
-            )));
-        }
-        match request {
+    pub fn submit(&mut self, job: LoadRequest) -> Result<(), LoadResult> {
+        let raw = match job {
             LoadRequest::Signals {
                 trace,
                 generation,
-                signals,
                 session,
-            } => {
-                let mut unique = std::collections::HashSet::new();
-                let signals: Vec<_> = signals
-                    .into_iter()
-                    .filter(|id| unique.insert(*id))
-                    .collect();
-                for ids in signals.chunks(MAX_BATCH) {
-                    self.queued.push_back(Queued::new(LoadRequest::Signals {
-                        trace,
-                        generation,
-                        session: session.clone(),
-                        signals: ids.to_vec(),
-                    }));
-                }
-            }
-            request @ LoadRequest::ResolveActivity { .. } => {
-                let LoadRequest::ResolveActivity { counts, budget, .. } = &request else {
-                    unreachable!()
-                };
-                if counts.undecided.is_empty() {
-                    return Err(request.fail(anyhow::anyhow!("no undecided activity signals")));
-                }
-                let reservation = match budget.reserve(
-                    (counts.undecided.len() * std::mem::size_of::<crate::data::SignalRef>()) as u64,
-                ) {
-                    Ok(reservation) => reservation,
-                    Err(error) => return Err(request.fail(error)),
-                };
-                self.queued.push_back(Queued {
-                    job: request,
-                    reservation: Some(reservation),
-                });
-            }
-            request @ (LoadRequest::Track { .. } | LoadRequest::BuildActivity { .. }) => {
-                self.queued.push_back(Queued::new(request))
-            }
-            LoadRequest::Open { .. }
-            | LoadRequest::Sizes { .. }
-            | LoadRequest::ActivityCounter { .. }
-            | LoadRequest::Activity { .. }
-            | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. }
-            | LoadRequest::Integral { .. }
-            | LoadRequest::StackTotal { .. } => {
-                unreachable!("open requests have no remote identity")
-            }
-        }
-        Ok(())
-    }
-
-    /// Call after sending the preceding step's ACK and delivering its result.
-    /// At most one command is active, regardless of how many loads are queued.
-    pub fn take_command(&mut self) -> anyhow::Result<Option<Packet>> {
-        if let Some(open) = self.opening.take() {
-            return Ok(Some(open));
-        }
-        if !self.connected {
-            return Ok(None);
-        }
-        if self.active.is_none()
-            && matches!(
-                self.queued.front().map(|q| &q.job),
-                Some(LoadRequest::ResolveActivity { .. })
-            )
-        {
-            let queued = self.queued.pop_front().unwrap();
-            let job = queued.job;
-            let LoadRequest::ResolveActivity { counts, .. } = &job else {
-                unreachable!()
-            };
-            let reservation = queued.reservation.expect("admitted activity read");
-            let changed = Vec::with_capacity(counts.undecided.len());
-            self.active = Some(Active::Resolve {
-                job,
-                transfer: None,
-                next: 0,
-                changed,
-                error: None,
-                _reservation: reservation,
-            });
-        }
-        if let Some(Active::Resolve {
-            job,
-            transfer: transfer @ None,
-            next,
-            ..
-        }) = &mut self.active
-        {
-            let LoadRequest::ResolveActivity {
+                signals,
+            } => RawRequest::Signals {
+                tag: trace,
+                generation,
+                session,
+                signals,
+            },
+            LoadRequest::Track {
                 trace,
                 generation,
+                request_id,
+                session,
+                track,
+            } => RawRequest::Track {
+                tag: trace,
+                generation,
+                request_id,
+                session,
+                track,
+            },
+            LoadRequest::BuildActivity {
+                trace,
+                generation,
+                session,
+                options,
+                cache_dir,
+                budget,
+            } => RawRequest::BuildActivity {
+                tag: trace,
+                generation,
+                session,
+                options,
+                cache_dir,
+                budget,
+            },
+            LoadRequest::ResolveActivity {
+                trace,
+                generation,
+                session,
+                counter,
                 counts,
-                ..
-            } = job
-            else {
-                unreachable!()
-            };
-            self.request = self
-                .request
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("request identity exhausted"))?;
-            let end = (*next + MAX_BATCH).min(counts.undecided.len());
-            let ids = &counts.undecided[*next..end];
-            let session = self
-                .session
-                .ok_or_else(|| anyhow::anyhow!("recording is not open"))?;
-            *transfer = Some(SignalTransfer::new(
-                session,
-                self.request,
-                *trace,
-                *generation,
-                ids,
-                self.limit,
-                self.budget.clone(),
-            )?);
-            *next = end;
-            return Ok(Some(Packet {
-                session,
-                request: self.request,
-                sequence: 0,
-                body: Body::Command(Command::Signals(ids.iter().map(|id| id.0).collect())),
-            }));
-        }
-        if self.active.is_some() {
-            return Ok(None);
-        }
-        let Some(job) = self.queued.front().map(|q| &q.job) else {
-            return Ok(None);
-        };
-        self.request = self
-            .request
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("request identity exhausted"))?;
-        let session = self
-            .session
-            .ok_or_else(|| anyhow::anyhow!("recording is not open"))?;
-        let command = match job {
-            LoadRequest::Signals {
-                trace,
-                generation,
-                signals,
-                ..
+                budget,
             } => {
-                let transfer = SignalTransfer::new(
+                let signals = counts.undecided.clone();
+                let window = counts.window;
+                self.resolutions.push(Resolution {
+                    trace,
+                    generation,
+                    window,
+                    counter,
+                    counts,
+                    budget: budget.clone(),
+                });
+                RawRequest::ResolveActivity {
+                    tag: trace,
+                    generation,
                     session,
-                    self.request,
-                    *trace,
-                    *generation,
                     signals,
-                    self.limit,
-                    self.budget.clone(),
-                )?;
-                let command = Command::Signals(signals.iter().map(|id| id.0).collect());
-                self.active = Some(Active::Signals {
-                    job: self.queued.pop_front().unwrap().job,
-                    transfer,
-                });
-                command
+                    window,
+                    budget,
+                }
             }
-            LoadRequest::Track {
-                trace,
-                generation,
-                request_id,
-                session,
-                track,
-            } => {
-                let transfer = TrackTransfer::new(
-                    self.request,
-                    *trace,
-                    *generation,
-                    *request_id,
-                    session.clone(),
-                    *track,
-                    self.limit,
-                    self.budget.clone(),
-                )?;
-                let command = Command::Track(track.0);
-                self.active = Some(Active::Track {
-                    job: self.queued.pop_front().unwrap().job,
-                    transfer,
-                });
-                command
-            }
-            LoadRequest::BuildActivity { .. } => {
-                let transfer = ActivityTransfer::new(
-                    self.request,
-                    self.queued.pop_front().unwrap().job,
-                    self.limit,
-                    self.budget.clone(),
-                )?;
-                let command = transfer.command();
-                self.active = Some(Active::Activity { transfer });
-                command
-            }
-            LoadRequest::Open { .. }
-            | LoadRequest::Sizes { .. }
-            | LoadRequest::ActivityCounter { .. }
-            | LoadRequest::Activity { .. }
-            | LoadRequest::ResolveActivity { .. }
-            | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. }
-            | LoadRequest::Integral { .. }
-            | LoadRequest::StackTotal { .. } => {
-                unreachable!("only object loads are queued")
+            job => {
+                return Err(job.fail(anyhow::anyhow!(
+                    "viewer analysis is not remote loading work"
+                )));
             }
         };
-        let packet = Packet {
-            session,
-            request: self.request,
-            sequence: 0,
-            body: Body::Command(command),
-        };
-        Ok(Some(packet))
-    }
-
-    /// Discard queued viewer work whose last consumer has gone away. Active
-    /// responses keep their normal acknowledgement/completion lifecycle.
-    pub fn sync_demand(&mut self, app: &mut crate::app::App) {
-        if self.queued.is_empty() {
-            return;
+        match self.inner.submit(raw) {
+            Ok(()) => Ok(()),
+            Err(result) => Err(self.result(result)),
         }
+    }
+    pub fn take_command(&mut self) -> anyhow::Result<Option<Packet>> {
+        if self.preparing.is_some() {
+            Ok(None)
+        } else {
+            self.inner.take_command()
+        }
+    }
+    pub fn sync_demand(&mut self, app: &mut crate::app::App) {
         let wanted = app.signal_demand();
-        self.queued.retain_mut(|queued| match &mut queued.job {
-            LoadRequest::Signals {
-                trace,
+        self.inner.retain_queued(|job| match job {
+            RawRequest::Signals {
+                tag,
                 generation,
                 signals,
                 ..
             } => app
                 .doc
-                .retain_queued_signals(*trace, *generation, signals, &wanted),
-            LoadRequest::Track {
-                trace,
+                .retain_queued_signals(*tag, *generation, signals, &wanted),
+            RawRequest::Track {
+                tag,
                 generation,
                 request_id,
                 track,
                 ..
             } => app
                 .doc
-                .wants_track_request(*trace, *generation, *request_id, *track),
-            LoadRequest::BuildActivity { .. } | LoadRequest::ResolveActivity { .. } => true,
-            LoadRequest::Open { .. }
-            | LoadRequest::Sizes { .. }
-            | LoadRequest::ActivityCounter { .. }
-            | LoadRequest::Activity { .. }
-            | LoadRequest::Summary { .. }
-            | LoadRequest::GroupSummary { .. }
-            | LoadRequest::Integral { .. }
-            | LoadRequest::StackTotal { .. } => {
-                unreachable!("only object loads are queued")
-            }
+                .wants_track_request(*tag, *generation, *request_id, *track),
+            RawRequest::BuildActivity { .. } | RawRequest::ResolveActivity { .. } => true,
         });
     }
-
     pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
-        let step = match self
-            .active
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("unsolicited remote response"))?
-        {
-            Active::Open { transfer, .. } => transfer.accept(packet)?,
-            Active::Signals { transfer, .. } => transfer.accept(packet)?,
-            Active::Track { transfer, .. } => transfer.accept(packet)?,
-            Active::Activity { transfer } => transfer.accept(packet)?,
-            Active::Resolve { transfer, .. } => transfer
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("no active activity read"))?
-                .accept(packet)?,
-        };
-        self.accept_step(step)
-    }
-
-    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
-        let step = match self
-            .active
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("no active remote decoder"))?
-        {
-            Active::Open { transfer, .. } => transfer.step()?,
-            Active::Signals { transfer, .. } => transfer.step()?,
-            Active::Track { transfer, .. } => transfer.step()?,
-            Active::Activity { transfer } => transfer.step()?,
-            Active::Resolve { transfer, .. } => transfer
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("no active activity read"))?
-                .step()?,
-        };
-        self.accept_step(step)
-    }
-
-    fn accept_step(&mut self, step: ClientStep) -> anyhow::Result<ClientStep> {
-        let step = if let (
-            Some(Active::Resolve {
-                job,
-                transfer,
-                next,
-                changed,
-                error,
-                ..
-            }),
-            ClientStep::Complete {
-                ack,
-                result: LoadResult::Signals { results, .. },
-            },
-        ) = (self.active.as_mut(), &step)
-        {
-            let LoadRequest::ResolveActivity {
-                trace,
-                generation,
-                counts,
-                counter,
-                budget,
-                session,
-                ..
-            } = job
-            else {
-                unreachable!()
-            };
-            for (id, result) in results {
-                match result {
-                    Ok(history) => {
-                        if counts.window.0 <= counts.window.1
-                            && history.index_at(counts.window.1).is_some_and(|i| {
-                                history.time(i) >= counts.window.0
-                                    && history.time(i) != session.info().time_range.0
-                            })
-                        {
-                            changed.push(*id);
-                        }
-                    }
-                    Err(e) => *error = Some(format!("{e:#}")),
-                }
-            }
-            let finished = transfer.as_ref().is_some_and(|t| t.is_complete());
-            if finished {
-                transfer.take().unwrap().finish()?;
-                if *next == counts.undecided.len() || error.is_some() {
-                    let result = if let Some(message) = error.take() {
-                        Err(anyhow::anyhow!(message))
-                    } else {
-                        counts
-                            .resolved(counter, changed)
-                            .account(budget)
-                            .map(std::sync::Arc::new)
-                    };
-                    let result = LoadResult::ActivityResolved {
-                        trace: *trace,
-                        generation: *generation,
-                        window: counts.window,
-                        result,
-                    };
-                    self.active = None;
-                    return Ok(ClientStep::Complete {
-                        ack: ack.clone(),
-                        result,
-                    });
-                }
-            }
-            ClientStep::Ack(ack.clone())
-        } else {
-            step
-        };
-        if let ClientStep::Complete { result, .. } = &step {
-            match result {
-                LoadResult::Opened { result, .. } => {
-                    self.session = result.as_ref().ok().and_then(|s| s.remote_id());
-                    if self.session.is_none() {
-                        self.connected = false;
-                    }
-                }
-                LoadResult::Signals { results, .. } => {
-                    if let Some(Active::Signals {
-                        job: LoadRequest::Signals { signals, .. },
-                        ..
-                    }) = self.active.as_mut()
-                    {
-                        signals.retain(|id| !results.iter().any(|(done, _)| id == done));
-                    }
-                }
-                LoadResult::Track { .. }
-                | LoadResult::ActivityBuilt { .. }
-                | LoadResult::Sizes { .. }
-                | LoadResult::ActivityCounter { .. }
-                | LoadResult::Activity { .. }
-                | LoadResult::ActivityResolved { .. }
-                | LoadResult::Summary { .. }
-                | LoadResult::GroupSummary { .. }
-                | LoadResult::Integral { .. }
-                | LoadResult::StackTotal { .. } => {}
-            }
-        }
-        let complete = match self.active.as_ref() {
-            Some(Active::Open { transfer, .. }) => transfer.is_complete(),
-            Some(Active::Signals { transfer, .. }) => transfer.is_complete(),
-            Some(Active::Track { transfer, .. }) => transfer.is_complete(),
-            Some(Active::Activity { transfer }) => transfer.is_complete(),
-            Some(Active::Resolve { .. }) => false,
-            None => false,
-        };
-        if complete {
-            match self.active.take().unwrap() {
-                Active::Open { transfer, .. } => transfer.finish()?,
-                Active::Signals { transfer, .. } => transfer.finish()?,
-                Active::Track { transfer, .. } => transfer.finish()?,
-                Active::Activity { transfer } => transfer.finish()?,
-                Active::Resolve { .. } => unreachable!(),
-            }
-        }
-        Ok(step)
-    }
-
-    /// Fail unfinished loads on transport/decode failure. Previously delivered
-    /// objects remain with their consumers and work without this connection.
-    pub fn disconnect(&mut self, message: &str) -> Vec<LoadResult> {
-        self.connected = false;
-        self.opening = None;
-        let mut results = Vec::new();
-        match self.active.take() {
-            Some(Active::Open {
-                trace, generation, ..
-            }) => results.push(LoadResult::Opened {
-                trace,
-                generation,
-                result: Err(anyhow::anyhow!(message.to_owned())),
-            }),
-            Some(Active::Activity { transfer }) => results.push(transfer.fail(message)),
-            Some(
-                Active::Signals { job, .. }
-                | Active::Track { job, .. }
-                | Active::Resolve { job, .. },
-            ) => self.queued.push_front(Queued::new(job)),
-            None => {}
-        }
-        results.extend(
-            self.queued
-                .drain(..)
-                .map(|queued| queued.job.fail(anyhow::anyhow!(message.to_owned()))),
+        anyhow::ensure!(
+            self.preparing.is_none(),
+            "response before viewer preparation finished"
         );
+        let step = self.inner.accept(packet)?;
+        Ok(self.convert(step))
+    }
+    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
+        if self.preparing.is_some() {
+            Ok(self.prepare_step())
+        } else {
+            let step = self.inner.step()?;
+            Ok(self.convert(step))
+        }
+    }
+    fn convert(&mut self, step: RawStep<TraceId>) -> ClientStep {
+        if let RawStep::Complete {
+            ack,
+            result:
+                RawResult::Track {
+                    tag,
+                    generation,
+                    request_id,
+                    track,
+                    result: Ok(raw),
+                },
+        } = step
+        {
+            let budget = raw.generators.first().and_then(|g| g.memory_budget());
+            let credits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let checkpoint = credits.clone();
+            let work = Box::pin(async move {
+                let result = crate::data::loaded_tracks::LoadedTrack::prepare_with(
+                    raw,
+                    budget.as_ref(),
+                    move || {
+                        let credits = checkpoint.clone();
+                        std::future::poll_fn(move |_| {
+                            if credits.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                                credits.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                std::task::Poll::Ready(())
+                            } else {
+                                std::task::Poll::Pending
+                            }
+                        })
+                    },
+                )
+                .await;
+                LoadResult::Track {
+                    trace: tag,
+                    generation,
+                    request_id,
+                    track,
+                    result,
+                }
+            });
+            self.preparing = Some(Preparation {
+                ack,
+                credits,
+                work,
+                trace: tag,
+                generation,
+                request_id,
+                track,
+            });
+            self.prepare_step()
+        } else {
+            match step {
+                RawStep::Ack(ack) => ClientStep::Ack(ack),
+                RawStep::Yield => ClientStep::Yield,
+                RawStep::Complete { ack, result } => ClientStep::Complete {
+                    ack,
+                    result: self.result(result),
+                },
+            }
+        }
+    }
+    fn prepare_step(&mut self) -> ClientStep {
+        let p = self.preparing.as_mut().expect("pending preparation");
+        p.credits.store(1024, std::sync::atomic::Ordering::Relaxed);
+        match p
+            .work
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        {
+            std::task::Poll::Pending => ClientStep::Yield,
+            std::task::Poll::Ready(result) => {
+                let p = self.preparing.take().unwrap();
+                ClientStep::Complete { ack: p.ack, result }
+            }
+        }
+    }
+    fn result(&mut self, raw: RawResult<TraceId>) -> LoadResult {
+        match raw {
+            RawResult::Opened {
+                tag,
+                generation,
+                result,
+            } => LoadResult::Opened {
+                trace: tag,
+                generation,
+                result,
+            },
+            RawResult::Signals {
+                tag,
+                generation,
+                results,
+            } => LoadResult::Signals {
+                trace: tag,
+                generation,
+                results,
+            },
+            RawResult::Track {
+                tag,
+                generation,
+                request_id,
+                track,
+                result,
+            } => LoadResult::Track {
+                trace: tag,
+                generation,
+                request_id,
+                track,
+                result: result
+                    .and_then(|raw| crate::data::loaded_tracks::LoadedTrack::prepare(raw, None)),
+            },
+            RawResult::ActivityBuilt {
+                tag,
+                generation,
+                result,
+            } => LoadResult::ActivityBuilt {
+                trace: tag,
+                generation,
+                result,
+            },
+            RawResult::ActivityResolved {
+                tag,
+                generation,
+                window,
+                result,
+            } => {
+                let pos = self
+                    .resolutions
+                    .iter()
+                    .position(|r| {
+                        r.trace == tag && r.generation == generation && r.window == window
+                    })
+                    .expect("submitted activity resolution");
+                let work = self.resolutions.remove(pos);
+                let result = result
+                    .and_then(|changed| {
+                        work.counts
+                            .resolved(&work.counter, &changed)
+                            .account(&work.budget)
+                    })
+                    .map(Arc::new);
+                LoadResult::ActivityResolved {
+                    trace: tag,
+                    generation,
+                    window,
+                    result,
+                }
+            }
+        }
+    }
+    pub fn disconnect(&mut self, message: &str) -> Vec<LoadResult> {
+        let mut results: Vec<_> = self
+            .inner
+            .disconnect(message)
+            .into_iter()
+            .map(|r| self.result(r))
+            .collect();
+        if let Some(p) = self.preparing.take() {
+            results.push(LoadResult::Track {
+                trace: p.trace,
+                generation: p.generation,
+                request_id: p.request_id,
+                track: p.track,
+                result: Err(anyhow::anyhow!(message.to_owned())),
+            });
+        }
         results
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::SignalRef;
-    use crate::data::history::VecHistory;
-    use crate::data::transactions::TrackRef;
-    use crate::data::{SignalShape, WaveValue};
-    use crate::remote::history::PackedHistory;
-    use crate::remote::objects::Metadata;
-    use crate::remote::transport::{DATA_BYTES, ObjectId, acknowledgement};
-    use crate::session::OpenSpec;
     use crate::trace::Traced;
-    use std::sync::Arc;
+    use volna_trace::data::SignalRef;
+    use volna_trace::data::transactions::TrackRef;
+    use volna_trace::remote::history::PackedHistory;
+    use volna_trace::remote::transport::{Body, Command, DATA_BYTES, ObjectId, acknowledgement};
+    use volna_trace::session::OpenSpec;
 
     fn response(client: &mut RemoteClient, packet: Packet) -> Option<LoadResult> {
         let expected = acknowledgement(&packet);
@@ -638,11 +420,11 @@ mod tests {
     fn opened(
         client: &mut RemoteClient,
         request: u64,
-        source: &dyn crate::session::Session,
+        source: &dyn volna_trace::session::Session,
     ) -> LoadResult {
         let mut sequence = 0;
-        let header = crate::remote::hierarchy::Header::from_session(source).unwrap();
-        let sizes = crate::data::ScopeSizes::count(source.hierarchy());
+        let header = volna_trace::remote::hierarchy::Header::from_session(source).unwrap();
+        let sizes = volna_trace::data::ScopeSizes::count(source.hierarchy());
         let mut completed = send_object(
             client,
             request,
@@ -656,7 +438,7 @@ mod tests {
                 request,
                 &mut sequence,
                 ObjectId::Scopes(page),
-                bincode::serialize(&crate::remote::hierarchy::Page::scopes(
+                bincode::serialize(&volna_trace::remote::hierarchy::Page::scopes(
                     source.hierarchy(),
                     &sizes,
                     page,
@@ -670,7 +452,7 @@ mod tests {
                 request,
                 &mut sequence,
                 ObjectId::Variables(page),
-                bincode::serialize(&crate::remote::hierarchy::Page::vars(
+                bincode::serialize(&volna_trace::remote::hierarchy::Page::vars(
                     source.hierarchy(),
                     page,
                 ))
@@ -716,7 +498,6 @@ mod tests {
         app.handle(ViewerCommand::Action(Action::SelectAll));
         app.handle(ViewerCommand::Action(Action::RemoveSelected));
         client.sync_demand(&mut app);
-        assert!(client.queued.is_empty());
         assert!(
             app.doc.is_pending(Traced::new(TraceId::A, SignalRef(0))),
             "active work still completes"
@@ -736,8 +517,11 @@ mod tests {
             &mut 0,
             ObjectId::Signal(0),
             bincode::serialize(
-                &PackedHistory::from_history(local.load_signal(SignalRef(0)).unwrap().as_ref())
-                    .unwrap(),
+                &PackedHistory::from_history_with_limit(
+                    local.load_signal(SignalRef(0)).unwrap().as_ref(),
+                    u64::MAX,
+                )
+                .unwrap(),
             )
             .unwrap(),
         );
@@ -795,172 +579,113 @@ mod tests {
         let current = enqueue(&mut app, &mut client);
         assert_ne!(old, current);
         client.sync_demand(&mut app);
-        assert_eq!(client.queued.len(), 1);
-        assert!(
-            matches!(client.queued.front().map(|q| &q.job), Some(LoadRequest::Track { request_id, .. }) if *request_id == current)
-        );
+        let mut queued = 0;
+        client.inner.retain_queued(|job| {
+            assert!(matches!(job, RawRequest::Track {request_id,..} if *request_id == current));
+            queued += 1;
+            true
+        });
+        assert_eq!(queued, 1);
         app.doc.release_track(track);
         client.sync_demand(&mut app);
         assert!(client.take_command().unwrap().is_none());
     }
 
     #[test]
-    fn command_failure_keeps_work_for_failure_delivery() {
-        let mut client = RemoteClient::new(
-            TraceId::A,
-            1,
-            1024 * 1024,
-            MemoryBudget::new(4 * 1024 * 1024),
+    fn track_preparation_holds_ack_yields_and_releases_on_disconnect() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let mut writer = vtr::Writer::create(file.path()).unwrap();
+        let stream = writer.add_stream(None, "stream", "raw").unwrap();
+        let generator = writer.add_generator(stream, "generator").unwrap();
+        for time in 0..5000 {
+            let tx = writer.begin_tx(generator, time * 10).unwrap();
+            writer.end_tx(tx, time * 10 + 5, vtr::TxStatus::Ok).unwrap();
+        }
+        writer.close().unwrap();
+        let budget = MemoryBudget::new(16 << 20);
+        let session = volna_trace::session::account_local_session(
+            OpenSpec::Path(file.path().into()).open().unwrap(),
+            budget.clone(),
         )
         .unwrap();
-        let open = client.take_command().unwrap().unwrap();
-        let local = crate::testing::ProceduralTrace::session(100);
-        let LoadResult::Opened { result, .. } = opened(&mut client, open.request, local.as_ref())
-        else {
-            panic!("opened")
-        };
-        let session = result.unwrap();
-        assert!(
-            client
-                .submit(LoadRequest::Signals {
-                    trace: TraceId::A,
-                    generation: 7,
-                    session,
-                    signals: vec![SignalRef(0)]
-                })
-                .is_ok()
-        );
-        client.request = u64::MAX;
-        assert!(client.take_command().is_err());
-        let mut failures = client.disconnect("request identity exhausted");
-        assert_eq!(failures.len(), 1);
-        let LoadResult::Signals {
-            trace: _,
-            generation,
-            results,
-        } = failures.pop().unwrap()
-        else {
-            panic!("signals")
-        };
-        assert_eq!(generation, 7);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, SignalRef(0));
-        assert!(results[0].1.is_err());
-    }
-
-    #[test]
-    fn queue_serializes_batches_and_disconnect_preserves_completed_histories() {
-        let budget = MemoryBudget::new(4 * 1024 * 1024);
-        let mut client = RemoteClient::new(TraceId::A, 70, 1024 * 1024, budget.clone()).unwrap();
-        let open = client.take_command().unwrap().unwrap();
-        assert_eq!(open.session, 0);
-        assert!(client.take_command().unwrap().is_none());
-        let local = crate::testing::ProceduralTrace::session(100);
-        let opened = opened(&mut client, open.request, local.as_ref());
-        let LoadResult::Opened {
-            trace: _,
-            generation: 70,
-            result,
-        } = opened
-        else {
-            panic!("Open result");
-        };
-        let session = result.unwrap();
-        let mut ids: Vec<_> = (0..65).map(SignalRef).collect();
-        ids.push(SignalRef(0));
-        let wrong_session = Arc::new(
-            crate::remote::session::RemoteSession::new(32, Metadata::from_session(local.as_ref()))
-                .unwrap(),
-        );
-        let Err(LoadResult::Signals {
-            trace: _,
-            generation,
-            results,
-        }) = client.submit(LoadRequest::Signals {
-            trace: TraceId::A,
-            generation: 71,
-            session: wrong_session,
-            signals: ids.clone(),
-        })
-        else {
-            panic!("rejected submission must return signal completions")
-        };
-        assert_eq!(generation, 71);
-        assert_eq!(results.iter().map(|(id, _)| *id).collect::<Vec<_>>(), ids);
-        assert!(results.iter().all(|(_, result)| result.is_err()));
-        assert!(
-            client
-                .submit(LoadRequest::Signals {
-                    trace: TraceId::A,
-                    generation: 71,
-                    session: session.clone(),
-                    signals: ids
-                })
-                .is_ok()
-        );
-        let command = client.take_command().unwrap().unwrap();
-        let Body::Command(Command::Signals(ids)) = command.body else {
-            panic!("signal command");
-        };
-        assert_eq!(ids.len(), MAX_BATCH);
-        assert_eq!(command.request, open.request + 1);
-        assert!(client.take_command().unwrap().is_none());
-        let source = VecHistory {
-            shape: SignalShape::Bit,
-            times: vec![],
-            values: vec![],
-            initial: WaveValue::Bits("1".into()),
-        };
-        let completed = object(
-            &mut client,
-            command.request,
-            &mut 0,
-            ObjectId::Signal(0),
-            bincode::serialize(&PackedHistory::from_history(&source).unwrap()).unwrap(),
-        );
-        let LoadResult::Signals {
-            trace: _,
-            generation: 71,
-            mut results,
-        } = completed
-        else {
-            panic!("signal result");
-        };
-        let history = results.pop().unwrap().1.unwrap();
-        assert!(client.take_command().unwrap().is_none());
-        let failures = client.disconnect("connection lost");
-        let mut failed = Vec::new();
-        for result in failures {
-            let LoadResult::Signals {
-                trace: _,
-                generation: 71,
-                results,
-            } = result
-            else {
-                panic!("unfinished signal result");
-            };
-            for (id, error) in results {
-                assert!(error.is_err());
-                failed.push(id);
+        let baseline = budget.used();
+        let track = TrackRef(stream.0);
+        let ack = acknowledgement(&Packet {
+            session: 31,
+            request: 17,
+            sequence: 19,
+            body: Body::End,
+        });
+        for cancel in [false, true] {
+            let mut client = RemoteClient::new(TraceId::A, 1, 8 << 20, budget.clone()).unwrap();
+            let raw = session.load_track(track).unwrap();
+            let raw_owner = Arc::downgrade(&raw.generators[0]);
+            let mut step = client.convert(RawStep::Complete {
+                ack: ack.clone(),
+                result: RawResult::Track {
+                    tag: TraceId::A,
+                    generation: 3,
+                    request_id: 7,
+                    track,
+                    result: Ok(raw),
+                },
+            });
+            assert!(matches!(step, ClientStep::Yield));
+            assert!(client.take_command().unwrap().is_none());
+            // Cross the allowance scan and enter admitted index construction.
+            for _ in 0..5 {
+                step = client.step().unwrap();
+                assert!(matches!(step, ClientStep::Yield));
             }
+            assert!(budget.used() > baseline);
+            if cancel {
+                assert!(client.disconnect("cancelled").iter().any(|r| matches!(
+                    r,
+                    LoadResult::Track {
+                        generation: 3,
+                        request_id: 7,
+                        result: Err(_),
+                        ..
+                    }
+                )));
+                assert!(client.preparing.is_none());
+            } else {
+                let mut yields = 0;
+                loop {
+                    match step {
+                        ClientStep::Yield => {
+                            yields += 1;
+                            assert!(yields < 100, "preparation must finish");
+                            step = client.step().unwrap();
+                        }
+                        ClientStep::Complete {
+                            ack: actual,
+                            result,
+                        } => {
+                            assert_eq!(actual, ack);
+                            let LoadResult::Track {
+                                generation: 3,
+                                request_id: 7,
+                                result,
+                                ..
+                            } = result
+                            else {
+                                panic!("prepared track");
+                            };
+                            let loaded = result.unwrap();
+                            assert_eq!(loaded.generators[0].transactions().len(), 5000);
+                            assert_eq!(loaded.generators[0].depth(), 1);
+                            assert_eq!(loaded.generators[0].median_lifetime(), 5);
+                            assert!(raw_owner.upgrade().is_some());
+                            break;
+                        }
+                        ClientStep::Ack(_) => panic!("acknowledgement before preparation"),
+                    }
+                }
+            }
+            drop(client);
+            assert!(raw_owner.upgrade().is_none());
+            assert_eq!(budget.used(), baseline);
         }
-        assert_eq!(failed, (1..65).map(SignalRef).collect::<Vec<_>>());
-        assert!(client.take_command().unwrap().is_none());
-        assert!(
-            client
-                .submit(LoadRequest::Signals {
-                    trace: TraceId::A,
-                    generation: 71,
-                    session: session.clone(),
-                    signals: vec![SignalRef(65)]
-                })
-                .is_err()
-        );
-        drop(client);
-        drop(session);
-        assert_eq!(history.value(None), WaveValue::Bits("1".into()));
-        assert!(budget.used() > 0);
-        drop(history);
-        assert_eq!(budget.used(), 0);
     }
 }

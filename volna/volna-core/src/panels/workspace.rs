@@ -1,12 +1,12 @@
 //! Shared panel envelope and the read-only context for content codecs.
 
 use super::{Panel, PanelId, PanelKind};
-use crate::data::Hierarchy;
 use crate::trace::TraceId;
 use crate::wave::viewport::Viewport;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use volna_trace::data::Hierarchy;
 
 /// The fields every saved panel shares; alone, they describe a start panel.
 #[derive(Serialize, Deserialize)]
@@ -26,14 +26,14 @@ pub(crate) fn present_raw<'de, D: serde::Deserializer<'de>>(
 /// The open traces a workspace's letters resolved to.
 #[derive(Default)]
 pub(crate) struct Traces<'a> {
-    open: std::collections::HashMap<TraceId, &'a std::sync::Arc<dyn crate::session::Session>>,
+    open: std::collections::HashMap<TraceId, &'a std::sync::Arc<dyn volna_trace::session::Session>>,
 }
 
 impl<'a> Traces<'a> {
     pub(crate) fn insert(
         &mut self,
         letter: TraceId,
-        session: &'a std::sync::Arc<dyn crate::session::Session>,
+        session: &'a std::sync::Arc<dyn volna_trace::session::Session>,
     ) {
         self.open.insert(letter, session);
     }
@@ -42,7 +42,7 @@ impl<'a> Traces<'a> {
         self.open.get(&letter).map(|s| s.hierarchy())
     }
 
-    pub(crate) fn tracks(&self, letter: TraceId) -> &'a [crate::data::transactions::Track] {
+    pub(crate) fn tracks(&self, letter: TraceId) -> &'a [volna_trace::data::transactions::Track] {
         self.open.get(&letter).map_or(&[], |s| s.tracks())
     }
 }
@@ -62,7 +62,7 @@ pub(crate) fn valid_viewport(v: Viewport) -> Result<()> {
 pub(crate) struct RestoreContext<'a> {
     pub(crate) doc: &'a crate::Document,
     pub(crate) traces: &'a Traces<'a>,
-    pub(crate) budget: crate::remote::memory::MemoryBudget,
+    pub(crate) budget: volna_trace::remote::memory::MemoryBudget,
     pub(crate) detail_items: usize,
     pub(crate) report: &'a mut crate::workspace::RestoreReport,
     pub(crate) row_count: usize,

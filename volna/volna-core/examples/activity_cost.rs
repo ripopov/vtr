@@ -9,7 +9,7 @@
 use std::time::Instant;
 
 use volna_core::data::{ActivityCounter, ActivityCounts};
-use volna_core::session::OpenSpec;
+use volna_trace::session::OpenSpec;
 
 fn best<T>(mut f: impl FnMut() -> anyhow::Result<T>) -> anyhow::Result<(f64, T)> {
     let mut out = None;

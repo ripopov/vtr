@@ -2,9 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::data::loaded_tracks::LoadedTrack;
-use crate::data::value_view::ValueView;
-use crate::data::{Bit, SignalHistory, SignalShape, WaveValue};
+use volna_trace::data::value_view::ValueView;
+use volna_trace::data::{Bit, SignalHistory, SignalShape, WaveValue};
 
 /// The map from a trace's own times to session times: `t` becomes
 /// `t * scale`, where the session unit is `scale` times finer than the
@@ -62,16 +61,17 @@ impl Placement {
         }
     }
 
-    /// Rewrite a freshly loaded track's times in place. Scaling keeps order
-    /// and overlap, so the generators' indexes stay valid.
-    pub(crate) fn place_track(self, track: &mut LoadedTrack) -> anyhow::Result<()> {
-        if self.is_identity() {
-            return Ok(());
-        }
-        for generator in &mut track.generators {
-            Arc::get_mut(generator)
-                .ok_or_else(|| anyhow::anyhow!("a new track shared its generator"))?
-                .scale_times(self.scale);
+    /// Place prepared viewer records; raw published owners remain immutable.
+    pub(crate) fn place_track(
+        self,
+        track: &mut crate::data::loaded_tracks::LoadedTrack,
+    ) -> anyhow::Result<()> {
+        if !self.is_identity() {
+            for g in &mut track.generators {
+                Arc::get_mut(g)
+                    .ok_or_else(|| anyhow::anyhow!("a new track shared its viewer owner"))?
+                    .scale_times(self.scale)?;
+            }
         }
         Ok(())
     }

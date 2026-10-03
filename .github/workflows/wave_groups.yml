@@ -5,6 +5,7 @@ on:
       - 'docs/wave_groups.html'
       - 'docs/tests/wave_groups.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-trace/**'
       - 'volna/volna-core/**'
       - '.github/workflows/wave_groups.yml'
   pull_request:
@@ -12,6 +13,7 @@ on:
       - 'docs/wave_groups.html'
       - 'docs/tests/wave_groups.test.mjs'
       - 'volna/volna/tools/browser-test.mjs'
+      - 'volna/volna-trace/**'
       - 'volna/volna-core/**'
       - '.github/workflows/wave_groups.yml'
   workflow_dispatch:

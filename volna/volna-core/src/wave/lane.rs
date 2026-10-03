@@ -6,12 +6,12 @@
 //! the generator's load-time [`LoadedGenerator::sub_row`].
 
 use crate::data::loaded_tracks::LoadedGenerator;
-use crate::data::transactions::{TrackRef, Transaction, TxStatus};
 use crate::document::{Document, TrackLoadState};
 use crate::pipeline::{PipelineModel, TrackSource};
 use crate::trace::{TraceId, Traced};
 use crate::wave::model::RowHeight;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::transactions::{TrackRef, Transaction, TxStatus};
 
 /// Below this many pixels for a median lifetime, bars are unreadable and the
 /// lane draws a density strip instead.
@@ -388,8 +388,8 @@ pub fn value_text(generator: &LoadedGenerator, cursor: u64) -> (String, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::transactions::{TransactionRef, TxKind};
     use std::collections::HashMap;
+    use volna_trace::data::transactions::{TransactionRef, TxKind};
 
     fn tx(id: u64, begin: u64, end: u64, status: TxStatus) -> Transaction {
         Transaction {

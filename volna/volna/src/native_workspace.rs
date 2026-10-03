@@ -621,7 +621,7 @@ impl crate::Workspace {
                     .configure_persistence(Persistence::Explicit(target));
                 self.opening_workspace = Some(uri);
                 self.app
-                    .open_resource(volna_core::session::OpenSpec::Path(trace), trace_uri);
+                    .open_resource(volna_trace::session::OpenSpec::Path(trace), trace_uri);
             }
             Ok::<_, anyhow::Error>(())
         })();

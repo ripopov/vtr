@@ -16,7 +16,7 @@ fn app() -> App {
 }
 /// Open [`TRACE`] as the procedural trace [`app`] shows.
 fn open(app: &mut App) {
-    let spec = volna_core::session::OpenSpec::Bytes {
+    let spec = volna_trace::session::OpenSpec::Bytes {
         name: "trace.vtr".into(),
         bytes: Vec::new(),
     };

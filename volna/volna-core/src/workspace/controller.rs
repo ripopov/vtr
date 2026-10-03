@@ -4,10 +4,10 @@ use super::{
     RestorePlan, Workspace,
     persistence::{self, Candidate, Persistence, SaveTicket, Scheduler, Target},
 };
-use crate::session::OpenSpec;
 use crate::trace::TraceId;
 use crate::{App, Event, Instant};
 use anyhow::{Context, Result, ensure};
+use volna_trace::session::OpenSpec;
 
 #[derive(Default)]
 pub struct State {

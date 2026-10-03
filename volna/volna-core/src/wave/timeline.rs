@@ -1,7 +1,7 @@
 //! Time formatting and tick placement for the timeline header.
 
 use super::viewport::Viewport;
-use crate::data::TraceInfo;
+use volna_trace::data::TraceInfo;
 
 /// How a trace writes time: `10^timescale` seconds per unit, or a
 /// producer-named unit (`cycle`) that is never rescaled.

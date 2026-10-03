@@ -1,14 +1,14 @@
 //! Sequential complete-object service, independent of process and GUI hosting.
-use super::hierarchy::Header;
-use super::history::PackedHistory;
-use super::objects::TrackPayload;
-use super::transport::{Body, Command, ObjectId, ResponseWriter, read_packet};
-use crate::data::SignalRef;
-use crate::data::transactions::TrackRef;
-use crate::session::Session;
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::sync::Arc;
+use volna_trace::data::SignalRef;
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::remote::hierarchy::Header;
+use volna_trace::remote::history::PackedHistory;
+use volna_trace::remote::objects::TrackPayload;
+use volna_trace::remote::transport::{Body, Command, ObjectId, ResponseWriter, read_packet};
+use volna_trace::session::Session;
 
 fn reply<R: Read, W: Write, T: Serialize>(
     writer: &mut ResponseWriter<R, W>,
@@ -83,19 +83,24 @@ pub fn serve(
                 );
             }
         };
-        let header = Header::borrowed(session.as_ref())?;
+        let header = Header::borrowed(
+            session.as_ref(),
+            gethostname::gethostname().to_string_lossy().into_owned(),
+        )?;
         let sizes = session
             .scope_sizes()
-            .unwrap_or_else(|| Arc::new(crate::data::ScopeSizes::count(session.hierarchy())));
+            .unwrap_or_else(|| Arc::new(volna_trace::data::ScopeSizes::count(session.hierarchy())));
         if !open_object(&mut writer, ObjectId::Metadata, &header, max_object_bytes)? {
             return Ok(());
         }
         // The client waits for exactly the pages the header's counts imply;
         // sending fewer would leave both sides waiting.
         let hierarchy = session.hierarchy();
-        let pages = |n: usize| n.div_ceil(super::hierarchy::PAGE_ENTRIES);
+        let pages = |n: usize| n.div_ceil(volna_trace::remote::hierarchy::PAGE_ENTRIES);
         let mut sent = 0;
-        for (page, buffer) in super::hierarchy::scope_pages(hierarchy, &sizes).enumerate() {
+        for (page, buffer) in
+            volna_trace::remote::hierarchy::scope_pages(hierarchy, &sizes).enumerate()
+        {
             sent += 1;
             if !open_object(
                 &mut writer,
@@ -111,7 +116,7 @@ pub fn serve(
             "scope pages do not match the header"
         );
         let mut sent = 0;
-        for (page, buffer) in super::hierarchy::var_pages(hierarchy).enumerate() {
+        for (page, buffer) in volna_trace::remote::hierarchy::var_pages(hierarchy).enumerate() {
             sent += 1;
             if !open_object(
                 &mut writer,
@@ -177,14 +182,14 @@ pub fn serve(
                             control: Some(Arc::new(vtr::activity::BuildControl::default())),
                             ..Default::default()
                         };
-                        let budget = super::memory::MemoryBudget::new(2 << 30);
+                        let budget = volna_trace::remote::memory::MemoryBudget::new(2 << 30);
                         session.build_activity(&options, &budget, cache.as_deref())?;
                     }
                     session.activity_image(cache.as_deref())
                 })();
                 check_snapshot()?;
                 #[derive(Serialize)]
-                struct Image<'a>(#[serde(serialize_with = "super::serialize_bytes")] &'a [u8]);
+                struct Image<'a>(#[serde(serialize_with = "serialize_bytes")] &'a [u8]);
                 reply(
                     &mut writer,
                     ObjectId::Activity,
@@ -212,4 +217,8 @@ pub fn serve(
         }
     }
     Ok(())
+}
+
+fn serialize_bytes<S: serde::Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_bytes(bytes)
 }

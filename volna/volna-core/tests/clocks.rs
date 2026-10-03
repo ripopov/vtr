@@ -3,22 +3,27 @@
 //! their stream's clock (also on a Kanata import), workspaces and remote
 //! loading. Headless: commands in, state and scenes out.
 
+// Exercise the executable handler directly over bounded test sockets; no server library is needed.
+#[cfg(unix)]
+#[path = "../../../tools/volna-server/src/server.rs"]
+mod server;
+
 use std::sync::Arc;
 use volna_core::testing::{a, a_all};
 use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, ClockCommand, Command};
-use volna_core::data::Member;
-use volna_core::data::source::Lookup;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::panels::PanelId;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::{OpenSpec, Session};
 use volna_core::wave::PointerEvent;
 use volna_core::wave::model::WaveRow;
 use volna_core::wave::viewport::Viewport;
 use volna_core::workspace::Workspace;
 use volna_core::{Instant, Theme};
+use volna_trace::data::Member;
+use volna_trace::data::source::Lookup;
+use volna_trace::session::{OpenSpec, Session};
 
 const BOUNDS: Rect = Rect::from_xywh(0.0, 0.0, 1200.0, 600.0);
 /// The page's DVFS core clock (ps): 334, then 500, then 1000 ps.
@@ -571,19 +576,28 @@ fn a_kanata_import_counts_its_pipeline_in_the_cycle_clock() {
     let _ = Instant::now();
 }
 
+#[cfg(unix)]
 #[test]
 fn clocks_load_through_the_remote_protocol_like_any_track() {
     use std::os::unix::net::UnixStream;
     use volna_core::remote::ClientStep;
     use volna_core::remote::client::RemoteClient;
-    use volna_core::remote::memory::MemoryBudget;
-    use volna_core::remote::transport::{read_packet, write_packet};
+    use volna_trace::remote::memory::MemoryBudget;
+    use volna_trace::remote::transport::{read_packet, write_packet};
     let local = fixture();
     let (client_end, server_end) = UnixStream::pair().unwrap();
+    for socket in [&client_end, &server_end] {
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(20)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(std::time::Duration::from_secs(20)))
+            .unwrap();
+    }
     let served = local.clone();
     let server = std::thread::spawn(move || {
         let input = server_end.try_clone().unwrap();
-        volna_core::remote::server::serve(input, server_end, 7, move || Ok(served), || Ok(()))
+        server::serve(input, server_end, 7, move || Ok(served), || Ok(()))
     });
     let mut app = App::new();
     let budget = MemoryBudget::new(256 << 20);
@@ -669,12 +683,12 @@ fn clocks_load_through_the_remote_protocol_like_any_track() {
     assert_eq!(remote.stretches(), expected.stretches());
     write_packet(
         &mut stream,
-        &volna_core::remote::transport::Packet {
+        &volna_trace::remote::transport::Packet {
             session: 7,
             request: u64::MAX,
             sequence: 0,
-            body: volna_core::remote::transport::Body::Command(
-                volna_core::remote::transport::Command::Close,
+            body: volna_trace::remote::transport::Body::Command(
+                volna_trace::remote::transport::Command::Close,
             ),
         },
     )

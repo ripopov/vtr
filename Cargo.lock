@@ -8611,6 +8611,7 @@ dependencies = [
  "tempfile",
  "url",
  "volna-core",
+ "volna-trace",
  "vtr",
  "wasm-bindgen",
 ]
@@ -8621,11 +8622,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
- "flate2",
- "fst-reader",
  "gethostname",
  "log",
- "lz4_flex 0.11.6",
  "percent-encoding",
  "serde",
  "serde_json",
@@ -8633,6 +8631,7 @@ dependencies = [
  "tempfile",
  "url",
  "volna-core",
+ "volna-trace",
  "vtr",
  "vtr-cli",
  "web-time",
@@ -8650,6 +8649,7 @@ dependencies = [
  "log",
  "rfd",
  "volna-core",
+ "volna-trace",
 ]
 
 [[package]]
@@ -8658,12 +8658,30 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "gethostname",
  "getrandom 0.4.3",
  "serde",
  "serde_json",
  "tempfile",
- "volna-core",
+ "volna-trace",
  "vtr",
+]
+
+[[package]]
+name = "volna-trace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "flate2",
+ "fst-reader",
+ "lz4_flex 0.11.6",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "volna-trace",
+ "vtr",
+ "vtr-cli",
 ]
 
 [[package]]

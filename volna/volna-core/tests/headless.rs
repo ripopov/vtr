@@ -9,18 +9,19 @@ use volna_core::testing::{a, a_all};
 use volna_core::trace::TraceId;
 
 use volna_core::app::{Action, App, Command, Event};
-use volna_core::data::{
-    Bit, Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, WaveValue,
-};
 use volna_core::document::TraceState;
 use volna_core::geometry::{Modifiers, MouseButton, Rect, point};
 use volna_core::panels::PanelsCommand;
 use volna_core::scene::{MonoMeasure, Prim};
-use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use volna_core::session::{LoadRequest, LoadResult};
 use volna_core::sidebar::Key;
 use volna_core::testing::ProceduralTrace;
 use volna_core::wave::{MenuEntry, PointerEvent, RowHeight, Tint, WaveMenuKind};
 use volna_core::{Instant, Theme};
+use volna_trace::data::{
+    Bit, Hierarchy, SignalHistory, SignalRef, SignalShape, TraceInfo, WaveValue,
+};
+use volna_trace::session::{OpenSpec, Session};
 
 /// A procedural source that counts loads, can fail on demand, and has an
 /// alias variable sharing signal 0.
@@ -105,10 +106,10 @@ fn loads(app: &App) -> u64 {
 
 #[test]
 fn missing_initial_sample_is_not_painted_as_a_logic_level() {
-    use volna_core::data::history::VecHistory;
     use volna_core::scene::Scene;
     use volna_core::wave::paint::paint_bit_row;
     use volna_core::wave::viewport::Viewport;
+    use volna_trace::data::history::VecHistory;
     let mut history = VecHistory {
         shape: SignalShape::Bit,
         times: vec![10],
@@ -1811,7 +1812,7 @@ fn sidebar_models_follow_scope_selection_and_keys() {
     assert!(
         app.variables
             .rows
-            .contains(&a(volna_core::data::Member::Var(0)))
+            .contains(&a(volna_trace::data::Member::Var(0)))
     );
     assert!(app.variables.show_scope());
     // Enter adds the selection (or all).

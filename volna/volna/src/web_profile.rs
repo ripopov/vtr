@@ -2,9 +2,9 @@
 //! No transaction presentation or alternate decoding path lives here.
 use crate::Workspace;
 use gpui_kit::Context;
-use volna_core::data::transactions::TrackKind;
 use volna_core::document::TrackLoadState;
 use volna_core::trace::Traced;
+use volna_trace::data::transactions::TrackKind;
 use wasm_bindgen::{JsCast, JsValue};
 
 impl Workspace {

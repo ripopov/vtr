@@ -52,8 +52,8 @@ use std::sync::Arc;
 /// arrays are admitted before allocation. Checkpoints yield while decoding;
 /// cancellation stops client work and drains the server response. A server
 /// scan already authorized may still publish its cache for other clients.
-pub(super) struct ActivityTransfer {
-    job: LoadRequest,
+pub(super) struct ActivityTransfer<Tag = u64> {
+    job: LoadRequest<Tag>,
     receiver: Receiver,
     decoder: Option<Decoder<vtr::activity::Index>>,
     decoded: Option<Arc<crate::data::ActivityIndex>>,
@@ -65,10 +65,10 @@ pub(super) struct ActivityTransfer {
     failed: bool,
 }
 
-impl ActivityTransfer {
+impl<Tag: Copy> ActivityTransfer<Tag> {
     pub fn new(
         request: u64,
-        job: LoadRequest,
+        job: LoadRequest<Tag>,
         limit: u64,
         budget: MemoryBudget,
     ) -> anyhow::Result<Self> {
@@ -102,11 +102,11 @@ impl ActivityTransfer {
         }
     }
 
-    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.accept_inner(packet);
         self.poison(result)
     }
-    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(
             !self.failed && !self.finished && self.pending_ack.is_none(),
             "activity transfer finished or decoding"
@@ -211,11 +211,11 @@ impl ActivityTransfer {
         }
         Ok(ClientStep::Ack(ack))
     }
-    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
+    pub fn step(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.step_inner();
         self.poison(result)
     }
-    fn step_inner(&mut self) -> anyhow::Result<ClientStep> {
+    fn step_inner(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(
             self.pending_ack.is_some() && !self.failed,
             "no pending activity decode"
@@ -243,13 +243,13 @@ impl ActivityTransfer {
         }
         Ok(ClientStep::Ack(self.pending_ack.take().unwrap()))
     }
-    fn complete(&mut self, ack: Packet, result: anyhow::Result<()>) -> ClientStep {
+    fn complete(&mut self, ack: Packet, result: anyhow::Result<()>) -> ClientStep<Tag> {
         self.decoder = None;
         self.decoded = None;
         self.rejected = None;
         self.finished = true;
         let LoadRequest::BuildActivity {
-            trace, generation, ..
+            tag, generation, ..
         } = &self.job
         else {
             unreachable!()
@@ -257,7 +257,7 @@ impl ActivityTransfer {
         ClientStep::Complete {
             ack,
             result: LoadResult::ActivityBuilt {
-                trace: *trace,
+                tag: *tag,
                 generation: *generation,
                 result,
             },
@@ -279,7 +279,7 @@ impl ActivityTransfer {
         anyhow::ensure!(self.is_complete(), "incomplete activity transfer");
         self.receiver.finish()
     }
-    pub fn fail(self, message: &str) -> LoadResult {
+    pub fn fail(self, message: &str) -> LoadResult<Tag> {
         self.job.fail(anyhow::anyhow!(message.to_owned()))
     }
 }
@@ -290,7 +290,6 @@ mod tests {
     use crate::remote::objects::Metadata;
     use crate::remote::session::RemoteSession;
     use crate::remote::transport::{Body, DATA_BYTES};
-    use crate::trace::TraceId;
 
     fn fixture(signals: usize) -> (tempfile::TempDir, Arc<dyn Session>, Vec<u8>) {
         let dir = tempfile::tempdir().unwrap();
@@ -335,7 +334,7 @@ mod tests {
             Arc::new(RemoteSession::new(73, Metadata::from_session(source)).unwrap());
         let control = Arc::new(vtr::activity::BuildControl::default());
         let job = LoadRequest::BuildActivity {
-            trace: TraceId::A,
+            tag: 0,
             generation: 9,
             session: session.clone(),
             options: vtr::activity::BuildOptions {
@@ -412,7 +411,7 @@ mod tests {
     fn finish(transfer: &mut ActivityTransfer, end: u64) -> anyhow::Result<()> {
         let (_, result) = response(transfer, packet(end, Body::End));
         let Some(LoadResult::ActivityBuilt {
-            trace: TraceId::A,
+            tag: 0,
             generation: 9,
             result,
         }) = result

@@ -3,7 +3,7 @@
 Run checks from the repository root unless a command specifies otherwise.
 Workspace development uses the dated nightly in `rust-toolchain.toml`, including
 the WASM target, rustfmt and Clippy. Native GPUI builds require the
-platform SDK; the macOS Metal interaction test also requires desktop services.
+platform SDK; the macOS Metal interaction harness runs automated offscreen checks.
 
 ## Automated checks
 
@@ -11,16 +11,19 @@ platform SDK; the macOS Metal interaction test also requires desktop services.
 volna/volna/check.sh
 ```
 
-The script checks formatting and strict Clippy for `volna-core`, `volna` and
-`volna-egui`, runs their Rust tests, and runs the Node tests for the VS Code
+The script enforces standalone trace/server dependency boundaries, checks
+formatting and strict Clippy for all five Volna packages, runs their Rust tests, and runs the Node tests for the VS Code
 adapter. The frame-time benchmark is excluded from the regular test run.
 
 For focused checks:
 
 ```sh
 cargo test --locked -p volna-core
-cargo test --locked -p volna-core --test fst
-cargo test --locked -p volna-core --test transactions
+python3 tools/check-volna-loading.py                 # independent builds/tests; no viewer or GUI dependencies
+cargo test --locked -p volna-trace --test fst
+cargo test --locked -p volna-core --test fst_viewer
+cargo test --locked -p volna-trace --test transactions # raw recording contract
+cargo test --locked -p volna-core --test transactions # viewer lifecycle
 cargo test --locked -p volna-core --test pipeline       # pipeline panel: open, load, paint, zoom, sync, save/restore
 cargo test --locked -p volna-core --test table_baseline # reduced table: sources, bounds, identity, copy, details, restore
 cargo test --locked -p volna-core --test settings      # settings.json store, edits, search, the Settings tab
@@ -56,7 +59,7 @@ node --test volna/volna/tools/table-clipboard.test.mjs
 | Complete-object transport | Framing and compression limits, cooperative metadata/history/track decoding, admission accounting, atomic installation, stale identities, disconnect and per-item errors; real child-process VTR/FST equivalence and track round trips |
 
 FST fixture regeneration commands are in
-[`fst_values.c`](../volna-core/tests/fixtures/fst_values.c). Regular tests use
+[`fst_values.c`](../volna-trace/tests/fixtures/fst_values.c). Regular tests use
 committed fixtures. Framing checks reject truncated headers/payloads,
 unfinished lengths and arithmetic overflow; they are not exhaustive validation
 of malicious compressed payloads. Gzip wrappers are decompressed into memory,

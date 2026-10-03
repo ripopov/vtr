@@ -4,11 +4,20 @@ Volna is the official VTR/VDB viewer. It is built as a toolkit-independent core
 plus thin frontends, following "Volna direction" in the repository `AGENTS.md`:
 every decision the viewer makes lives in `volna-core`; a frontend owns a window,
 paints what the core produces, hosts native widgets for the chrome, and runs the
-loads the core asks for. Future VDB attachment belongs above the core's session
+loads the core asks for. Shared recording access lives below the viewer in
+`volna-trace`; the standalone server uses it without depending on the viewer.
+Future VDB attachment belongs above the trace session
 interface: source semantics, annotations and presentation stay in the separate
 VDB layer. VDB attachment is not yet implemented.
 
 ```
+volna/volna-trace     recording access, no viewer or GUI dependency
+  src/session.rs         Session, OpenSpec, raw loads and opaque caller correlation
+  src/data/              immutable hierarchy, values, histories, tracks and sidecars; VTR/FST readers
+  src/remote/            raw protocol, complete-object client, cooperative validation and admission
+tools/volna-server   executable, depends on volna-trace
+  src/main.rs            process hosting, session identity, immutable-file checks
+  src/server.rs          Open, Signals, Track, Activity and Close request handling
 volna/volna-core      the viewer, no GUI toolkit (builds and tests on every platform)
   src/app.rs             App: Command in, Event out, LoadRequest/LoadResult, layout + render
   src/document.rs        Document: the trace set, shared navigation, markers, selection, translators, loads
@@ -21,10 +30,9 @@ volna/volna-core      the viewer, no GUI toolkit (builds and tests on every plat
   src/transaction/       TxView of one record (pure, bounded), TransactionModel: history, pin, prefs
   src/workspace/         JSON codec, restore plans, save tickets, state.json and lifecycle
   src/settings/          registry, settings.json store (JSONC, surgical edits, diagnostics), search, schema
-  src/session.rs         Session trait; OpenSpec; batched load requests/results
-  src/data/fst_source.rs private fst-reader adapter and mutable reader ownership
-  src/data/vtr_source.rs LocalSession over vtr::Reader with shared immutable histories
-  src/data/              values, histories, translators, hierarchy, bounded record text (text.rs)
+  src/session.rs         viewer LoadRequest/LoadResult, raw load execution and client-side analysis
+  src/remote/client.rs   viewer demand and result adaptation over the trace library's remote client
+  src/data/              translators, activity classification/labels, prepared transaction views, text
   src/wave/              viewport math, timeline, WaveModel, row tree, WaveLayout, painter → Scene, shared overlay
   src/sidebar/           ScopeTreeModel, MemberListModel, semantic icons and row descriptions
   src/scene.rs           Scene display list, FontRole, TextMeasure, TextCache
@@ -170,8 +178,8 @@ Each trace keeps its own time unit on disk; `TraceSet` places all of them on
 one session timeline in the finest SI unit among them (`Placement`, a whole
 scale factor), so a VTR in nanoseconds and an FST in picoseconds share one
 ruler exactly. The document applies the placement where data arrives
-(`Document::deliver`): histories are wrapped, loaded tracks are rescaled in
-place, so panels, readouts and snapping only see session times. A trace in a
+(`Document::deliver`): histories are wrapped, and transformed tracks copy raw
+records into viewer-owned storage, so panels, readouts and snapping only see session times. A trace in a
 producer-named unit (`cycle`) joins only traces in the same unit. When a
 finer trace joins, the unit refines and never coarsens again while the
 document lives: shared and panel times, the undo journal's marker and origin
@@ -1024,7 +1032,7 @@ honoured through the configuration path.
 
 ## The session seam
 
-All trace data is reached through the `Session` trait: resident `info()`,
+All trace data is reached through `volna_trace::session::Session`: resident `info()`,
 `hierarchy()` and `activity()` (the immutable activity index, found at open or
 built later), and expensive `load_signal()`/`load_signals()` and
 `resolve_activity()` queries. `activity_build_info()` identifies a local or
@@ -1051,8 +1059,8 @@ variable rows and loaded histories follow the same declaration.
 `LocalSession` implements it over `vtr::Reader`, memory-mapped from a path
 natively and parsed from an in-memory image on wasm. The private FST adapter
 owns a buffered file or byte cursor and serializes mutable fst-reader access
-inside the backend. The test-only `testing::ProceduralTrace` (volna-core's
-`testing` feature) computes its histories, so tests and the frame-time
+inside the backend. The test-only `volna_trace::testing::ProceduralTrace` (also available through
+volna-core's `testing` helpers) computes its histories, so tests and the frame-time
 harness can use 100 M transitions without memory.
 `OpenSpec::open` detects the format from the image header.
 
@@ -1072,13 +1080,19 @@ resident metadata. `load_track()` is the single backend operation for a complete
 stream or generator, including records, typed attributes, events,
 stages, parent locations and incident relations.
 
-Both local and remote consumers query the resulting immutable `LoadedGenerator`
-objects. Their indexes provide transaction lookup and inclusive overlap queries,
+Both local and remote loaders return the same immutable
+`volna_trace::data::loaded_tracks::LoadedGenerator` objects. Their raw indexes
+provide transaction lookup and inclusive overlap queries,
 including long intervals and point events. Relation identities preserve parallel
 edges and references into unloaded tracks. No reader query facet is exposed to
 viewer consumers: once an object is loaded, navigation reads resident storage.
 Names are resolved at the backend boundary, so loaded data outlives the session.
-The main frontend still has no transaction panel.
+The viewer's `data::loaded_tracks` wraps shared raw owners with sub-row stacking,
+median lifetimes and stage palette censuses. Local executors prepare these off
+the UI thread; the viewer remote coordinator prepares them cooperatively before
+releasing the completion ACK. Timeline placement belongs to the viewer and
+copies raw records when it needs to transform their times. Raw protocol objects
+contain none of these viewer indexes or placement rules.
 
 ### Complete-object remote loading
 
@@ -1102,7 +1116,11 @@ server, so remote installation does not schedule a UI-thread census. Local
 sessions retain `LoadRequest::Sizes`. See [SPEC](../../docs/SPEC.md#raw-hierarchy-transport-version-5)
 and the [hierarchy measurements](../../docs/BENCHMARK_RESULTS.md#compact-hierarchy-local-and-remote).
 
-Both executors consume `LoadRequest` and return `LoadResult`. The remote client
+Both viewer executors consume core `LoadRequest` and return core `LoadResult`.
+The core remote coordinator adapts raw requests to
+`volna_trace::remote::client::RemoteClient`, whose opaque caller tags do not
+define a trace set or workspace. Raw exact-activity reads return changing signal
+identities; the core computes scope counts. The remote client
 accepts requests through `submit`; submission failures return ordinary results
 with the original identities. The browser bridge lives as long as the open
 recording: a new open or a close drops it, while a workspace restore, which
@@ -1110,7 +1128,7 @@ also advances the document generation to invalidate earlier history results,
 keeps the connection because the remote session is unchanged, so restored rows
 and pipeline panels load over the same child. The document owns queued-demand filtering for
 both paths. The browser bridge handles host calls and scheduling, not per-kind
-load policy. `remote::client::RemoteClient` queues one command at a time. Responses carry
+load policy. The trace library's `RemoteClient` queues one command at a time. Responses carry
 session/request identities and use checksummed LZ4 frames with fixed bincode
 fields. Each frame is acknowledged after consumption. Cooperative decoders
 build objects privately, validate references and construct transaction indexes;
@@ -1120,6 +1138,8 @@ tasks, avoiding nested-timer throttling while giving input and painting regular
 opportunities to run. Track results also retain
 the document's request identity, so removal/re-add and retry reject stale work.
 Completed objects remain usable after disconnect; unfinished loads fail.
+The core supplies demand filtering through the raw client's `retain_queued`
+callback; the trace client has no `App` dependency.
 Both the document queue and the remote executor discard queued work after its
 last consumer is removed. Active responses finish normally and are discarded
 if no consumer remains; removing demand needs no cancellation protocol.

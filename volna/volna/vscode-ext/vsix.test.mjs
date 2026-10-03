@@ -126,7 +126,7 @@ test('installed VSIX opens and renders VTR and FST with its bundled server', {ti
   await writeFile(join(probe, 'probe.cjs'), 'exports.activate = () => {};');
   await copyFile(join(ext, 'vsix-driver.cjs'), join(probe, 'run.cjs'));
   await copyFile(join(ext, '..', 'examples', 'picorv32.vtr'), join(root, 'picorv32.vtr'));
-  await copyFile(join(ext, '..', '..', 'volna-core', 'tests', 'fixtures', 'values.fst'), join(root, 'values.fst'));
+  await copyFile(join(ext, '..', '..', 'volna-trace', 'tests', 'fixtures', 'values.fst'), join(root, 'values.fst'));
   await exec(code, ['--user-data-dir', profile, '--extensions-dir', extensions, '--install-extension', vsix, '--force'], {timeout: 30000});
   const port = await freePort();
   child = spawn('xvfb-run', ['-a', code, '--new-window', '--wait', '--user-data-dir', profile,

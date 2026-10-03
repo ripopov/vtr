@@ -143,8 +143,8 @@ impl StagePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::transactions::*;
     use std::collections::HashMap;
+    use volna_trace::data::transactions::*;
 
     fn one_dark() -> Theme {
         Theme::one_dark()

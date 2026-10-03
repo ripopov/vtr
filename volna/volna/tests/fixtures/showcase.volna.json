@@ -1,0 +1,112 @@
+{
+  "format": "volna-workspace",
+  "version": 5,
+  "traces": [
+    {
+      "letter": "A",
+      "path": "feature_showcase.vtr",
+      "name": "feature_showcase.vtr",
+      "timescale": -9,
+      "time_range": [
+        0,
+        2048
+      ],
+      "design_id": null
+    }
+  ],
+  "timescale": -9,
+  "layout": {
+    "tabs": [
+      17
+    ],
+    "active": 17
+  },
+  "focused": 17,
+  "panels": [
+    {"follow":"suspended","id":17,"kind":"pipeline","version":1,"title":null,"track":["soc","cpu","thread0","instructions"],"link":{"viewport":true,"cursor":true},"rows":{"top":-285.70908203125003,"row_px":0.5},"label_width":190.0}
+  ],
+  "shared": {
+    "viewport": {
+      "start": -409.6,
+      "end": 2457.6
+    },
+    "cursor": 836,
+    "markers": []
+  },
+  "sidebar": {
+    "visible": true,
+    "width": 210.16335,
+    "scopes_fraction": 0.42,
+    "selected_scope": [
+      "A",
+      [
+        "soc",
+        "cpu",
+        "thread0"
+      ]
+    ],
+    "expanded": [
+      [
+        "A",
+        [
+          "firmware"
+        ]
+      ],
+      [
+        "A",
+        [
+          "firmware",
+          "driver"
+        ]
+      ],
+      [
+        "A",
+        [
+          "hotplug_sensor"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc",
+          "clk"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc",
+          "cpu"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc",
+          "dma"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc",
+          "log"
+        ]
+      ],
+      [
+        "A",
+        [
+          "soc",
+          "type_gallery"
+        ]
+      ]
+    ],
+    "filter": ""
+  }
+}

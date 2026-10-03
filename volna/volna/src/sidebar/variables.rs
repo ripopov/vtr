@@ -10,11 +10,11 @@ use gpui_kit::{
     uniform_list,
 };
 use volna_core::app::Command;
-use volna_core::data::Member;
 use volna_core::sidebar::Key;
 use volna_core::sidebar::icons::{direction_icon, member_icon};
 use volna_core::sidebar::members::{describe, log_site, member_detail};
 use volna_core::trace::Traced;
+use volna_trace::data::Member;
 
 use crate::app::{Workspace, to_modifiers};
 use crate::theme::{ThemePx, theme};
@@ -185,7 +185,7 @@ impl Workspace {
                         let severity = log_site(h, member).map(|s| s.severity);
                         // Variables and non-log generators have a wave row form.
                         let addable = member.var().is_some()
-                            || (matches!(member, volna_core::data::Member::Generator(_))
+                            || (matches!(member, volna_trace::data::Member::Generator(_))
                                 && !h.is_log(member));
                         // A clock's generator is shown as a ruler or as a waveform row.
                         let clock = this.app.member_clock(traced).is_some();

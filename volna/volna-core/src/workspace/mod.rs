@@ -10,7 +10,6 @@ use crate::sidebar::ScopeTreeModel;
 use crate::wave::viewport::Viewport;
 use crate::{
     App,
-    data::source::Lookup,
     marker::{Marker, Reference},
     sidebar::TreeNode,
     trace::{TraceId, Traced},
@@ -19,6 +18,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashSet;
+use volna_trace::data::source::Lookup;
 
 pub const FORMAT: &str = "volna-workspace";
 pub const VERSION: u32 = 5;
@@ -180,7 +180,7 @@ impl Workspace {
             .into_iter()
             .map(|p| p.save(&app.doc))
             .collect::<Result<_>>()?;
-        let path = |scope: Traced<crate::data::ScopeId>| {
+        let path = |scope: Traced<volna_trace::data::ScopeId>| {
             let h = app.doc.hierarchy(scope.trace)?;
             let path = h.scope_path(scope.item).into_iter().map(str::to_owned);
             Some(scope.with(path.collect::<Vec<_>>()))

@@ -2,9 +2,9 @@
 //! cargo run --release -p volna-core --example hierarchy_cost -- TRACE
 use std::time::Instant;
 use volna_core::app::{App, Command};
-use volna_core::session::OpenSpec;
 use volna_core::workspace::Workspace;
 use volna_core::workspace::persistence::Persistence;
+use volna_trace::session::OpenSpec;
 
 fn main() -> anyhow::Result<()> {
     let path = std::env::args().nth(1).expect("hierarchy_cost TRACE");

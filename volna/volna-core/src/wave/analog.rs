@@ -13,11 +13,12 @@
 
 use std::sync::Arc;
 
-use crate::data::value_view::ValueView;
-use crate::data::{NumericKind, SignalHistory, SignalShape, Translator};
+use crate::data::{NumericKind, Translator};
 use crate::geometry::{Point, point};
 use crate::wave::model::RowHeight;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::value_view::ValueView;
+use volna_trace::data::{SignalHistory, SignalShape};
 
 /// How consecutive values are joined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -295,7 +296,7 @@ pub struct AnalogSummary {
     len: usize,
     /// `levels[0]` holds one extent per block; each level above halves it.
     levels: Vec<Vec<Extent>>,
-    reservation: Option<crate::remote::memory::Reservation>,
+    reservation: Option<volna_trace::remote::memory::Reservation>,
 }
 
 impl std::fmt::Debug for AnalogSummary {
@@ -340,7 +341,10 @@ impl AnalogSummary {
     }
 
     /// Charge the summary to a memory budget for as long as it lives.
-    pub fn account(mut self, budget: &crate::remote::memory::MemoryBudget) -> anyhow::Result<Self> {
+    pub fn account(
+        mut self,
+        budget: &volna_trace::remote::memory::MemoryBudget,
+    ) -> anyhow::Result<Self> {
         self.reservation =
             Some(budget.reserve_object("the analog summary", self.resident_bytes())?);
         Ok(self)
@@ -442,7 +446,7 @@ impl<'a> Series<'a> {
     /// document's summary of `signal` when it matches.
     pub fn of(
         doc: &'a crate::document::Document,
-        signal: Option<crate::trace::Traced<crate::data::SignalRef>>,
+        signal: Option<crate::trace::Traced<volna_trace::data::SignalRef>>,
         history: &'a Arc<dyn SignalHistory>,
         kind: NumericKind,
     ) -> Self {
@@ -912,8 +916,8 @@ pub fn fill_columns(runs: &[Vec<Point>], left: f32, width: f32) -> Vec<(f32, f32
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::WaveValue;
-    use crate::data::history::VecHistory;
+    use volna_trace::data::WaveValue;
+    use volna_trace::data::history::VecHistory;
 
     fn history(values: &[Option<i64>]) -> Arc<dyn SignalHistory> {
         Arc::new(VecHistory {

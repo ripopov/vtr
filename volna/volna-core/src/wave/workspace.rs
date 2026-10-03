@@ -12,7 +12,7 @@ use super::{
     viewport::Viewport,
 };
 use crate::clock::ClockView;
-use crate::data::{source::Lookup, transactions::TrackKind};
+
 use crate::panels::workspace::valid_viewport;
 use crate::panels::{Panel, PanelId, PanelKind, workspace::RestoreContext};
 use crate::trace::{TraceId, Traced};
@@ -21,6 +21,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::BTreeSet;
+use volna_trace::data::{source::Lookup, transactions::TrackKind};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Columns {
@@ -461,7 +462,7 @@ pub(crate) fn restore(raw: &RawValue, ctx: &mut RestoreContext<'_>) -> Result<Pa
                     },
                     name,
                     scope,
-                    crate::data::SignalShape::Bit,
+                    volna_trace::data::SignalShape::Bit,
                 )
             }
         };

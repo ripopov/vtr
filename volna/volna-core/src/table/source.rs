@@ -1,10 +1,10 @@
 //! Durable declaration references captured when a table is opened.
 
-use crate::data::source::Lookup;
-use crate::data::transactions::{TrackKind, TrackRef};
-use crate::data::{Hierarchy, SignalRef, VarId};
 use crate::pipeline::TrackSource;
 use crate::trace::{TraceId, Traced};
+use volna_trace::data::source::Lookup;
+use volna_trace::data::transactions::{TrackKind, TrackRef};
+use volna_trace::data::{Hierarchy, SignalRef, VarId};
 
 /// A column of a signal table: a variable of one trace, by its path.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,7 +77,7 @@ impl TableSource {
 
     pub fn generator(
         hierarchy: &Hierarchy,
-        tracks: &[crate::data::transactions::Track],
+        tracks: &[volna_trace::data::transactions::Track],
         track: Traced<TrackRef>,
     ) -> anyhow::Result<Self> {
         let declaration = tracks
@@ -89,7 +89,7 @@ impl TableSource {
             "Choose one generator, or only signals."
         );
         let member = hierarchy
-            .generators
+            .generators()
             .iter()
             .find(|g| g.track == track.item)
             .ok_or_else(|| anyhow::anyhow!("selected generator declaration is missing"))?;

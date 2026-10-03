@@ -6,10 +6,12 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 use volna_core::app::App;
-use volna_core::data::{Hierarchy, ScopeId, ScopeSize, ScopeSizes};
-use volna_core::session::{LoadRequest, OpenSpec};
+use volna_core::data::sizes::ScopeSizeLabel;
+use volna_core::session::LoadRequest;
 use volna_core::sidebar::{ScopeTreeModel, TreeNode};
 use volna_core::trace::{TraceId, Traced};
+use volna_trace::data::{Hierarchy, ScopeId, ScopeSize};
+use volna_trace::session::OpenSpec;
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -29,30 +31,6 @@ fn brute(h: &Hierarchy, scope: ScopeId) -> ScopeSize {
         variables,
         scopes,
     }
-}
-
-#[test]
-fn counts_equal_brute_force_on_the_fixtures() {
-    let mut aliased = 0;
-    for rel in [
-        "volna/volna/examples/counter.vtr",
-        "volna/volna/examples/picorv32.vtr",
-        "volna/volna/examples/feature_showcase.vtr",
-        "volna/volna/examples/pipeline_showcase.vtr",
-        "volna/volna/examples/landing.vtr",
-        "volna/volna/examples/landing_dram.fst",
-        "volna/volna-core/tests/fixtures/values.fst",
-    ] {
-        let session = OpenSpec::Path(root().join(rel)).open().unwrap();
-        let h = session.hierarchy();
-        let sizes = ScopeSizes::count(h);
-        for s in 0..h.scope_count() {
-            let want = brute(h, s);
-            assert_eq!(sizes.get(s), Some(want), "{rel}: {}", h.scope(s).name);
-            aliased += usize::from(want.variables > want.signals);
-        }
-    }
-    assert!(aliased > 0, "some fixture scope names a signal twice");
 }
 
 #[test]

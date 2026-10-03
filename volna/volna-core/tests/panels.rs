@@ -3,14 +3,14 @@ use std::sync::Arc;
 use volna_core::testing::a_all;
 
 use volna_core::Document;
-use volna_core::Session;
 use volna_core::app::SettingsCommand;
-use volna_core::data::source::Lookup;
 use volna_core::panels::PanelsCommand;
 use volna_core::panels::{Axis, Layout, PanelId, PanelKind, Panels};
 use volna_core::testing::ProceduralTrace;
 use volna_core::wave::model::{LinkDim, PointerEvent};
 use volna_core::{Action, App, Command, Instant};
+use volna_trace::Session;
+use volna_trace::data::source::Lookup;
 
 fn linked_app() -> App {
     let mut app = App::new();

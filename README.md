@@ -183,9 +183,11 @@ Three intents guide Volna's evolution. They describe direction rather than a
 fixed object tree; `volna/volna/ARCHITECTURE.md` records current behavior.
 
 1. **Toolkit-independent core.** Document state, view models, viewport math,
-   cursor and selection behavior, loading, and toolkit-neutral display lists
-   belong in `volna-core`, with headless tests. Frontends paint and host native
-   widgets; they do not own viewer logic.
+   cursor and selection behavior, viewer loading demand, analysis, and
+   toolkit-neutral display lists belong in `volna-core`, with headless tests.
+   The standalone `volna-trace` library owns recording access, immutable raw
+   objects, loading machinery and the remote client. Frontends paint and host
+   native widgets; they do not own viewer logic.
 2. **Several frontends over one core.** `volna` (GPUI, native and wasm) is the
    main viewer and feature target. `volna-egui` only proves core independence;
    preserve its current minimal behavior but do not pursue feature parity.
@@ -274,6 +276,7 @@ cargo test                     # unit, round-trip, converter, and C-ABI tests
 cargo clippy --release
 python3 tools/packaging/check-cargo-licenses.py # source-package license checks
 cargo test -p volna-core       # headless viewer-core tests
+python3 tools/check-volna-loading.py # standalone trace/server checks and dependency boundaries
 volna/volna/check.sh           # viewer crates, headless server and VS Code adapter
 python3 bench/run.py all --scale small   # quick benchmark (minutes)
 python3 bench/run.py all                 # full suite (~1 h), updates results
@@ -368,16 +371,16 @@ the openC910 SoC running CoreMark, traces each to FST and VTR, and regenerates
 |---|---|
 | [core/](core/README.md) | VTR library and C ABI; separate VDB library and RTL debugging |
 | [tools/](tools/README.md) | Trace CLI, inspection/conversion, and headless Volna server |
-| [volna/](volna/README.md) | Toolkit-independent core, GPUI frontend, and minimal egui frontend |
+| [volna/](volna/README.md) | Standalone trace loading, toolkit-independent viewer core, GPUI frontend, and minimal egui frontend |
 | [integrations/](integrations/README.md) | Verilator tools/tests, standalone slang exporter, and future integrations |
 | `bench/` | Rust drivers, orchestration, C/C++ harnesses, workloads, and results |
 | `demos/` | Logging examples and UI prototypes |
 | `docs/` | Architecture, specifications, APIs, research, and benchmark reports |
 | `ext/` | Pinned external projects and reference implementations |
 
-The ten Rust packages share the root workspace and lockfile: `vtr`,
+The eleven Rust packages share the root workspace and lockfile: `vtr`,
 `vtr-capi`, `vtr-guard`, `vtr-vdb`, `vtr-cli`, `volna-server`, `vtr-bench`,
-`volna-core`, `volna`, and `volna-egui`. Use `cargo -p <package>` to select one. Standalone
+`volna-trace`, `volna-core`, `volna`, and `volna-egui`. Use `cargo -p <package>` to select one. Standalone
 Python exporters live in `integrations/slang`; the Verilator backend is in the
 pinned `ext/verilator` submodule with tooling in `integrations/verilator`.
 First-party code belongs under its owning component, while shared benchmarks

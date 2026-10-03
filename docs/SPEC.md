@@ -14,7 +14,7 @@ Volna's [hierarchy browser](../volna/volna/ARCHITECTURE.md#hierarchy-browser)
 projects existing scope, stream, generator and enum-reference declarations;
 its icons, tints and activation rules add no file fields or encodings. The
 separately versioned raw query transport is documented in
-[`remote::transport`](../volna/volna-core/src/remote/transport.rs).
+[`remote::transport`](../volna/volna-trace/src/remote/transport.rs).
 
 Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
 `i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer
@@ -933,7 +933,7 @@ The query transport has its own version, independent of VTR 1.1. The `VLNA`
 frame header carries version **6** and rejects other versions before decoding
 objects. Existing framing, checksums, request/session identities, acknowledgement
 backpressure and complete-object semantics are specified in
-[`remote::transport`](../volna/volna-core/src/remote/transport.rs).
+[`remote::transport`](../volna/volna-trace/src/remote/transport.rs).
 No VTR section or encoding changes.
 
 An Open response sends a `Metadata` catalog followed by `Scopes(page)` objects

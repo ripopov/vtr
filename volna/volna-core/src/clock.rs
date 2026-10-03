@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 pub use vtr::{ClockTimeline, CycleAt};
 
 use crate::data::loaded_tracks::LoadedGenerator;
-use crate::data::transactions::{AttributeValue, Track, TrackKind, TrackRef, TxStatus};
 use crate::trace::{TraceId, Traced};
 use crate::wave::timeline::TimeBase;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::transactions::{AttributeValue, Track, TrackKind, TrackRef, TxStatus};
 
 /// Stream kind of a clock.
 pub const STREAM_KIND: &str = vtr::CLOCK_STREAM_KIND;
@@ -362,9 +362,9 @@ impl ClockHistory {
     }
 }
 
-impl crate::data::SignalHistory for ClockHistory {
-    fn shape(&self) -> crate::data::SignalShape {
-        crate::data::SignalShape::Bit
+impl volna_trace::data::SignalHistory for ClockHistory {
+    fn shape(&self) -> volna_trace::data::SignalShape {
+        volna_trace::data::SignalShape::Bit
     }
 
     fn always_normal(&self) -> bool {
@@ -387,18 +387,20 @@ impl crate::data::SignalHistory for ClockHistory {
             .map_or(fall, |next| fall.min(next))
     }
 
-    fn value(&self, i: Option<usize>) -> crate::data::WaveValue {
+    fn value(&self, i: Option<usize>) -> volna_trace::data::WaveValue {
         match i {
-            None => crate::data::WaveValue::Unavailable,
-            Some(i) => crate::data::WaveValue::Bits(if i % 2 == 0 { "1" } else { "0" }.into()),
+            None => volna_trace::data::WaveValue::Unavailable,
+            Some(i) => {
+                volna_trace::data::WaveValue::Bits(if i % 2 == 0 { "1" } else { "0" }.into())
+            }
         }
     }
 
-    fn bit(&self, i: Option<usize>) -> crate::data::Bit {
+    fn bit(&self, i: Option<usize>) -> volna_trace::data::Bit {
         match i {
-            None => crate::data::Bit::Unavailable,
-            Some(i) if i % 2 == 0 => crate::data::Bit::One,
-            Some(_) => crate::data::Bit::Zero,
+            None => volna_trace::data::Bit::Unavailable,
+            Some(i) if i % 2 == 0 => volna_trace::data::Bit::One,
+            Some(_) => volna_trace::data::Bit::Zero,
         }
     }
 }

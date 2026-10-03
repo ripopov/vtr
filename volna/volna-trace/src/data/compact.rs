@@ -380,22 +380,19 @@ mod tests {
 
     #[test]
     fn views_read_numbers_in_place_and_reals_round_trip() {
-        use crate::data::NumericKind;
         let h = build(
             SignalShape::Vector { width: 16 },
             &["1111111111111110", "0000000000000101"],
         );
-        assert_eq!(NumericKind::Signed.read(&h.value_view(Some(0))), Some(-2.0));
-        assert_eq!(
-            NumericKind::Unsigned.read(&h.value_view(Some(1))),
-            Some(5.0)
-        );
+        let unsigned = |v: ValueView<'_>| match v {
+            ValueView::Logic(bits) => bits.to_u64(),
+            _ => None,
+        };
+        assert_eq!(unsigned(h.value_view(Some(0))), Some(65534));
+        assert_eq!(unsigned(h.value_view(Some(1))), Some(5));
         let small = build(SignalShape::Vector { width: 3 }, &["101", "0x1"]);
-        assert_eq!(
-            NumericKind::Unsigned.read(&small.value_view(Some(0))),
-            Some(5.0)
-        );
-        assert_eq!(NumericKind::Unsigned.read(&small.value_view(Some(1))), None);
+        assert_eq!(unsigned(small.value_view(Some(0))), Some(5));
+        assert_eq!(unsigned(small.value_view(Some(1))), None);
         let mut r = CompactBuilder::new(SignalShape::Real).unwrap();
         r.push_real(1, -2.5).unwrap();
         r.push_real(3, 1e300).unwrap();

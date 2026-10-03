@@ -14,8 +14,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::data::{ActivityCounter, ActivityCounts, ScopeId};
-use crate::remote::memory::MemoryBudget;
+use crate::data::{ActivityCounter, ActivityCounts};
+use volna_trace::data::ScopeId;
+use volna_trace::remote::memory::MemoryBudget;
+
 use crate::session::{LoadRequest, LoadResult};
 use crate::settings::ActivityIndexPolicy;
 use crate::trace::{Placement, TraceId, TraceSet};
@@ -466,7 +468,7 @@ impl ActivityModel {
                     },
                     Build::Offered if policy != ActivityIndexPolicy::Never => {
                         ActivityBuildState::Offer {
-                            estimated_seconds: info.estimated_seconds(),
+                            estimated_seconds: crate::data::activity::estimated_seconds(info),
                         }
                     }
                     Build::Failed(message) if policy != ActivityIndexPolicy::Never => {

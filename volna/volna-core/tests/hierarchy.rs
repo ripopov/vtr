@@ -1,17 +1,17 @@
 use std::sync::Arc;
 use volna_core::app::{App, Command, Event};
-use volna_core::data::source::Lookup;
-use volna_core::data::transactions::TrackRef;
-use volna_core::data::{Hierarchy, Member, ScopeRole};
 use volna_core::geometry::Modifiers;
 use volna_core::icons::IconName;
-use volna_core::remote::objects::Metadata;
-use volna_core::session::{OpenSpec, Session};
 use volna_core::sidebar::TreeNode;
 use volna_core::sidebar::icons::{Tint, member_icon, scope_icon, scope_kind_icon, stream_tag};
 use volna_core::sidebar::members::log_site;
 use volna_core::sidebar::{Key, MemberListModel, ScopeTreeModel};
 use volna_core::testing::{a, hierarchy_document};
+use volna_trace::data::source::Lookup;
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::data::{Hierarchy, Member, ScopeRole};
+use volna_trace::remote::objects::Metadata;
+use volna_trace::session::{OpenSpec, Session};
 
 fn fixture() -> Arc<dyn Session> {
     let file = tempfile::Builder::new().suffix(".vtr").tempfile().unwrap();
@@ -200,7 +200,7 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
     list.rebuild(hierarchy_document(h).traces());
     assert_eq!(list.rows.len(), 4999);
     assert!(!list.truncated);
-    let mut h = volna_core::data::HierarchyBuilder::default();
+    let mut h = volna_trace::data::HierarchyBuilder::default();
     let mut parent = None;
     for _ in 0..20000 {
         parent = Some(h.push_scope("nested".into(), "module".into(), parent));
@@ -217,7 +217,7 @@ fn search_cap_counts_all_kinds_and_deep_trees_are_iterative() {
 fn expand_all_keeps_gate_leaves_out_of_state_and_saved_paths() {
     use volna_core::workspace::Workspace;
 
-    let mut h = volna_core::data::HierarchyBuilder::default();
+    let mut h = volna_trace::data::HierarchyBuilder::default();
     let root = h.push_scope("top".into(), "module".into(), None);
     let module = h.push_scope("module".into(), "module".into(), Some(root));
     for id in 0..100_000 {

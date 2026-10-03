@@ -1,15 +1,15 @@
 //! Compact hierarchy parity and protocol-v5 admission/lifecycle tests.
 use std::sync::Arc;
-use volna_core::data::{Hierarchy, ScopeSizes};
-use volna_core::remote::{
-    ClientStep,
+use volna_trace::data::{Hierarchy, ScopeSizes};
+use volna_trace::remote::ClientStep;
+use volna_trace::remote::{
     hierarchy::{Header, PAGE_ENTRIES, Page},
     memory::MemoryBudget,
     open::OpenTransfer,
     transport::{Body, DATA_BYTES, ObjectId, Packet},
 };
-use volna_core::session::{LoadResult, OpenSpec, Session};
-use volna_core::trace::TraceId;
+use volna_trace::session::LoadResult;
+use volna_trace::session::{OpenSpec, Session};
 
 fn objects(session: &dyn Session) -> Vec<(ObjectId, Vec<u8>)> {
     let header = Header::from_session(session).unwrap();
@@ -30,7 +30,7 @@ fn objects(session: &dyn Session) -> Vec<(ObjectId, Vec<u8>)> {
     objects
 }
 fn transfer(budget: &MemoryBudget) -> OpenTransfer {
-    OpenTransfer::new(7, TraceId::A, 11, 64 * 1024 * 1024, budget.clone()).unwrap()
+    OpenTransfer::new(7, 0, 11, 64 * 1024 * 1024, budget.clone()).unwrap()
 }
 fn accept(
     transfer: &mut OpenTransfer,
@@ -44,7 +44,7 @@ fn accept(
         body,
     };
     *sequence += 1;
-    let expected = volna_core::remote::transport::acknowledgement(&packet);
+    let expected = volna_trace::remote::transport::acknowledgement(&packet);
     let mut step = transfer.accept(packet)?;
     loop {
         match step {
@@ -173,7 +173,7 @@ fn equal(a: &Hierarchy, b: &Hierarchy) {
 }
 
 #[test]
-fn every_fixture_roundtrips_column_for_column_with_sizes_and_no_client_census() {
+fn every_fixture_roundtrips_column_for_column_with_shared_sizes() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for path in [
         "../volna/examples/counter.vtr",
@@ -191,14 +191,6 @@ fn every_fixture_roundtrips_column_for_column_with_sizes_and_no_client_census() 
         for id in 0..local.hierarchy().scope_count() {
             assert_eq!(sizes.get(id), received.get(id));
         }
-        let mut app = volna_core::app::App::new();
-        app.set_session(remote.clone());
-        assert!(
-            app.take_requests()
-                .iter()
-                .all(|r| !matches!(r, volna_core::session::LoadRequest::Sizes { .. }))
-        );
-        drop(app);
         drop(remote);
         assert!(budget.used() > 0, "sizes retain their admission owner");
         drop(received);
@@ -207,22 +199,22 @@ fn every_fixture_roundtrips_column_for_column_with_sizes_and_no_client_census() 
 }
 
 fn wide(count: usize) -> Arc<dyn Session> {
-    let mut h = volna_core::data::HierarchyBuilder::default();
+    let mut h = volna_trace::data::HierarchyBuilder::default();
     let root = h.push_scope("顶层.λ".into(), "module".into(), None);
     for i in 0..count {
         let scope = h.push_scope(format!("cell{i}"), "module".into(), Some(root));
         h.scopes[scope].component = "NAND2_X1".into();
-        h.vars.push(volna_core::data::Variable {
+        h.vars.push(volna_trace::data::Variable {
             name: "\\pin.λ".into(),
             scope,
-            shape: volna_core::data::SignalShape::Vector { width: 64 },
+            shape: volna_trace::data::SignalShape::Vector { width: 64 },
             var_type: "wire".into(),
-            direction: volna_core::data::Direction::Input,
-            signal: volna_core::data::SignalRef(0),
+            direction: volna_trace::data::Direction::Input,
+            signal: volna_trace::data::SignalRef(0),
             enum_table: Some(42),
         });
     }
-    volna_core::testing::hierarchy_session(h)
+    volna_trace::testing::hierarchy_session(h)
 }
 #[test]
 fn pages_cross_65536_entries_and_shared_hierarchy_outlives_the_session() {
@@ -392,95 +384,24 @@ fn missing_last_end_and_wrong_envelopes_never_publish_a_session() {
     }
 }
 
-#[cfg(unix)]
-#[test]
-fn production_in_process_transport_matches_local_over_multiple_pages() {
-    use std::os::unix::net::UnixStream;
-    use std::time::Duration;
-    use volna_core::remote::{
-        client::RemoteClient,
-        transport::{Command, read_packet, write_packet},
-    };
-    let local = wide(PAGE_ENTRIES + 1);
-    let expected = local.clone();
-    let (mut client_socket, server_socket) = UnixStream::pair().unwrap();
-    for socket in [&client_socket, &server_socket] {
-        socket
-            .set_read_timeout(Some(Duration::from_secs(20)))
-            .unwrap();
-        socket
-            .set_write_timeout(Some(Duration::from_secs(20)))
-            .unwrap();
-    }
-    let worker = std::thread::spawn(move || {
-        volna_core::remote::server::serve(
-            server_socket.try_clone().unwrap(),
-            server_socket,
-            31,
-            || Ok(local),
-            || Ok(()),
-        )
-    });
-    let budget = MemoryBudget::new(32 * 1024 * 1024);
-    let mut client = RemoteClient::new(TraceId::A, 11, 64 * 1024 * 1024, budget.clone()).unwrap();
-    write_packet(&mut client_socket, &client.take_command().unwrap().unwrap()).unwrap();
-    let remote = 'opened: loop {
-        let mut step = client
-            .accept(read_packet(&mut client_socket).unwrap().unwrap())
-            .unwrap();
-        loop {
-            match step {
-                ClientStep::Yield => step = client.step().unwrap(),
-                ClientStep::Ack(ack) => {
-                    write_packet(&mut client_socket, &ack).unwrap();
-                    break;
-                }
-                ClientStep::Complete {
-                    ack,
-                    result: LoadResult::Opened { result, .. },
-                } => {
-                    write_packet(&mut client_socket, &ack).unwrap();
-                    break 'opened result.unwrap();
-                }
-                _ => panic!("Open"),
-            }
-        }
-    };
-    equal(expected.hierarchy(), remote.hierarchy());
-    write_packet(
-        &mut client_socket,
-        &Packet {
-            session: 31,
-            request: 8,
-            sequence: 0,
-            body: Body::Command(Command::Close),
-        },
-    )
-    .unwrap();
-    drop(client_socket);
-    worker.join().unwrap().unwrap();
-    drop(remote);
-    assert_eq!(budget.used(), 0);
-}
-
 #[test]
 fn preorder_pages_preserve_declaration_ids_and_membership() {
-    let mut b = volna_core::data::HierarchyBuilder::default();
+    let mut b = volna_trace::data::HierarchyBuilder::default();
     let a = b.push_scope("a".into(), "module".into(), None);
     let sibling = b.push_scope("b".into(), "module".into(), None);
     let child = b.push_scope("c".into(), "module".into(), Some(a));
     for scope in [sibling, a, child, a] {
-        b.vars.push(volna_core::data::Variable {
+        b.vars.push(volna_trace::data::Variable {
             name: "same".into(),
             scope,
-            shape: volna_core::data::SignalShape::Bit,
+            shape: volna_trace::data::SignalShape::Bit,
             var_type: "wire".into(),
-            direction: volna_core::data::Direction::None,
-            signal: volna_core::data::SignalRef(0),
+            direction: volna_trace::data::Direction::None,
+            signal: volna_trace::data::SignalRef(0),
             enum_table: None,
         });
     }
-    let local = volna_core::testing::hierarchy_session(b);
+    let local = volna_trace::testing::hierarchy_session(b);
     let sizes = ScopeSizes::count(local.hierarchy());
     assert_eq!(Page::scopes(local.hierarchy(), &sizes, 0).ids, [0, 2, 1]);
     assert_eq!(Page::vars(local.hierarchy(), 0).ids, [1, 3, 2, 0]);
@@ -504,12 +425,12 @@ fn preorder_pages_preserve_declaration_ids_and_membership() {
 #[test]
 fn empty_forest_and_deep_hierarchy_roundtrip_without_recursion() {
     for depth in [0, 20_000] {
-        let mut b = volna_core::data::HierarchyBuilder::default();
+        let mut b = volna_trace::data::HierarchyBuilder::default();
         let mut parent = None;
         for _ in 0..depth {
             parent = Some(b.push_scope("nested".into(), "module".into(), parent));
         }
-        let local = volna_core::testing::hierarchy_session(b);
+        let local = volna_trace::testing::hierarchy_session(b);
         let budget = MemoryBudget::new(16 * 1024 * 1024);
         let remote = roundtrip(local.clone(), DATA_BYTES, &budget);
         equal(local.hierarchy(), remote.hierarchy());
@@ -723,7 +644,7 @@ fn root_variables_keep_synthetic_scope_declaration_order_and_later_top_is_distin
         if mode == 0 {
             assert_eq!(
                 h.find_scope(&["(top)"]),
-                volna_core::data::source::Lookup::Ambiguous
+                volna_trace::data::source::Lookup::Ambiguous
             );
         }
         if mode == 2 {
@@ -737,7 +658,7 @@ fn root_variables_keep_synthetic_scope_declaration_order_and_later_top_is_distin
 
 #[test]
 fn enum_presence_preserves_the_complete_raw_identity_range() {
-    use volna_core::data::*;
+    use volna_trace::data::*;
     let mut builder = HierarchyBuilder::default();
     builder.push_scope("top".into(), "module".into(), None);
     for (enum_table, direction) in [
@@ -756,7 +677,7 @@ fn enum_presence_preserves_the_complete_raw_identity_range() {
             enum_table,
         });
     }
-    let local = volna_core::testing::hierarchy_session(builder);
+    let local = volna_trace::testing::hierarchy_session(builder);
     let budget = MemoryBudget::new(1024 * 1024);
     let remote = roundtrip(local.clone(), 7, &budget);
     equal(local.hierarchy(), remote.hierarchy());

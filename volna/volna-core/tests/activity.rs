@@ -5,16 +5,23 @@
 //! shows a range until the read replaces it; a read for a window the view
 //! has left is dropped; an index built for another trace is ignored.
 
+// Exercise the executable handler directly over bounded test sockets; no server library is needed.
+#[cfg(unix)]
+#[path = "../../../tools/volna-server/src/server.rs"]
+mod server;
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use volna_core::app::App;
-use volna_core::data::{ScopeActivity, SignalRef};
-use volna_core::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use volna_core::data::ScopeActivity;
+use volna_core::session::{LoadRequest, LoadResult};
 use volna_core::sidebar::TreeNode;
 use volna_core::trace::{TraceId, Traced};
 use volna_core::wave::Viewport;
+use volna_trace::data::SignalRef;
+use volna_trace::session::{OpenSpec, Session};
 use vtr::{Direction, ScopeType, SignalKind, VarType, Writer, WriterOptions};
 
 /// A small design over several blocks: a clock, bursty units under nested
@@ -523,7 +530,7 @@ fn failed_reads_report_errors_and_stop_showing_pending_meters() {
     let LoadRequest::ResolveActivity { budget, .. } = &mut read else {
         panic!("expected read")
     };
-    *budget = volna_core::remote::memory::MemoryBudget::new(0);
+    *budget = volna_trace::remote::memory::MemoryBudget::new(0);
     app.deliver(read.perform());
     assert!(app.take_events().iter().any(|e| matches!(e, volna_core::app::Event::Notice(message) if message.contains("memory budget exceeded"))));
     assert_eq!(
@@ -876,7 +883,7 @@ fn independent_sessions_share_a_single_sidecar_build() {
                             control: Some(control.clone()),
                             ..Default::default()
                         },
-                        &volna_core::remote::memory::MemoryBudget::new(4 << 20),
+                        &volna_trace::remote::memory::MemoryBudget::new(4 << 20),
                         None,
                     )
                     .unwrap();
@@ -911,7 +918,9 @@ fn independent_sessions_share_a_single_sidecar_build() {
 #[test]
 fn server_streams_a_cached_sidecar_and_keeps_it_after_disconnect() {
     use std::os::unix::net::UnixStream;
-    use volna_core::remote::{ClientStep, open::OpenTransfer, transport::*};
+    use volna_trace::remote::ClientStep;
+    use volna_trace::remote::{open::OpenTransfer, transport::*};
+    use volna_trace::session::LoadResult;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("remote.vtr");
     write_trace(&path, 712);
@@ -925,7 +934,7 @@ fn server_streams_a_cached_sidecar_and_keeps_it_after_disconnect() {
         .unwrap();
     let server_session = session.clone();
     let service = std::thread::spawn(move || {
-        volna_core::remote::server::serve(
+        server::serve(
             server.try_clone().unwrap(),
             server,
             71,
@@ -938,7 +947,7 @@ fn server_streams_a_cached_sidecar_and_keeps_it_after_disconnect() {
         TraceId::A,
         1,
         4 << 20,
-        volna_core::remote::memory::MemoryBudget::new(8 << 20),
+        volna_trace::remote::memory::MemoryBudget::new(8 << 20),
     )
     .unwrap();
     write_packet(&mut client, &opening.command()).unwrap();
@@ -1022,8 +1031,8 @@ struct RemoteRig {
     wire: std::os::unix::net::UnixStream,
     client: volna_core::remote::client::RemoteClient,
     service: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
-    budget: volna_core::remote::memory::MemoryBudget,
-    commands: Vec<volna_core::remote::transport::Command>,
+    budget: volna_trace::remote::memory::MemoryBudget,
+    commands: Vec<volna_trace::remote::transport::Command>,
 }
 
 #[cfg(unix)]
@@ -1040,7 +1049,7 @@ impl RemoteRig {
                 .unwrap();
         }
         let service = std::thread::spawn(move || {
-            volna_core::remote::server::serve(
+            server::serve(
                 server.try_clone().unwrap(),
                 server,
                 89,
@@ -1048,7 +1057,7 @@ impl RemoteRig {
                 || Ok(()),
             )
         });
-        let budget = volna_core::remote::memory::MemoryBudget::new(16 << 20);
+        let budget = volna_trace::remote::memory::MemoryBudget::new(16 << 20);
         let client = RemoteClient::new(TraceId::A, 1, 8 << 20, budget.clone()).unwrap();
         let mut rig = Self {
             wire,
@@ -1067,7 +1076,8 @@ impl RemoteRig {
     }
 
     fn pump(&mut self, mut deliver: impl FnMut(LoadResult)) {
-        use volna_core::remote::{ClientStep, transport::*};
+        use volna_core::remote::ClientStep;
+        use volna_trace::remote::transport::*;
         while let Some(command) = self.client.take_command().unwrap() {
             let expected = match &command.body {
                 Body::Command(Command::Signals(ids)) => ids.len(),
@@ -1150,7 +1160,7 @@ impl Drop for RemoteRig {
 #[cfg(unix)]
 #[test]
 fn remote_build_and_scope_counts_match_local_without_pan_index_requests() {
-    use volna_core::remote::transport::Command;
+    use volna_trace::remote::transport::Command;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("remote-built.vtr");
     write_trace(&path, 731);
@@ -1209,7 +1219,7 @@ fn remote_build_and_scope_counts_match_local_without_pan_index_requests() {
 #[cfg(unix)]
 #[test]
 fn remote_cached_index_loads_once_even_when_build_policy_is_never() {
-    use volna_core::remote::transport::Command;
+    use volna_trace::remote::transport::Command;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("remote-cached.vtr");
     write_trace(&path, 738);
@@ -1232,7 +1242,7 @@ fn remote_cached_index_loads_once_even_when_build_policy_is_never() {
 #[cfg(unix)]
 #[test]
 fn remote_exact_reads_span_multiple_complete_history_batches() {
-    use volna_core::remote::transport::{Command, MAX_BATCH};
+    use volna_trace::remote::transport::{Command, MAX_BATCH};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("batch.vtr");
     let mut writer = Writer::create(&path).unwrap();
@@ -1322,25 +1332,25 @@ fn a_client_disconnect_during_an_authorized_server_build_keeps_the_cache() {
         release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
     }
     impl Session for GatedBuild {
-        fn info(&self) -> &volna_core::data::TraceInfo {
+        fn info(&self) -> &volna_trace::data::TraceInfo {
             self.inner.info()
         }
-        fn hierarchy(&self) -> &volna_core::data::Hierarchy {
+        fn hierarchy(&self) -> &volna_trace::data::Hierarchy {
             self.inner.hierarchy()
         }
         fn load_signal(
             &self,
             s: SignalRef,
-        ) -> anyhow::Result<Arc<dyn volna_core::data::SignalHistory>> {
+        ) -> anyhow::Result<Arc<dyn volna_trace::data::SignalHistory>> {
             self.inner.load_signal(s)
         }
-        fn activity(&self) -> Option<Arc<volna_core::data::ActivityIndex>> {
+        fn activity(&self) -> Option<Arc<volna_trace::data::ActivityIndex>> {
             self.inner.activity()
         }
         fn activity_identity(&self) -> Option<vtr::activity::Identity> {
             self.inner.activity_identity()
         }
-        fn activity_build_info(&self) -> Option<volna_core::data::ActivityBuildInfo> {
+        fn activity_build_info(&self) -> Option<volna_trace::data::ActivityBuildInfo> {
             self.inner.activity_build_info()
         }
         fn activity_image(&self, cache: Option<&Path>) -> anyhow::Result<Vec<u8>> {
@@ -1349,7 +1359,7 @@ fn a_client_disconnect_during_an_authorized_server_build_keeps_the_cache() {
         fn build_activity(
             &self,
             options: &vtr::activity::BuildOptions,
-            budget: &volna_core::remote::memory::MemoryBudget,
+            budget: &volna_trace::remote::memory::MemoryBudget,
             cache: Option<&Path>,
         ) -> anyhow::Result<()> {
             self.entered.send(())?;
@@ -1360,7 +1370,7 @@ fn a_client_disconnect_during_an_authorized_server_build_keeps_the_cache() {
             self.inner.build_activity(options, budget, cache)
         }
     }
-    use volna_core::remote::transport::write_packet;
+    use volna_trace::remote::transport::write_packet;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("disconnected.vtr");
     write_trace(&path, 993);

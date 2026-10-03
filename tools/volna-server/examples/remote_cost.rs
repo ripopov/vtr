@@ -4,14 +4,13 @@ use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Instant;
-use volna_core::data::transactions::{TrackKind, TrackRef};
-use volna_core::remote::ClientStep;
-use volna_core::remote::client::RemoteClient;
-use volna_core::remote::limits::Limits;
-use volna_core::remote::memory::MemoryBudget;
-use volna_core::remote::transport::{self, MAX_FRAME_BYTES, Packet};
-use volna_core::session::LoadResult;
-use volna_core::trace::TraceId;
+use volna_trace::data::transactions::{TrackKind, TrackRef};
+use volna_trace::remote::ClientStep;
+use volna_trace::remote::client::RemoteClient;
+use volna_trace::remote::limits::Limits;
+use volna_trace::remote::memory::MemoryBudget;
+use volna_trace::remote::transport::{self, MAX_FRAME_BYTES, Packet};
+use volna_trace::session::LoadResult;
 
 struct Measurement {
     child: Child,
@@ -145,7 +144,7 @@ fn main() -> anyhow::Result<()> {
         input: child.stdin.take().unwrap(),
         output: child.stdout.take().unwrap(),
         child,
-        client: RemoteClient::new(TraceId::A, 1, object, budget.clone())?,
+        client: RemoteClient::new(0, 1, object, budget.clone())?,
         budget,
         start,
         received: 0,
@@ -192,8 +191,8 @@ fn main() -> anyhow::Result<()> {
                 let count = ids.len();
                 anyhow::ensure!(
                     run.client
-                        .submit(volna_core::session::LoadRequest::Signals {
-                            trace: TraceId::A,
+                        .submit(volna_trace::session::LoadRequest::Signals {
+                            tag: 0,
                             session: session.clone(),
                             generation: 1,
                             signals: ids,
@@ -217,8 +216,8 @@ fn main() -> anyhow::Result<()> {
                 for (index, &track) in ids.iter().enumerate() {
                     anyhow::ensure!(
                         run.client
-                            .submit(volna_core::session::LoadRequest::Track {
-                                trace: TraceId::A,
+                            .submit(volna_trace::session::LoadRequest::Track {
+                                tag: 0,
                                 session: session.clone(),
                                 generation: 1,
                                 request_id: index as u64 + 1,

@@ -2,8 +2,8 @@
 //! Run each sample in a fresh process so Linux VmHWM has a useful scope.
 use std::collections::HashSet;
 use std::time::Instant;
-use volna_core::data::transactions::TrackKind;
-use volna_core::session::OpenSpec;
+use volna_trace::data::transactions::TrackKind;
+use volna_trace::session::OpenSpec;
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
     let open_ms = start.elapsed().as_secs_f64() * 1000.0;
     // The count every open runs off the UI thread (docs/hierarchy-scope-sizes.html).
     let sizes_start = Instant::now();
-    std::hint::black_box(volna_core::data::ScopeSizes::count(session.hierarchy()));
+    std::hint::black_box(volna_trace::data::ScopeSizes::count(session.hierarchy()));
     let sizes_ms = sizes_start.elapsed().as_secs_f64() * 1000.0;
     let mut histories = Vec::new();
     let mut tracks = Vec::new();

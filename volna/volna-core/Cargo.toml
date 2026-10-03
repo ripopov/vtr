@@ -11,31 +11,25 @@ description = "Volna viewer core: document, view models, display-list rendering.
 crate-type = ["rlib"]
 
 [dependencies]
+volna-trace = { path = "../volna-trace" }
 vtr = { path = "../../core/vtr" }
-# The FST front end of the activity index.
-vtr-cli = { path = "../../tools/vtr-cli", default-features = false }
 anyhow = "1"
-bincode = "=1.3.3"
-lz4_flex = { version = "=0.11.6", features = ["frame"] }
-fst-reader = "0.17"
-flate2 = "1"
 log = "0.4"
+sha2 = "0.10"
 web-time = "1"
 url = "2"
 percent-encoding = "2"
-sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-gethostname = "=1.1.0"
 
 [features]
 # Test fixtures (`volna_core::testing`) for this crate's integration tests and
 # for frontend tests.
-testing = []
+testing = ["volna-trace/testing"]
 
 [dev-dependencies]
+gethostname = "=1.1.0"
+bincode = "=1.3.3"
 volna-core = { path = ".", features = ["testing"] }
 tempfile = "3"
 # The Kanata importer, for a pipeline counted in its cycle clock.

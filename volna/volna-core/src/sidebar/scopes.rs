@@ -5,8 +5,8 @@
 use std::collections::HashSet;
 
 use super::Key;
-use crate::data::{Hierarchy, Member, ScopeId, ScopeRole, ScopeSize};
 use crate::trace::{TraceId, TraceSet, Traced};
+use volna_trace::data::{Hierarchy, Member, ScopeId, ScopeRole, ScopeSize};
 
 /// A row of the tree: a trace's own row (`scope` is `None`, shown only
 /// while several traces are open) or one of its scopes.

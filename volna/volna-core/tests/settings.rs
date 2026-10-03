@@ -7,10 +7,10 @@ use volna_core::testing::a_all;
 use volna_core::Instant;
 use volna_core::app::{Action, App, Command, Event, SettingsCommand};
 use volna_core::panels::PanelsCommand;
-use volna_core::session::OpenSpec;
 use volna_core::settings::{Animation, Host, Value, WRITE_IDLE, ZoomStep};
 use volna_core::testing::{ProceduralTrace, complete_open};
 use volna_core::workspace::persistence::{Candidate, Content, Persistence, Target};
+use volna_trace::session::OpenSpec;
 
 fn pump(app: &mut App) {
     loop {

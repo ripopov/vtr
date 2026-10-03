@@ -13,8 +13,8 @@ use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
 use volna_core::geometry::Rect;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::OpenSpec;
 use volna_core::wave::viewport::Viewport;
+use volna_trace::session::OpenSpec;
 
 fn write_trace(path: &std::path::Path, members: usize, changes: u64) -> anyhow::Result<u64> {
     let mut w = vtr::Writer::create(path)?;

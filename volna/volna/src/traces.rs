@@ -273,10 +273,12 @@ impl Workspace {
         {
             Ok((uri, path)) => self
                 .app
-                .add_resource(volna_core::session::OpenSpec::Path(path), uri),
+                .add_resource(volna_trace::session::OpenSpec::Path(path), uri),
             Err(_) => self
                 .app
-                .handle(Command::AddTrace(volna_core::session::OpenSpec::Path(path))),
+                .handle(Command::AddTrace(volna_trace::session::OpenSpec::Path(
+                    path,
+                ))),
         }
         self.after(None, cx);
     }

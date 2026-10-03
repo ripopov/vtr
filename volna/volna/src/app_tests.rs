@@ -5,10 +5,11 @@
 use super::*;
 use gpui_kit::TestAppContext;
 use std::sync::Arc;
-use volna_core::session::{LoadRequest, LoadResult, OpenSpec};
+use volna_core::session::{LoadRequest, LoadResult};
 use volna_core::testing::ProceduralTrace;
 use volna_core::testing::a_all;
 use volna_core::trace::TraceId;
+use volna_trace::session::OpenSpec;
 
 fn init(cx: &mut TestAppContext) {
     cx.update(crate::init_app);
@@ -264,10 +265,8 @@ fn feature_showcase_workspace_restores_with_scope_activity_meters(cx: &mut TestA
         .write(|w| vtr::activity::build(&reader, w, &Default::default()))
         .unwrap();
     let session = OpenSpec::Path(trace.clone()).open().unwrap();
-    let saved = SavedWorkspace::parse(include_bytes!(
-        "../examples/feature_showcase.vtr.volna.json"
-    ))
-    .unwrap();
+    let saved =
+        SavedWorkspace::parse(include_bytes!("../tests/fixtures/showcase.volna.json")).unwrap();
     let uri = crate::native_workspace::file_uri(&trace).unwrap();
     let window = cx.add_window(Workspace::new);
     window
@@ -1194,9 +1193,9 @@ impl RootWindow {
 #[gpui_kit::test]
 fn analog_key_and_format_popup_sections(cx: &mut TestAppContext) {
     use gpui_kit::VisualTestContext;
-    use volna_core::data::SignalShape;
     use volna_core::geometry::{Modifiers, MouseButton, point};
     use volna_core::wave::PointerEvent;
+    use volna_trace::data::SignalShape;
     init(cx);
     let mut workspace = None;
     let root = cx.add_window(|window, cx| {
@@ -3220,7 +3219,7 @@ fn activity_build_banner_drives_build_dismiss_and_cancel(cx: &mut TestAppContext
 #[gpui_kit::test]
 fn remote_activity_banner_names_the_reader_and_dismisses(cx: &mut TestAppContext) {
     use gpui_kit::{Modifiers, VisualTestContext};
-    use volna_core::remote::{objects::Metadata, session::RemoteSession};
+    use volna_trace::remote::{objects::Metadata, session::RemoteSession};
     init(cx);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("remote.vtr");
@@ -3229,7 +3228,7 @@ fn remote_activity_banner_names_the_reader_and_dismisses(cx: &mut TestAppContext
         &path,
     )
     .unwrap();
-    let source = volna_core::session::OpenSpec::Path(path).open().unwrap();
+    let source = volna_trace::session::OpenSpec::Path(path).open().unwrap();
     let mut metadata = Metadata::from_session(source.as_ref());
     metadata.server = "build-01".into();
     let remote = std::sync::Arc::new(RemoteSession::new(17, metadata).unwrap());

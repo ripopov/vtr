@@ -7,7 +7,6 @@
 //! and below two pixels per row paints density steps of several rows.
 
 use crate::color::Color;
-use crate::data::transactions::TxStatus;
 use crate::document::Document;
 use crate::geometry::{CursorIcon, Point, Rect, point, size, snap};
 use crate::icons::IconName;
@@ -15,6 +14,7 @@ use crate::scene::{FontRole, Scene, TextCache, TextMeasure};
 use crate::theme::{Theme, contrast};
 use crate::wave::marks;
 use crate::wave::overlay::{self, TextPainter, TimeColumn};
+use volna_trace::data::transactions::TxStatus;
 
 use super::model::{Drag, Hit, PipelineModel, Rows};
 

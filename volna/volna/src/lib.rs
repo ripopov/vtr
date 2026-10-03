@@ -176,7 +176,7 @@ pub mod web {
 
     enum HostEvent {
         Open(String, Vec<u8>),
-        Resource(volna_core::session::OpenSpec, Box<OpenMetadata>),
+        Resource(volna_trace::session::OpenSpec, Box<OpenMetadata>),
         RemoteFrame(String, Vec<u8>),
         RemoteError(String, String),
         RemoteContinue(String),
@@ -275,7 +275,7 @@ pub mod web {
         let metadata = serde_json::from_str(metadata)
             .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
         enqueue(HostEvent::Resource(
-            volna_core::session::OpenSpec::Bytes { name, bytes },
+            volna_trace::session::OpenSpec::Bytes { name, bytes },
             Box::new(metadata),
         ))
     }
@@ -286,9 +286,9 @@ pub mod web {
             .map_err(|e| JsValue::from_str(&format!("invalid open metadata: {e}")))?;
         // Limits are resolved once the host settings are installed (below).
         enqueue(HostEvent::Resource(
-            volna_core::session::OpenSpec::Remote {
+            volna_trace::session::OpenSpec::Remote {
                 name,
-                limits: volna_core::remote::limits::Limits::default(),
+                limits: volna_trace::remote::limits::Limits::default(),
             },
             Box::new(metadata),
         ))
@@ -614,8 +614,8 @@ pub mod web {
                                     };
                                     ws.app.configure_persistence(policy);
                                     let spec = match spec {
-                                        volna_core::session::OpenSpec::Remote { name, .. } => {
-                                            volna_core::session::OpenSpec::Remote {
+                                        volna_trace::session::OpenSpec::Remote { name, .. } => {
+                                            volna_trace::session::OpenSpec::Remote {
                                                 name,
                                                 limits: resolved.limits(),
                                             }

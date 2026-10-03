@@ -1,5 +1,5 @@
 //! Resident metadata of one remote recording. Complete histories and tracks
-//! are delivered asynchronously to their document consumers; this object never
+//! are delivered asynchronously to their consumers; this object never
 //! owns a second data cache or performs I/O.
 
 use super::objects::Metadata;

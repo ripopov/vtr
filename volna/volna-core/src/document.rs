@@ -5,15 +5,17 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::data::loaded_tracks::{LoadedGenerator, LoadedTrack};
-use crate::data::transactions::{TrackKind, TrackRef, TransactionRef};
-use crate::data::{Hierarchy, NumericKind, SignalRef, Translators};
+use crate::data::{NumericKind, Translators};
 use crate::marker::{self, Marker, MarkerId, Reference};
 use crate::nav::Tween;
-use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use crate::session::{LoadRequest, LoadResult};
 use crate::trace::{Rescale, Retime, SlotState, TraceId, TraceSet, TraceSlot, Traced};
 use crate::wave::analog::AnalogSummary;
 use crate::wave::timeline::TimeBase;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::transactions::{TrackKind, TrackRef, TransactionRef};
+use volna_trace::data::{Hierarchy, SignalRef};
+use volna_trace::session::{OpenSpec, Session};
 
 /// What the document shows as a whole: nothing, the first trace opening, a
 /// failed open, or opened traces (the first of them named).
@@ -55,7 +57,7 @@ pub enum Delivered {
     Summary,
     /// A trace's scope sizes were counted.
     Sizes,
-    Signals(TraceId, crate::session::SignalLoads),
+    Signals(TraceId, volna_trace::session::SignalLoads),
     /// A trace finished opening, or failed to. `refined` is the factor by
     /// which the session unit became finer to admit it: every time held
     /// outside the document must be multiplied by it, and every other
@@ -143,7 +145,7 @@ pub struct Document {
 
 /// A long stacked layer's integral summary and the history it summarizes.
 struct Integral {
-    history: std::sync::Weak<dyn crate::data::SignalHistory>,
+    history: std::sync::Weak<dyn volna_trace::data::SignalHistory>,
     load: crate::wave::stack::IntegralLoad,
 }
 
@@ -711,8 +713,11 @@ impl Document {
     /// replaced) together with their memory.
     pub(crate) fn sync_summaries(
         &mut self,
-        wanted: HashMap<(Traced<SignalRef>, NumericKind), Arc<dyn crate::data::SignalHistory>>,
-        budget: &crate::remote::memory::MemoryBudget,
+        wanted: HashMap<
+            (Traced<SignalRef>, NumericKind),
+            Arc<dyn volna_trace::data::SignalHistory>,
+        >,
+        budget: &volna_trace::remote::memory::MemoryBudget,
     ) {
         self.summaries.retain(|key, load| {
             wanted
@@ -751,8 +756,8 @@ impl Document {
     /// their signals): queue builds for new ones and release the others.
     pub(crate) fn sync_group_summaries(
         &mut self,
-        wanted: HashMap<Vec<usize>, Vec<Arc<dyn crate::data::SignalHistory>>>,
-        budget: &crate::remote::memory::MemoryBudget,
+        wanted: HashMap<Vec<usize>, Vec<Arc<dyn volna_trace::data::SignalHistory>>>,
+        budget: &volna_trace::remote::memory::MemoryBudget,
     ) {
         self.group_summaries
             .retain(|key, _| wanted.contains_key(key));
@@ -785,7 +790,7 @@ impl Document {
     pub(crate) fn sync_stack_totals(
         &mut self,
         wanted: HashMap<crate::wave::stack::Key, Vec<crate::wave::stack::Layer>>,
-        budget: &crate::remote::memory::MemoryBudget,
+        budget: &volna_trace::remote::memory::MemoryBudget,
     ) {
         use crate::wave::stack::{self, TotalLoad, TotalSummary};
         self.stack_totals.retain(|key, _| wanted.contains_key(key));
@@ -815,7 +820,7 @@ impl Document {
     /// is building.
     pub fn integral(
         &self,
-        history: &Arc<dyn crate::data::SignalHistory>,
+        history: &Arc<dyn volna_trace::data::SignalHistory>,
         reading: crate::wave::stack::Reading,
     ) -> Option<&crate::wave::stack::IntegralLoad> {
         let key = (crate::wave::analog::history_identity(history), reading);
@@ -842,8 +847,11 @@ impl Document {
     /// is gone, with their memory.
     pub(crate) fn sync_integrals(
         &mut self,
-        wanted: HashMap<(usize, crate::wave::stack::Reading), Arc<dyn crate::data::SignalHistory>>,
-        budget: &crate::remote::memory::MemoryBudget,
+        wanted: HashMap<
+            (usize, crate::wave::stack::Reading),
+            Arc<dyn volna_trace::data::SignalHistory>,
+        >,
+        budget: &volna_trace::remote::memory::MemoryBudget,
     ) {
         use crate::wave::stack::IntegralLoad;
         self.integrals

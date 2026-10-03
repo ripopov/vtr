@@ -15,9 +15,9 @@ pub use color::parse_css_color;
 pub mod vscode;
 
 use crate::color::Color;
-use crate::data::ValueKind;
 use crate::scene::FontRole;
 use crate::wave::Tint;
+use volna_trace::data::ValueKind;
 
 /// A resolved surface or interaction state. Cheap to copy into closures.
 #[derive(Clone, Copy, Debug)]

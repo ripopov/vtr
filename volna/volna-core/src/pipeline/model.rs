@@ -13,9 +13,6 @@ use super::rows::{ROW_PX_DEFAULT, ROW_PX_MAX, ROW_PX_MIN, RowView};
 use super::zoom::{self, CYCLE_PX_MAX, ROW_PX_CAP, ZoomBox, ZoomPoint};
 use crate::clock::ClockKey;
 use crate::data::loaded_tracks::LoadedGenerator;
-use crate::data::transactions::{
-    AttributeValue, TrackRef, Transaction, TransactionRef, TransactionStage, TxStatus,
-};
 use crate::document::{Document, TrackLoadState, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point};
 use crate::marker::LaneHit;
@@ -26,6 +23,9 @@ use crate::trace::{TraceId, Traced};
 use crate::wave::model::PointerEvent;
 use crate::wave::overlay::SpanClocks;
 use crate::wave::viewport::{FIT_MARGIN_PX, Viewport};
+use volna_trace::data::transactions::{
+    AttributeValue, TrackRef, Transaction, TransactionRef, TransactionStage, TxStatus,
+};
 
 /// The per-transaction caption attribute (`docs/SPEC.md`).
 pub const LABEL_ATTRIBUTE: &str = "vtr.label";

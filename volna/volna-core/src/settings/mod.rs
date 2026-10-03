@@ -301,8 +301,8 @@ impl Settings {
     }
 
     /// The memory limits a trace is opened with.
-    pub fn limits(&self) -> crate::remote::limits::Limits {
-        crate::remote::limits::Limits {
+    pub fn limits(&self) -> volna_trace::remote::limits::Limits {
+        volna_trace::remote::limits::Limits {
             memory_mib: self.memory.budget_mib,
             object_mib: self.memory.object_mib,
         }

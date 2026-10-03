@@ -9,10 +9,10 @@ use volna_core::geometry::Rect;
 use volna_core::panels::PanelId;
 use volna_core::pipeline::Rows;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::OpenSpec;
 use volna_core::transaction::TxPanelState;
 use volna_core::workspace::Workspace;
 use volna_core::{App, Instant, Theme};
+use volna_trace::session::OpenSpec;
 
 fn examples() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../volna/examples")

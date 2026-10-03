@@ -9,6 +9,7 @@ members = [
     "tools/volna-server",
     "bench/vtr-bench",
     "core/vtr-vdb",
+    "volna/volna-trace",
     "volna/volna-core",
     "volna/volna",
     "volna/volna-egui",

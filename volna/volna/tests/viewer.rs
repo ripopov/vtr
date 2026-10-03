@@ -54,6 +54,15 @@ fn run(measure: bool) -> anyhow::Result<()> {
     if let Some(out) = &out {
         std::fs::create_dir_all(out)?;
     }
+    let fixtures = tempfile::tempdir()?;
+    for name in ["pipeline_showcase.vtr", "picorv32.vtr"] {
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("examples")
+                .join(name),
+            fixtures.path().join(name),
+        )?;
+    }
 
     let platform = gpui_kit::platform::current_platform(true);
     let mut test = HeadlessAppContext::with_platform(
@@ -72,6 +81,20 @@ fn run(measure: bool) -> anyhow::Result<()> {
     })?;
     let workspace = workspace.unwrap();
     let any = handle.into();
+    // This interaction scenario uses fixed row coordinates. Activity banners
+    // have their own semantic-layout tests; keep their optional offer hidden.
+    test.update_window(any, |_, window, cx| {
+        workspace.update(cx, |ws, cx| {
+            ws.dispatch(
+                volna_core::Command::Settings(volna_core::app::SettingsCommand::Set {
+                    id: "hierarchy.activityIndex".into(),
+                    value: "never".into(),
+                }),
+                Some(window),
+                cx,
+            );
+        })
+    })?;
 
     let state = |test: &mut HeadlessAppContext, label: &str| {
         let s = test.update(|cx| workspace.read(cx).debug_state());
@@ -312,8 +335,9 @@ fn run(measure: bool) -> anyhow::Result<()> {
 
         // Optional mixed VTR fixture produced by the core hierarchy test.
         if let Some(path) = std::env::var_os("VOLNA_HIERARCHY_FIXTURE") {
-            use volna_core::data::source::Lookup;
-            use volna_core::{Command, session::OpenSpec};
+            use volna_core::Command;
+            use volna_trace::OpenSpec;
+            use volna_trace::data::source::Lookup;
             let session = OpenSpec::Path(path.into()).open()?;
             let scope = |path: &[&str]| match session.hierarchy().find_scope(path) {
                 Lookup::Found(id) => id,
@@ -363,11 +387,10 @@ fn run(measure: bool) -> anyhow::Result<()> {
         // sidebar, load them, zoom about the pointer and set the cursor.
         {
             use volna_core::Command;
-            use volna_core::data::Member;
-            use volna_core::data::source::Lookup;
             use volna_core::pipeline::Rows;
-            let showcase = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("examples/pipeline_showcase.vtr");
+            use volna_trace::data::Member;
+            use volna_trace::data::source::Lookup;
+            let showcase = fixtures.path().join("pipeline_showcase.vtr");
             test.update(|cx| workspace.update(cx, |ws, cx| ws.open_path(showcase, cx)));
             settle(&mut test, 3);
             for core in ["cpu0", "cpu1"] {
@@ -491,8 +514,7 @@ fn run(measure: bool) -> anyhow::Result<()> {
         }
 
         // 2. Load the sample trace and add signals from the first scope.
-        let example =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/picorv32.vtr");
+        let example = fixtures.path().join("picorv32.vtr");
         test.update(|cx| workspace.update(cx, |ws, cx| ws.open_path(example, cx)));
         settle(&mut test, 3);
         shot(&mut test, "02-loaded")?;
@@ -554,11 +576,20 @@ fn run(measure: bool) -> anyhow::Result<()> {
         );
         expect(&mut test, "after wave click", &["cursor=Some("]);
         // Select a row by clicking its name.
-        click(
-            &mut test,
-            Point::new(px(400.0), px(32.0 + 32.0 + 24.0 * 5.0 + 12.0)),
-            Modifiers::default(),
-        );
+        let name = test.update(|cx| {
+            let layout = workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .last_layout();
+            Point::new(
+                px(layout.names.left() + layout.names.width() / 2.0),
+                px(layout.row_y(5) + layout.row_height(5) / 2.0),
+            )
+        });
+        click(&mut test, name, Modifiers::default());
         expect(
             &mut test,
             "after name click",
@@ -600,14 +631,21 @@ fn run(measure: bool) -> anyhow::Result<()> {
             "zoom and marker edits must invalidate the dock's cached waveform canvas"
         );
         // Badge click (values column right edge).
-        click(
-            &mut test,
+        let badge = test.update(|cx| {
+            let layout = workspace
+                .read(cx)
+                .app
+                .panels
+                .focused_waves()
+                .unwrap()
+                .last_layout();
+            let bounds = layout.badges.iter().find(|(row, _)| *row == 3).unwrap().1;
             Point::new(
-                px(280.0 + 220.0 + 120.0 - 24.0),
-                px(32.0 + 32.0 + 24.0 * 3.0 + 12.0),
-            ),
-            Modifiers::default(),
-        );
+                px(bounds.left() + bounds.width() / 2.0),
+                px(bounds.top() + bounds.height() / 2.0),
+            )
+        });
+        click(&mut test, badge, Modifiers::default());
         settle(&mut test, 2);
         expect(&mut test, "after badge click", &["menu=true"]);
         shot(&mut test, "05-format-menu")?;
@@ -812,7 +850,14 @@ fn run(measure: bool) -> anyhow::Result<()> {
         key(&mut test, "enter");
         settle(&mut test, 4);
         assert_eq!(
-            test.update(|cx| workspace.read(cx).app.panels.focused().title.clone()),
+            test.update(|cx| workspace
+                .read(cx)
+                .app
+                .panels
+                .focused()
+                .title
+                .as_ref()
+                .cloned()),
             Some("decode".into())
         );
         let (before_sash, sash) = test.update(|cx| {

@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use super::value::{SignalShape, ValueKind, WaveValue, kind_of_bits};
-use super::value_view::ValueView;
+use volna_trace::data::value::{SignalShape, ValueKind, WaveValue, kind_of_bits};
+use volna_trace::data::value_view::ValueView;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Translated {
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn packed_logic_reads_as_numbers() {
-        use crate::data::value_view::LogicView;
+        use volna_trace::data::value_view::LogicView;
         // Bits above the width are ignored; bit 11 set makes it negative.
         let two = LogicView::packed_lsb(12, 2, &[0x34, 0xfa]);
         assert_eq!(two.to_u64(), Some(0xa34));

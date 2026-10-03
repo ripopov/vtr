@@ -7,8 +7,7 @@
 //! frame is O(columns x log(changes)) regardless of trace length.
 
 use crate::color::Color;
-use crate::data::transactions::TxStatus;
-use crate::data::{Bit, SignalHistory, SignalShape, Translator, ValueKind, WaveValue};
+use crate::data::Translator;
 use crate::document::Document;
 use crate::geometry::CursorIcon;
 use crate::geometry::{Point, Rect, point, size, snap};
@@ -30,6 +29,8 @@ use crate::wave::stack;
 use crate::wave::timeline::format_time;
 use crate::wave::tree;
 use crate::wave::viewport::Viewport;
+use volna_trace::data::transactions::TxStatus;
+use volna_trace::data::{Bit, SignalHistory, SignalShape, ValueKind, WaveValue};
 
 // Pixel constants are design sizes at zoom 1.0; the painter multiplies them
 // by the theme's zoom. Hairlines (1 px strokes and borders) stay one pixel.
@@ -3326,8 +3327,8 @@ fn paint_lane_density(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::history::VecHistory;
     use crate::scene::{MonoMeasure, Prim};
+    use volna_trace::data::history::VecHistory;
 
     #[test]
     fn labels_keep_a_numbers_last_digits_and_texts_beginning() {

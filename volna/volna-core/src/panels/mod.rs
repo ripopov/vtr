@@ -576,7 +576,7 @@ impl Panels {
     /// The panel already showing this stream or generator, in layout order.
     pub fn pipeline_for_track(
         &self,
-        track: crate::trace::Traced<crate::data::transactions::TrackRef>,
+        track: crate::trace::Traced<volna_trace::data::transactions::TrackRef>,
     ) -> Option<PanelId> {
         self.layout.panels().into_iter().find(|id| {
             self.panels[id]
@@ -589,8 +589,8 @@ impl Panels {
     pub fn pipeline_showing(
         &self,
         doc: &Document,
-        track: crate::trace::Traced<crate::data::transactions::TrackRef>,
-        id: crate::data::transactions::TransactionRef,
+        track: crate::trace::Traced<volna_trace::data::transactions::TrackRef>,
+        id: volna_trace::data::transactions::TransactionRef,
     ) -> Option<PanelId> {
         self.layout.panels().into_iter().find(|panel| {
             self.panels[panel].kind.pipeline().is_some_and(|p| {

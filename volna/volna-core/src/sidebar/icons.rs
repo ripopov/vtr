@@ -1,7 +1,7 @@
 //! Semantic glyphs and tints. No toolkit or backend handles are involved.
-use crate::data::{Direction, Hierarchy, Member, ScopeRole, ScopeView};
 use crate::icons::IconName;
 use crate::theme::Theme;
+use volna_trace::data::{Direction, Hierarchy, Member, ScopeRole, ScopeView};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tint {

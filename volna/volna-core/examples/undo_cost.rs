@@ -12,9 +12,9 @@ use std::time::Instant;
 
 use volna_core::app::{Action, App, Command};
 use volna_core::panels::PanelsCommand;
-use volna_core::session::OpenSpec;
 use volna_core::wave::{Entry, model::WaveRow};
 use volna_core::workspace::Workspace;
+use volna_trace::session::OpenSpec;
 
 const TRACE: &str = "vscode-remote://ssh-remote+board/home/user/trace.vtr";
 const LOCATION: &str = "vscode-remote://ssh-remote+board/home/user/trace.vtr.volna.json";

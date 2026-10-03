@@ -6,6 +6,22 @@ on:
 permissions:
   contents: read
 jobs:
+  trace:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize workspace manifests and committed reader fixtures
+        run: git submodule update --init --depth 1 ext/elkrs ext/surfer
+      - name: Install the repository Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test standalone trace loading and server; enforce dependency boundaries
+        run: python3 tools/check-volna-loading.py
   core:
     strategy:
       fail-fast: false
@@ -20,8 +36,8 @@ jobs:
       - name: Install the repository Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - name: Test hierarchy views, page admission and server processes
-        run: cargo test --locked -p volna-core -p volna-server --all-targets
+      - name: Test viewer hierarchy, loading and core behavior
+        run: cargo test --locked -p volna-core --all-targets
   wasm:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -35,7 +51,7 @@ jobs:
         run: rustup show && rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - name: Check the same session and cooperative decoder on WASM
-        run: cargo check --locked -p volna-core -p volna --target wasm32-unknown-unknown --all-features
+        run: cargo check --locked -p volna-trace -p volna-core -p volna --target wasm32-unknown-unknown --all-features
       - uses: actions/setup-node@v4
         with:
           node-version: 22

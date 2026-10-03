@@ -889,9 +889,9 @@ fn tag(t: &crate::theme::Theme, text: &str) -> AnyElement {
 fn status_badge(
     t: &crate::theme::Theme,
     text: &str,
-    status: volna_core::data::transactions::TxStatus,
+    status: volna_trace::data::transactions::TxStatus,
 ) -> AnyElement {
-    use volna_core::data::transactions::TxStatus;
+    use volna_trace::data::transactions::TxStatus;
     let color: Hsla = match status {
         TxStatus::Error | TxStatus::Aborted => t.editor.error,
         TxStatus::Open => t.wave_event_coalesced,

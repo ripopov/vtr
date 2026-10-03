@@ -10,18 +10,18 @@ use volna_core::testing::{a, a_all};
 
 use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
-use volna_core::data::Member;
-use volna_core::data::transactions::{TrackRef, TxStatus};
 use volna_core::document::TrackLoadState;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::panels::PanelId;
 use volna_core::scene::{MonoMeasure, Prim};
-use volna_core::session::{OpenSpec, Session};
 use volna_core::wave::PointerEvent;
 use volna_core::wave::lane::{self, LaneGeometry};
 use volna_core::wave::model::{MenuAction, RowHeight, WaveRow};
 use volna_core::wave::viewport::Viewport;
 use volna_core::workspace::Workspace;
+use volna_trace::data::Member;
+use volna_trace::data::transactions::{TrackRef, TxStatus};
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/trace.vtr";
 const LOCATION: &str = "file:///tmp/trace.vtr.volna.json";
@@ -195,7 +195,7 @@ fn add_to_waves_loads_shares_and_releases_generator_records() {
     let h = session.hierarchy();
     let stream = h
         .scopes()
-        .position(|s| matches!(s.role, volna_core::data::ScopeRole::Stream { .. }))
+        .position(|s| matches!(s.role, volna_trace::data::ScopeRole::Stream { .. }))
         .unwrap();
     app.handle(Command::Panels(volna_core::panels::PanelsCommand::Focus(
         waves,

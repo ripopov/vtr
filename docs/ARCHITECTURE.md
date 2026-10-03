@@ -13,8 +13,9 @@ to support interactive and AI-assisted debugging.
 | VTR | `core/vtr`, `core/vtr-capi` | Trace format, reader/writer, runtime hierarchy, waveforms, transactions, relations and logs; Rust and C APIs |
 | VTR tools | `tools/vtr-cli`, `bench/vtr-bench` | Trace inspection/conversion and Rust benchmark drivers |
 | VDB | `core/vtr-vdb`, `integrations/slang` | Separate design metadata, source index, semantics, RTL netlists and temporal driver tracing; standalone pyslang export |
+| Volna trace loading | `volna/volna-trace` | Standalone recording access, immutable raw data, local/remote sessions, memory admission and complete-object client/protocol |
 | Volna | `volna/volna-core`, `volna/volna`, `volna/volna-egui` | Toolkit-independent viewer logic, main GPUI UI and minimal egui adapter |
-| Volna server | `tools/volna-server` | Headless complete-object loading over framed stdin/stdout; uses toolkit-free core adapters |
+| Volna server | `tools/volna-server` | Headless complete-object loading over framed stdin/stdout; uses `volna-trace`, independently of the viewer core |
 | Integrations | `integrations/` | Simulator/consumer build glue and end-to-end integration checks |
 | External projects | `ext/` | Pinned simulator forks, consumers and format references |
 
@@ -30,7 +31,19 @@ Volna's core owns document state, view models, interaction, load scheduling
 and toolkit-neutral drawing. Its panels and versioned workspace codec own
 dock layout, linked navigation and persistent session state. GPUI native and
 VS Code hosts save separate JSON sidecars; VTR and VDB remain unchanged.
-Frontends host widgets and render that output.
+Frontends host widgets and render that output. Recording access is below the
+viewer, in `volna-trace`:
+
+```text
+volna / volna-egui → volna-core → volna-trace → VTR / FST readers
+                                      ↑
+                                volna-server
+```
+
+Neither the trace library nor the server depends on the viewer core, a frontend
+or a GUI toolkit. The library does not depend on the server. Local viewing
+opens files in process; remote viewing drives the library's client over the
+host transport to the server beside the file.
 The GPUI frontend is the main feature target; egui verifies toolkit independence
 and retains its current minimal functionality. The detailed current design and
 remote-file direction are in [Volna's architecture](../volna/volna/ARCHITECTURE.md).
@@ -41,7 +54,9 @@ VDB profiles, presentation and user annotations stay on the client.
 `volna-server` implements the headless loading service. The VS Code frontend
 opens workspace traces through its child relay and loads selected full histories
 and transaction tracks asynchronously. Native execution and the remote client
-consume the same core load requests; the server calls the native session backend.
+use the same immutable raw objects from `volna-trace`; the viewer core adapts
+its document-tagged requests to raw loads. The server calls the same session
+backend as local execution. Viewer analysis and preparation stay in the core.
 All transaction navigation uses complete resident objects. Transport framing,
 backpressure and remote admission limits stay in the protocol adapter. See
 [verification](../volna/volna/VERIFICATION.md) for measured coverage and limits.
@@ -62,10 +77,14 @@ the [project README](../README.md#project-requirements) for requirements.
 
 ## Workspace and supporting material
 
-The nine Rust packages share one root Cargo workspace and lockfile.
-`cargo test` exercises the five default packages;
-`volna/volna/check.sh` checks the three viewer packages and the VS Code adapter.
-Native viewer checks still require the platform SDK and desktop services.
+The eleven Rust packages share one root Cargo workspace and lockfile.
+`cargo test` exercises the six default packages.
+`python3 tools/check-volna-loading.py` builds and tests the trace library and
+server independently and rejects viewer/toolkit dependencies, including
+optional-feature, development and platform-specific edges.
+`volna/volna/check.sh` also checks the three viewer packages and VS Code adapter.
+Native viewer builds require the platform SDK; verification is automated and
+headless.
 
 `bench/` contains the shared orchestrator, C/C++ harnesses, simulator workloads
 and results. `docs/` contains the normative specification, research and

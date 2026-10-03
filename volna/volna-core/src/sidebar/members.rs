@@ -4,11 +4,11 @@
 use std::collections::BTreeSet;
 
 use super::Key;
-use crate::data::{Direction, Hierarchy, Member, ScopeId, ScopeRole, SignalShape, VarId};
 use crate::geometry::Modifiers;
 use crate::icons::IconName;
 use crate::selection;
 use crate::trace::{TraceId, TraceSet, Traced};
+use volna_trace::data::{Direction, Hierarchy, Member, ScopeId, ScopeRole, SignalShape, VarId};
 
 const MAX_SEARCH_ROWS: usize = 5000;
 
@@ -21,14 +21,14 @@ pub struct LogSite<'a> {
 }
 
 pub fn log_site(h: &Hierarchy, member: Member) -> Option<LogSite<'_>> {
-    use crate::data::transactions::AttributeValue;
+    use volna_trace::data::transactions::AttributeValue;
     let Member::Generator(id) = member else {
         return None;
     };
     if !h.is_log(member) {
         return None;
     }
-    let attrs = &h.generators[id].attributes;
+    let attrs = &h.generators()[id].attributes;
     let attr = |key| attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v);
     let text = |key| match attr(key) {
         Some(AttributeValue::Text(s)) => Some(s.as_str()),
@@ -199,7 +199,7 @@ impl MemberListModel {
                 self.rows.extend(
                     s.generators
                         .iter()
-                        .filter(|&g| matches(&h.generators[g].name))
+                        .filter(|&g| matches(&h.generators()[g].name))
                         .map(|g| scope.with(Member::Generator(g))),
                 );
             }
@@ -209,7 +209,7 @@ impl MemberListModel {
                     let h = session.hierarchy();
                     let members = (0..h.var_count())
                         .map(Member::Var)
-                        .chain((0..h.generators.len()).map(Member::Generator))
+                        .chain((0..h.generators().len()).map(Member::Generator))
                         .chain(
                             h.scopes()
                                 .enumerate()

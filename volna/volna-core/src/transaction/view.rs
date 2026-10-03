@@ -6,19 +6,20 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::data::loaded_tracks::{LoadedGenerator, TransactionLocation};
+use crate::data::loaded_tracks::LoadedGenerator;
 use crate::data::text::{
     PREVIEW_BYTES, Radix, attribute_value_min_bytes, format_attribute, format_attribute_radix,
     is_integer, join_path_limited, truncate_ref,
-};
-use crate::data::transactions::{
-    AttributeValue, Attributes, TrackKind, TrackRef, Transaction, TransactionRef, TxKind, TxStatus,
 };
 use crate::document::Document;
 use crate::pipeline::model::LABEL_ATTRIBUTE;
 use crate::pipeline::palette::{StagePalette, StageSwatch};
 use crate::trace::Traced;
 use crate::wave::timeline::format_time;
+use volna_trace::data::loaded_tracks::TransactionLocation;
+use volna_trace::data::transactions::{
+    AttributeValue, Attributes, TrackKind, TrackRef, Transaction, TransactionRef, TxKind, TxStatus,
+};
 
 /// Bytes one prepared view may materialize. A record whose attributes exceed
 /// it is cut with the total still stated, as the table cuts a row.
@@ -718,7 +719,7 @@ fn related(
     };
     // Relations are grouped by kind, then outgoing before incoming; within a
     // group they keep recording order.
-    let outgoing = |e: &crate::data::loaded_tracks::LoadedRelation| {
+    let outgoing = |e: &volna_trace::data::loaded_tracks::LoadedRelation| {
         e.relation.from == tx.id && e.from_generator == track.item
     };
     let mut edges: Vec<_> = generator.relations_of(tx.id).collect();

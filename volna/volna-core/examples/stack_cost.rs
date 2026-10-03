@@ -14,9 +14,9 @@ use std::time::Instant;
 use volna_core::app::{App, Command};
 use volna_core::geometry::Rect;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::OpenSpec;
 use volna_core::wave::viewport::Viewport;
 use volna_core::{Action, Theme};
+use volna_trace::session::OpenSpec;
 
 const MEMBERS: usize = 8;
 
@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap()
         .find_scope(&["issue"])
     {
-        volna_core::data::source::Lookup::Found(s) => s,
+        volna_trace::data::source::Lookup::Found(s) => s,
         _ => anyhow::bail!("no issue scope"),
     };
     let load = Instant::now();

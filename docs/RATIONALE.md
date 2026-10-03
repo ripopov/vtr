@@ -13,6 +13,60 @@ tools, viewers and integrations. Consumers, including Surfer, reference these
 canonical paths directly.
 See the [architecture guide](ARCHITECTURE.md) for boundaries and integration status.
 
+## Volna trace loading ownership
+
+The complete-selected-data seam follows the existing Wellen/Surfer whole-signal
+loading model (see "Volna FST session integration" below), VTR's shared immutable
+reader results and the protocol-6 bounded/cooperative transfer design. Those
+contracts describe recording access, independently of a window or document.
+The previous `volna-core` placement made the standalone server depend on viewer
+models and let its remote queue consume `App` demand and viewer activity counts.
+
+`volna-trace` owns local VTR/FST adapters, immutable hierarchy/history/track
+objects, activity-sidecar access, admission, raw protocol definitions and the
+remote client. The caller supplies transport and scheduling. Opaque caller tags,
+generations and request identities correlate results; they are not serialized
+and do not impose a trace set or workspace. Exact activity reads return raw
+changing-signal identities, with scope classification and census in the viewer.
+FST activity indexing reuses `vtr-cli`'s library with default features disabled;
+format detection, mutable FST-reader locking and mapped VTR storage stay hidden
+behind `Session`.
+
+`volna-server` owns process hosting, server identity, snapshot checks and request
+handling in its binary's `server` module. Shared wire projections can borrow
+raw catalogs, records and relations without another owned copy. Keeping request
+handling in the library was rejected: it is executable service behavior, not
+client recording access. A separate reusable server-library crate supplies no
+needed abstraction. Local loads continue in process and never launch a server.
+
+The viewer core wraps raw generators with lane stacking, median lifetimes and
+stage-palette statistics; raw identity/parent/relation and interval indexes stay
+in the trace owner. Viewer preparation runs on the local loader executor or in
+bounded cooperative steps before remote completion delivery. It has its own
+admitted construction and retained storage. Timeline placement explicitly copies
+raw transaction records when it transforms their times; it cannot rewrite a
+shared recording. Translators, bounded display/clipboard text, activity labels,
+build estimates, settings policy, demand, workspace and undo state remain in
+`volna-core`. No VDB interpretation enters the server or transport.
+
+A mechanical relocation of all `data`, `session` and `remote` modules was
+rejected because it would preserve these viewer abstractions in the foundation.
+Re-export compatibility shims were also rejected; consumers use the owning
+crate's types directly. The core remote coordinator performs only viewer demand
+filtering, result adaptation and client-side analysis; the trace client owns
+batching, protocol sequencing, bounded decoding and unfinished-load failures.
+VTR/FST decoding algorithms, file formats and protocol version 6 are unchanged;
+this separation makes no performance claim.
+
+[Cargo's workspace/package selection](https://doc.rust-lang.org/cargo/reference/workspaces.html)
+allows independent package builds. `tools/check-volna-loading.py` additionally
+checks resolved normal, build, development, optional-feature and target-specific
+dependency edges: neither foundation package may reach a viewer or toolkit, and
+the trace library may not reach the server. It builds/tests both packages without
+building the viewer, including actual child-process VTR/FST complete-history,
+transaction and sidecar equivalence. CI runs it on Linux, macOS and Windows;
+core and frontend headless checks remain separate gates.
+
 ## Build verification
 
 The C and C++ integration harnesses use Cargo's

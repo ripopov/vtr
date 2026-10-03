@@ -3,10 +3,10 @@
 //! work per transition (`docs/volna-theme.html`, "Waveform panel rendering").
 
 use crate::color::Color;
-use crate::data::{SignalHistory, ValueKind};
 use crate::geometry::{Point, Rect, point};
 use crate::scene::Scene;
 use crate::theme::Theme;
+use volna_trace::data::{SignalHistory, ValueKind};
 
 /// Spacing of the 45° X hatch, in design pixels.
 pub const HATCH_PX: f32 = 5.0;
@@ -252,8 +252,8 @@ pub fn dashes_v(out: &mut Vec<[Point; 2]>, x: f32, ya: f32, yb: f32, (on, off): 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::history::VecHistory;
-    use crate::data::{SignalShape, WaveValue};
+    use volna_trace::data::history::VecHistory;
+    use volna_trace::data::{SignalShape, WaveValue};
 
     #[test]
     fn activity_grows_on_a_log_scale_and_saturates() {

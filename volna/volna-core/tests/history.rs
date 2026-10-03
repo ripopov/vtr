@@ -15,18 +15,18 @@ use volna_core::trace::TraceId;
 
 use serde_json::Value;
 use volna_core::app::{Action, App, ClockCommand, Command, EditTarget, Event};
-use volna_core::data::Member;
-use volna_core::data::transactions::TrackRef;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::panels::{Layout, PanelId, PanelsCommand};
 use volna_core::scene::MonoMeasure;
-use volna_core::session::{OpenSpec, Session};
 use volna_core::table::TableCommand;
 use volna_core::table::columns::TransactionColumn;
 use volna_core::transaction::TransactionCommand;
 use volna_core::wave::PointerEvent;
 use volna_core::workspace::Workspace;
 use volna_core::{Instant, Theme};
+use volna_trace::data::Member;
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/landing.vtr";
 const LOCATION: &str = "file:///tmp/landing.vtr.volna.json";
@@ -1485,7 +1485,7 @@ fn markers_rulers_titles_columns_and_pins_round_trip() {
         .unwrap();
     let generator = app.doc.resident_generator(a(track)).unwrap();
     let [first, second] = [&generator.transactions()[0], &generator.transactions()[1]];
-    let select = |app: &mut App, tx: &volna_core::data::transactions::Transaction| {
+    let select = |app: &mut App, tx: &volna_trace::data::transactions::Transaction| {
         app.handle(Command::SelectTransaction {
             panel: table,
             track: a(tx.generator),

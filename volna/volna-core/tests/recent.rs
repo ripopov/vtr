@@ -161,7 +161,7 @@ fn a_disabled_list_shows_nothing_and_opens_nothing() {
 #[test]
 fn a_trace_with_an_identity_reports_its_open() {
     let mut app = App::new();
-    let spec = volna_core::session::OpenSpec::Bytes {
+    let spec = volna_trace::session::OpenSpec::Bytes {
         name: "t.vtr".into(),
         bytes: Vec::new(),
     };

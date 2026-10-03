@@ -17,9 +17,8 @@ use super::tint::{self, Tint};
 use super::tree::{self, Entry, Place, Splice};
 use super::viewport::Viewport;
 use crate::clock::ClockKey;
+use crate::data::Translator;
 use crate::data::loaded_tracks::LoadedGenerator;
-use crate::data::transactions::TrackRef;
-use crate::data::{SignalHistory, SignalRef, SignalShape, Translator, VarId};
 use crate::document::{Document, TxSelection};
 use crate::geometry::{Modifiers, MouseButton, Point, point};
 use crate::history::{Before, Edit, History, MergeKey, RowSelection, count};
@@ -29,6 +28,8 @@ use crate::panels::PanelId;
 use crate::selection;
 use crate::theme::Theme;
 use crate::trace::{TraceId, Traced};
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::data::{SignalHistory, SignalRef, SignalShape, VarId};
 
 /// A ⌘-drag narrower than this (at zoom 1.0) is a click, not a zoom range.
 pub const ZOOM_RANGE_MIN_PX: f32 = 4.0;
@@ -1133,7 +1134,7 @@ impl WaveModel {
     pub fn add_scope_group(
         &mut self,
         doc: &mut Document,
-        scope: Traced<crate::data::ScopeId>,
+        scope: Traced<volna_trace::data::ScopeId>,
         recursive: bool,
         loaded: Resident,
     ) -> bool {
@@ -2793,7 +2794,10 @@ impl WaveModel {
         doc: &Document,
         row: usize,
         p: Point,
-    ) -> Option<(Traced<TrackRef>, crate::data::transactions::TransactionRef)> {
+    ) -> Option<(
+        Traced<TrackRef>,
+        volna_trace::data::transactions::TransactionRef,
+    )> {
         let lane = self.items.get(row)?.lane()?;
         let generator = lane.generator(doc)?;
         let layout = &self.layout;

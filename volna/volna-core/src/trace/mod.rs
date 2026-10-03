@@ -19,8 +19,8 @@ use std::sync::Arc;
 pub use names::derive_names;
 pub use placement::Placement;
 
-use crate::data::TraceInfo;
-use crate::session::Session;
+use volna_trace::data::TraceInfo;
+use volna_trace::session::Session;
 
 /// One trace of the set, by its letter. Letters are handed out lowest free
 /// first and never change while the trace is open, so a workspace names
@@ -191,7 +191,7 @@ pub struct TraceSlot {
     pub(crate) placement: Placement,
     /// Its scope sizes, once counted; they belong to the session and
     /// survive a close that is undone.
-    pub(crate) sizes: Option<Arc<crate::data::ScopeSizes>>,
+    pub(crate) sizes: Option<Arc<volna_trace::data::ScopeSizes>>,
 }
 
 impl TraceSlot {
@@ -209,7 +209,7 @@ impl TraceSlot {
     }
 
     /// Its scope sizes; `None` until the count after open finishes.
-    pub fn sizes(&self) -> Option<&crate::data::ScopeSizes> {
+    pub fn sizes(&self) -> Option<&volna_trace::data::ScopeSizes> {
         self.sizes.as_deref()
     }
 

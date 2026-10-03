@@ -1,5 +1,5 @@
 //! Asynchronous complete-history installation. The host handles transport and
-//! yields between `step` calls; document results use the ordinary local seam.
+//! yields between `step` calls; results use the same raw contract as local loads.
 
 use super::ClientStep;
 use super::history::stream::HistoryDecoder;
@@ -7,7 +7,6 @@ use super::memory::MemoryBudget;
 use super::transport::{ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::data::SignalRef;
 use crate::session::LoadResult;
-use crate::trace::TraceId;
 use std::sync::Arc;
 
 /// Receives one signal batch into [`LoadResult::Signals`]. Each history is
@@ -16,9 +15,9 @@ use std::sync::Arc;
 /// object refused by admission is drained and reported as that signal's error,
 /// so later objects in the batch still succeed. The final acknowledgement is
 /// withheld until validation succeeds.
-pub struct SignalTransfer {
+pub struct SignalTransfer<Tag = u64> {
     receiver: Receiver,
-    trace: TraceId,
+    tag: Tag,
     generation: u64,
     limit: u64,
     budget: MemoryBudget,
@@ -28,11 +27,11 @@ pub struct SignalTransfer {
     failed: bool,
 }
 
-impl SignalTransfer {
+impl<Tag: Copy> SignalTransfer<Tag> {
     pub fn new(
         session: u64,
         request: u64,
-        trace: TraceId,
+        tag: Tag,
         generation: u64,
         signals: &[SignalRef],
         max_object_bytes: u64,
@@ -45,7 +44,7 @@ impl SignalTransfer {
                 signals.iter().map(|id| ObjectId::Signal(id.0)).collect(),
                 max_object_bytes,
             )?,
-            trace,
+            tag,
             generation,
             limit: max_object_bytes,
             budget,
@@ -56,12 +55,12 @@ impl SignalTransfer {
         })
     }
 
-    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.accept_inner(packet);
         self.poison_on_error(result)
     }
 
-    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(!self.failed, "signal transfer failed");
         anyhow::ensure!(
             self.end_ack.is_none(),
@@ -108,12 +107,12 @@ impl SignalTransfer {
     }
 
     /// Performs at most one bounded history validation step.
-    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
+    pub fn step(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.step_inner();
         self.poison_on_error(result)
     }
 
-    fn step_inner(&mut self) -> anyhow::Result<ClientStep> {
+    fn step_inner(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(
             !self.failed && self.end_ack.is_some(),
             "no pending signal validation"
@@ -130,18 +129,18 @@ impl SignalTransfer {
         Ok(ClientStep::Complete {
             ack: self.end_ack.take().unwrap(),
             result: LoadResult::Signals {
-                trace: self.trace,
+                tag: self.tag,
                 generation: self.generation,
                 results: vec![(id, Ok(Arc::new(history)))],
             },
         })
     }
 
-    fn failed(&self, ack: Packet, id: SignalRef, message: String) -> ClientStep {
+    fn failed(&self, ack: Packet, id: SignalRef, message: String) -> ClientStep<Tag> {
         ClientStep::Complete {
             ack,
             result: LoadResult::Signals {
-                trace: self.trace,
+                tag: self.tag,
                 generation: self.generation,
                 results: vec![(id, Err(anyhow::anyhow!(message)))],
             },
@@ -200,7 +199,7 @@ mod tests {
         let mut transfer = SignalTransfer::new(
             5,
             8,
-            TraceId::A,
+            0,
             99,
             &[SignalRef(3)],
             bytes.len() as u64,
@@ -277,16 +276,9 @@ mod tests {
 
     #[test]
     fn per_item_failure_completes_but_wrong_identity_poisons_transfer() {
-        let mut transfer = SignalTransfer::new(
-            5,
-            8,
-            TraceId::A,
-            99,
-            &[SignalRef(3)],
-            1024,
-            MemoryBudget::new(4096),
-        )
-        .unwrap();
+        let mut transfer =
+            SignalTransfer::new(5, 8, 0, 99, &[SignalRef(3)], 1024, MemoryBudget::new(4096))
+                .unwrap();
         let error = packet(
             0,
             Body::Error {
@@ -304,16 +296,9 @@ mod tests {
         assert!(results[0].1.is_err());
         transfer.finish().unwrap();
 
-        let mut transfer = SignalTransfer::new(
-            5,
-            8,
-            TraceId::A,
-            99,
-            &[SignalRef(3)],
-            1024,
-            MemoryBudget::new(4096),
-        )
-        .unwrap();
+        let mut transfer =
+            SignalTransfer::new(5, 8, 0, 99, &[SignalRef(3)], 1024, MemoryBudget::new(4096))
+                .unwrap();
         let mut wrong = error.clone();
         wrong.request += 1;
         assert!(transfer.accept(wrong).is_err());
@@ -332,16 +317,14 @@ mod tests {
             },
         );
         let mut transfer =
-            SignalTransfer::new(5, 8, TraceId::A, 99, &[SignalRef(3)], 1024, budget.clone())
-                .unwrap();
+            SignalTransfer::new(5, 8, 0, 99, &[SignalRef(3)], 1024, budget.clone()).unwrap();
         transfer.accept(begin.clone()).unwrap();
         assert!(budget.used() >= 30);
         drop(transfer);
         assert_eq!(budget.used(), 0);
 
         let mut transfer =
-            SignalTransfer::new(5, 8, TraceId::A, 99, &[SignalRef(3)], 1024, budget.clone())
-                .unwrap();
+            SignalTransfer::new(5, 8, 0, 99, &[SignalRef(3)], 1024, budget.clone()).unwrap();
         transfer.accept(begin).unwrap();
         assert!(transfer.accept(packet(1, Body::End)).is_err());
         assert_eq!(budget.used(), 0);
@@ -349,7 +332,7 @@ mod tests {
         let mut transfer = SignalTransfer::new(
             5,
             8,
-            TraceId::A,
+            0,
             99,
             &[SignalRef(3), SignalRef(4)],
             8192,

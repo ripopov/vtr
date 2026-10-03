@@ -12,9 +12,6 @@ use std::sync::Arc;
 use web_time::Instant;
 
 use crate::clock::ClockKey;
-use crate::data::Member;
-use crate::data::transactions::{TrackRef, TransactionRef};
-use crate::data::{ScopeId, VarId};
 use crate::document::{Delivered, Document, TraceState};
 use crate::geometry::{Modifiers, Rect};
 use crate::geometry::{MouseButton, Point};
@@ -22,7 +19,7 @@ use crate::marker::{LaneHit, LaneVerb, Reference};
 use crate::panels::{Panel, PanelId, PanelKind, Panels, PanelsCommand};
 use crate::pipeline::{PipelineLayout, PipelineModel, TrackSource};
 use crate::scene::{Scene, TextCache, TextMeasure};
-use crate::session::{LoadRequest, LoadResult, OpenSpec, Session};
+use crate::session::{LoadRequest, LoadResult};
 use crate::settings::{self, Value};
 use crate::sidebar::{Key, MemberListModel, ScopeTreeModel, TreeNode};
 use crate::theme::Theme;
@@ -31,6 +28,10 @@ use crate::transaction::{TransactionCommand, TransactionModel};
 use crate::wave::layout::WaveLayout;
 use crate::wave::model::{MenuAction, PointerEvent, WaveMenu, WaveMenuKind, WaveRow};
 use crate::wave::timeline::format_time;
+use volna_trace::data::Member;
+use volna_trace::data::transactions::{TrackRef, TransactionRef};
+use volna_trace::data::{ScopeId, VarId};
+use volna_trace::session::{OpenSpec, Session};
 
 /// Keyboard actions of the wave panel. Frontends bind keys to these.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -682,7 +683,7 @@ pub struct App {
     pub(crate) events: Vec<Event>,
     text: TextCache,
     scene: Scene,
-    table_budget: crate::remote::memory::MemoryBudget,
+    table_budget: volna_trace::remote::memory::MemoryBudget,
     /// Generators retained for wave lanes, one document retain each, for
     /// the document generation that granted them.
     lane_tracks: (u64, std::collections::HashSet<Traced<TrackRef>>),
@@ -723,7 +724,7 @@ impl App {
                     .limits()
                     .bytes()
                     .expect("valid defaults");
-                let budget = crate::remote::memory::MemoryBudget::new(limit);
+                let budget = volna_trace::remote::memory::MemoryBudget::new(limit);
                 budget.set_object_limit(object_limit);
                 budget
             },
@@ -848,7 +849,7 @@ impl App {
 
     pub(crate) fn signal_demand(
         &self,
-    ) -> std::collections::HashSet<Traced<crate::data::SignalRef>> {
+    ) -> std::collections::HashSet<Traced<volna_trace::data::SignalRef>> {
         self.panels
             .iter()
             .filter_map(|panel| panel.kind.waves())
@@ -1695,7 +1696,7 @@ impl App {
 
     /// Charge a newly opened local trace to the process budget.
     fn account_local_session(&self, session: Arc<dyn Session>) -> anyhow::Result<Arc<dyn Session>> {
-        crate::session::account_local_session(session, self.table_budget.clone())
+        volna_trace::session::account_local_session(session, self.table_budget.clone())
     }
 
     pub fn memory_menu(&self) -> MemoryMenu {
@@ -1734,7 +1735,7 @@ impl App {
 
     /// The budget panels charge their own memory to: the first open
     /// trace's, or the process budget local traces share.
-    pub(crate) fn table_memory_budget(&self) -> crate::remote::memory::MemoryBudget {
+    pub(crate) fn table_memory_budget(&self) -> volna_trace::remote::memory::MemoryBudget {
         self.doc
             .traces()
             .first_loaded()
@@ -2672,7 +2673,7 @@ impl App {
     /// The recognized PIPELINE streams of the open traces: (dotted path,
     /// track), the path after its trace's letter while several are open.
     pub fn pipeline_streams(&self) -> Vec<(String, Traced<TrackRef>)> {
-        use crate::data::transactions::TrackKind;
+        use volna_trace::data::transactions::TrackKind;
         let traces = self.doc.traces();
         traces
             .loaded()

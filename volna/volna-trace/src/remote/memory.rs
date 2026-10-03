@@ -73,7 +73,7 @@ impl MemoryBudget {
     }
 
     /// Admit one in-process object under the current object limit.
-    pub(crate) fn reserve_object(&self, what: &str, bytes: u64) -> anyhow::Result<Reservation> {
+    pub fn reserve_object(&self, what: &str, bytes: u64) -> anyhow::Result<Reservation> {
         check_object(what, bytes, self.object_limit(), "retry")?;
         self.reserve(bytes)
     }
@@ -126,12 +126,12 @@ impl Drop for Reservation {
 
 impl Reservation {
     /// The admission pool already paying for this immutable owner.
-    pub(crate) fn budget(&self) -> MemoryBudget {
+    pub fn budget(&self) -> MemoryBudget {
         self.budget.clone()
     }
 
     /// Release bytes no longer owned after a pessimistically admitted build.
-    pub(crate) fn shrink(&mut self, bytes: u64) -> anyhow::Result<()> {
+    pub fn shrink(&mut self, bytes: u64) -> anyhow::Result<()> {
         self.bytes = self
             .bytes
             .checked_sub(bytes)
@@ -144,7 +144,8 @@ impl Reservation {
         Ok(())
     }
 
-    pub(crate) fn bytes(&self) -> u64 {
+    /// Bytes retained by this admission owner.
+    pub fn bytes(&self) -> u64 {
         self.bytes
     }
 

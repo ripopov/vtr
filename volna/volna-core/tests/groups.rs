@@ -12,17 +12,17 @@ use web_time::Instant;
 
 use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
-use volna_core::data::ValueKind;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::panels::{PanelId, PanelKind};
 use volna_core::scene::{MonoMeasure, Prim, Scene};
-use volna_core::session::{OpenSpec, Session};
 use volna_core::wave::layout::{CHEVRON_W, INDENT, indent_x};
 use volna_core::wave::model::{GroupRow, MenuAction, WaveModel, WaveRow};
 use volna_core::wave::tree::{self, Entry};
 use volna_core::wave::viewport::Viewport;
 use volna_core::wave::{Drag, PointerEvent};
 use volna_core::workspace::Workspace;
+use volna_trace::data::ValueKind;
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/groups.vtr";
 const LOCATION: &str = "file:///tmp/groups.vtr.volna.json";
@@ -729,11 +729,11 @@ fn add_scope_as_group_nests_child_scopes_folded() {
     let id = app.panels.focused_id();
     let h = app.doc.hierarchy(TraceId::A).unwrap();
     let axi = match h.find_scope(&["top", "axi"]) {
-        volna_core::data::source::Lookup::Found(s) => s,
+        volna_trace::data::source::Lookup::Found(s) => s,
         other => panic!("{other:?}"),
     };
     let top = match h.find_scope(&["top"]) {
-        volna_core::data::source::Lookup::Found(s) => s,
+        volna_trace::data::source::Lookup::Found(s) => s,
         other => panic!("{other:?}"),
     };
     app.handle(Command::AddScopeAsGroup {

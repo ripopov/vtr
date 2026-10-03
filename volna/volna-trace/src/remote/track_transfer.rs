@@ -1,4 +1,4 @@
-//! Frame-to-document delivery of one complete transaction track.
+//! Complete-object delivery of one complete transaction track.
 use super::ClientStep;
 use super::memory::MemoryBudget;
 use super::tracks::{TrackDecoder, TrackStep};
@@ -6,15 +6,14 @@ use super::transport::{ObjectId, Packet, Receive, Receiver, acknowledgement};
 use crate::data::loaded_tracks::LoadedTrack;
 use crate::data::transactions::TrackRef;
 use crate::session::{LoadResult, Session};
-use crate::trace::TraceId;
 use std::sync::Arc;
 
 /// Receives one track and publishes [`LoadResult::Track`] with the original
-/// document generation and request identity after the protocol End.
+/// caller generation and request identity after the protocol End.
 /// Admission or record failures drain the object into a track error; protocol
 /// errors poison the transfer and are returned by `accept`.
-pub struct TrackTransfer {
-    trace: TraceId,
+pub struct TrackTransfer<Tag = u64> {
+    tag: Tag,
     generation: u64,
     request_id: u64,
     session: Arc<dyn Session>,
@@ -30,11 +29,11 @@ pub struct TrackTransfer {
     failed: bool,
 }
 
-impl TrackTransfer {
+impl<Tag: Copy> TrackTransfer<Tag> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         request: u64,
-        trace: TraceId,
+        tag: Tag,
         generation: u64,
         request_id: u64,
         session: Arc<dyn Session>,
@@ -46,7 +45,7 @@ impl TrackTransfer {
             .remote_id()
             .ok_or_else(|| anyhow::anyhow!("track session is not remote"))?;
         Ok(Self {
-            trace,
+            tag,
             generation,
             request_id,
             session,
@@ -63,12 +62,12 @@ impl TrackTransfer {
         })
     }
 
-    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    pub fn accept(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.accept_inner(packet);
         self.poison_on_error(result)
     }
 
-    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep> {
+    fn accept_inner(&mut self, packet: Packet) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(!self.failed && !self.finished, "track transfer finished");
         anyhow::ensure!(
             self.pending_ack.is_none(),
@@ -119,12 +118,12 @@ impl TrackTransfer {
         Ok(ClientStep::Ack(ack))
     }
 
-    pub fn step(&mut self) -> anyhow::Result<ClientStep> {
+    pub fn step(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         let result = self.step_inner();
         self.poison_on_error(result)
     }
 
-    fn step_inner(&mut self) -> anyhow::Result<ClientStep> {
+    fn step_inner(&mut self) -> anyhow::Result<ClientStep<Tag>> {
         anyhow::ensure!(
             !self.failed && self.pending_ack.is_some(),
             "no pending track decode"
@@ -155,7 +154,7 @@ impl TrackTransfer {
         Ok(ClientStep::Ack(self.pending_ack.take().unwrap()))
     }
 
-    fn complete(&mut self, ack: Packet, result: anyhow::Result<LoadedTrack>) -> ClientStep {
+    fn complete(&mut self, ack: Packet, result: anyhow::Result<LoadedTrack>) -> ClientStep<Tag> {
         self.decoder = None;
         self.decoded = None;
         self.rejected = None;
@@ -163,7 +162,7 @@ impl TrackTransfer {
         ClientStep::Complete {
             ack,
             result: LoadResult::Track {
-                trace: self.trace,
+                tag: self.tag,
                 generation: self.generation,
                 request_id: self.request_id,
                 track: self.track,
@@ -268,12 +267,12 @@ mod tests {
     }
 
     #[test]
-    fn end_commits_exact_document_ticket_and_stale_response_discards_storage() {
+    fn end_commits_exact_caller_ticket_and_stale_response_discards_storage() {
         let (session, track, bytes) = fixture();
         let budget = MemoryBudget::new(4 * 1024 * 1024);
         let mut transfer = TrackTransfer::new(
             7,
-            TraceId::A,
+            0,
             99,
             55,
             session.clone(),
@@ -291,24 +290,15 @@ mod tests {
         assert!(transfer.accept(packet(end, Body::End)).is_err());
         assert!(transfer.finish().is_err());
 
-        let mut transfer = TrackTransfer::new(
-            7,
-            TraceId::A,
-            99,
-            56,
-            session,
-            track,
-            1024 * 1024,
-            budget.clone(),
-        )
-        .unwrap();
+        let mut transfer =
+            TrackTransfer::new(7, 0, 99, 56, session, track, 1024 * 1024, budget.clone()).unwrap();
         let end = before_end(&mut transfer, track, &bytes);
         let ClientStep::Complete {
             result:
                 LoadResult::Track {
                     generation: 99,
                     request_id: 56,
-                    trace: TraceId::A,
+                    tag: 0,
                     track: returned,
                     result,
                 },
@@ -329,17 +319,8 @@ mod tests {
     fn admission_failure_drains_and_completes_as_a_track_error() {
         let (session, track, bytes) = fixture();
         let budget = MemoryBudget::new(0);
-        let mut transfer = TrackTransfer::new(
-            7,
-            TraceId::A,
-            99,
-            55,
-            session,
-            track,
-            1024 * 1024,
-            budget.clone(),
-        )
-        .unwrap();
+        let mut transfer =
+            TrackTransfer::new(7, 0, 99, 55, session, track, 1024 * 1024, budget.clone()).unwrap();
         let end = before_end(&mut transfer, track, &bytes);
         let ClientStep::Complete {
             result:

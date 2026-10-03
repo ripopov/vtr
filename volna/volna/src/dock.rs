@@ -783,7 +783,7 @@ impl Panel for CanvasPanelView {
                     .map(|declaration| {
                         matches!(
                             declaration.kind,
-                            volna_core::data::transactions::TrackKind::Generator { .. }
+                            volna_trace::data::transactions::TrackKind::Generator { .. }
                         )
                     })
             })

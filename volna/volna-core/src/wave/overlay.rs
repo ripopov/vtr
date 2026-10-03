@@ -1728,7 +1728,7 @@ mod tests {
         let timeline = vtr::ClockTimeline::new(stretches.to_vec(), false).unwrap();
         Clock {
             trace: crate::trace::TraceId::A,
-            track: crate::data::transactions::TrackRef(0),
+            track: volna_trace::data::transactions::TrackRef(0),
             path: format!("top.{name}"),
             name: name.into(),
             state: clock::ClockState::Ready(std::sync::Arc::new(timeline)),

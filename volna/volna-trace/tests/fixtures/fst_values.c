@@ -1,10 +1,10 @@
 /* Regenerate from the repository root:
- * cc volna/volna-core/tests/fixtures/fst_values.c \
+ * cc volna/volna-trace/tests/fixtures/fst_values.c \
  *   ext/libfstwriter/integration_test/verilator_share/gtkwave/fstapi.c \
  *   -Iext/libfstwriter/integration_test/verilator_share/gtkwave \
  *   $(pkg-config --cflags --libs liblz4 zlib) -o /tmp/volna-fst-values
- * /tmp/volna-fst-values volna/volna-core/tests/fixtures/values.fst
- * /tmp/volna-fst-values volna/volna-core/tests/fixtures/values-wrapped.fst wrap
+ * /tmp/volna-fst-values volna/volna-trace/tests/fixtures/values.fst
+ * /tmp/volna-fst-values volna/volna-trace/tests/fixtures/values-wrapped.fst wrap
  */
 #include "fstapi.h"
 #include <assert.h>

@@ -30,6 +30,7 @@ remote-profile = []
 visual-test = ["dep:libtest-mimic"]
 
 [dependencies]
+volna-trace = { path = "../volna-trace" }
 # `profiler` records whole-window frame histograms for the status bar.
 gpui-kit = { version = "=0.7.0", features = ["profiler"] }
 volna-core = { path = "../volna-core" }

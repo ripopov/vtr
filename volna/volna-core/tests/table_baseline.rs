@@ -5,14 +5,15 @@ use volna_core::testing::a_all;
 use volna_core::trace::TraceId;
 
 use volna_core::app::{App, Command, PanelLayout};
-use volna_core::data::Member;
 use volna_core::geometry::Rect;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::{LoadRequest, OpenSpec, Session};
+use volna_core::session::LoadRequest;
 use volna_core::table::columns::TransactionColumn;
 use volna_core::table::{RowIdentity, TableCommand, TableSource, TableState};
 use volna_core::workspace::Workspace;
 use volna_core::{Instant, Theme};
+use volna_trace::data::Member;
+use volna_trace::session::{OpenSpec, Session};
 
 fn fixture() -> std::sync::Arc<dyn Session> {
     let path =

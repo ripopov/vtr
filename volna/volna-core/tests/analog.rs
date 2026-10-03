@@ -11,17 +11,18 @@ use web_time::{Duration, Instant};
 
 use volna_core::Theme;
 use volna_core::app::{Action, App, Command};
-use volna_core::data::value_view::ValueView;
-use volna_core::data::{SignalShape, Translators};
+use volna_core::data::Translators;
 use volna_core::geometry::{Modifiers, MouseButton, Point, Rect, point};
 use volna_core::panels::PanelId;
 use volna_core::scene::{MonoMeasure, Prim, Scene};
-use volna_core::session::{OpenSpec, Session};
 use volna_core::wave::PointerEvent;
 use volna_core::wave::analog::{self, AnalogDraw, AnalogRange};
 use volna_core::wave::model::{MenuAction, MenuEntry, RowHeight};
 use volna_core::wave::viewport::Viewport;
 use volna_core::workspace::Workspace;
+use volna_trace::data::SignalShape;
+use volna_trace::data::value_view::ValueView;
+use volna_trace::session::{OpenSpec, Session};
 
 const TRACE: &str = "file:///tmp/analog.vtr";
 const LOCATION: &str = "file:///tmp/analog.vtr.volna.json";
@@ -209,7 +210,7 @@ fn translators_read_numbers_like_their_values() {
     let t = Translators::builtin();
     let read = |id: &str, bits: &str| {
         t.get(id).unwrap().numeric(&ValueView::Logic(
-            volna_core::data::value_view::LogicView::ascii(bits.as_bytes()),
+            volna_trace::data::value_view::LogicView::ascii(bits.as_bytes()),
         ))
     };
     assert_eq!(read("hex", "11111111"), Some(255.0));

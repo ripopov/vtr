@@ -15,8 +15,8 @@ use web_time::Instant;
 use super::App;
 use crate::Event;
 use crate::document::TraceEdit;
-use crate::session::{OpenSpec, Session};
 use crate::trace::{Rescale, Retime, TraceId};
+use volna_trace::session::{OpenSpec, Session};
 
 /// One trace as its chip in the frontend's toolbar, and its row in the
 /// scope tree, show it.
@@ -101,8 +101,8 @@ impl App {
     /// until [`App::rows_revision`] changes.
     pub fn members_on_waves(
         &self,
-    ) -> std::collections::HashSet<crate::trace::Traced<crate::data::Member>> {
-        use crate::data::Member;
+    ) -> std::collections::HashSet<crate::trace::Traced<volna_trace::data::Member>> {
+        use volna_trace::data::Member;
         let rows = self
             .panels
             .iter()
@@ -114,7 +114,7 @@ impl App {
                 shown.insert(var.map(Member::Var));
             } else if let Some(track) = row.lane_track()
                 && let Some(h) = self.doc.hierarchy(track.trace)
-                && let Some(id) = h.generators.iter().position(|g| g.track == track.item)
+                && let Some(id) = h.generators().iter().position(|g| g.track == track.item)
             {
                 shown.insert(track.with(Member::Generator(id)));
             }

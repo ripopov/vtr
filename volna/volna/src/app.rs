@@ -17,14 +17,14 @@ use gpui_kit::{
     UniformListScrollHandle, Window, actions, anchored, deferred, div, percentage, point, px,
 };
 use volna_core::app::{Action, ChromeDrag, Command, Event, SettingsCommand};
-use volna_core::data::transactions::TrackRef;
 use volna_core::document::TraceState;
-use volna_core::session::Session;
 use volna_core::settings::ZoomStep;
 use volna_core::trace::{TraceId, Traced};
 use volna_core::wave::MenuEntry;
 use volna_core::workspace::recent::{RecentCommand, RecentKey, RecentKind};
 use volna_core::{App as CoreApp, FontRole, Instant, Scene};
+use volna_trace::data::transactions::TrackRef;
+use volna_trace::session::Session;
 
 use crate::theme::{ThemePx, theme};
 use crate::ui::icon::icon_svg;
@@ -277,7 +277,7 @@ impl ShapedCache {
 type MenuKey = (u64, u64, u64, u64);
 
 pub(crate) type OnWavesKey = (u64, u64);
-pub(crate) type OnWaves = std::collections::HashSet<Traced<volna_core::data::Member>>;
+pub(crate) type OnWaves = std::collections::HashSet<Traced<volna_trace::data::Member>>;
 
 pub struct Workspace {
     pub app: CoreApp,
@@ -1265,7 +1265,7 @@ impl Workspace {
         {
             Ok((uri, path)) => self
                 .app
-                .open_resource(volna_core::session::OpenSpec::Path(path), uri),
+                .open_resource(volna_trace::session::OpenSpec::Path(path), uri),
             Err(_) => self.app.open_path(path),
         }
         self.after(None, cx);

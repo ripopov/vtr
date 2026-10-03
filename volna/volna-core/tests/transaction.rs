@@ -8,16 +8,16 @@ use volna_core::testing::a;
 
 use volna_core::app::{Action, App, Command};
 use volna_core::data::text::Radix;
-use volna_core::data::transactions::{TrackRef, TransactionRef, TxStatus};
 use volna_core::geometry::{Modifiers, MouseButton, Rect, point};
 use volna_core::panels::PanelId;
 use volna_core::pipeline::Rows;
 use volna_core::scene::MonoMeasure;
-use volna_core::session::{OpenSpec, Session};
 use volna_core::transaction::{RefRole, SectionKey, TransactionCommand, TxPanelState, TxView};
 use volna_core::wave::PointerEvent;
 use volna_core::workspace::Workspace;
 use volna_core::{Instant, Theme};
+use volna_trace::data::transactions::{TrackRef, TransactionRef, TxStatus};
+use volna_trace::session::{OpenSpec, Session};
 
 fn example(name: &str) -> Arc<dyn Session> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -58,7 +58,7 @@ fn track(session: &dyn Session, path: &str) -> TrackRef {
 /// The record of `track` whose `vtr.label` is `label`: tests name records the
 /// way a reader sees them, so they do not depend on the writer's id order.
 fn labelled(session: &dyn Session, track: TrackRef, label: &str) -> TransactionRef {
-    use volna_core::data::transactions::AttributeValue;
+    use volna_trace::data::transactions::AttributeValue;
     let loaded = session.load_track(track).unwrap();
     loaded
         .generators
@@ -615,7 +615,7 @@ fn a_table_row_is_the_document_selection() {
         .position(|g| g.track == read)
         .unwrap();
     app.handle(Command::OpenTable {
-        selected: vec![a(volna_core::data::Member::Generator(generator))],
+        selected: vec![a(volna_trace::data::Member::Generator(generator))],
         clicked: None,
     });
     let table = app.panels.focused_id();

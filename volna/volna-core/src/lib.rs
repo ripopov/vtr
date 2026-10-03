@@ -9,8 +9,8 @@
 //! - `document`: the open traces and the state every view shares (cursor, markers)
 //! - `trace`: the trace set, trace letters and names, and placement on one timeline
 //! - `history`: undo and redo of cockpit edits (`volna/volna/ARCHITECTURE.md`, "Undo and redo")
-//! - `session`: the [`session::Session`] boundary through which all trace data is read
-//! - `data`: values, histories, translators, hierarchy
+//! - `session`: viewer load scheduling over [`volna_trace::session::Session`]
+//! - `data`: viewer translation, classification and transaction preparation
 //! - `wave`: viewport math, timeline, the wave panel model, layout and painter
 //! - `clock`: declared clocks, their timelines and each panel's rulers
 //! - `settings`: the registry, `settings.json` store, search and generated schema
@@ -50,7 +50,7 @@ pub use app::{Action, App, Command, Event};
 pub use color::Color;
 pub use document::Document;
 pub use scene::{FontRole, Scene, TextMeasure};
-pub use session::{LoadRequest, LoadResult, OpenSpec, Session};
+pub use session::{LoadRequest, LoadResult};
 pub use theme::Theme;
 
 /// Re-exported clock so frontends and the core agree on `Instant`.

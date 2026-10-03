@@ -30,7 +30,7 @@ async function routes(dir) {
   }
   await visit(join(root, 'web/dist'));
   out['/wide.vtr'] = {type: 'application/octet-stream', body: await readFile(join(dir, 'wide.vtr'))};
-  out['/values.fst'] = {type: 'application/octet-stream', body: await readFile(join(root, '../volna-core/tests/fixtures/values.fst'))};
+  out['/values.fst'] = {type: 'application/octet-stream', body: await readFile(join(root, '../volna-trace/tests/fixtures/values.fst'))};
   return out;
 }
 async function snapshot(b) {
@@ -70,7 +70,7 @@ test('WASM local and remote hierarchies agree across 65536-entry pages', {timeou
       fallback: {target: {kind: 'storage', key: name}, content: {status: 'missing'}, writable: false}}});
     return true;
   })()`);
-  for (const [name, path] of [['wide.vtr', join(dir, 'wide.vtr')], ['values.fst', join(root, '../volna-core/tests/fixtures/values.fst')]]) {
+  for (const [name, path] of [['wide.vtr', join(dir, 'wide.vtr')], ['values.fst', join(root, '../volna-trace/tests/fixtures/values.fst')]]) {
     await b.evaluate(`(async () => { const bytes = new Uint8Array(await (await fetch('/${name}')).arrayBuffer());
       window.tryOpen = () => { try { window.module.open_resource('${name}', bytes, window.metadata('${name}')); return true; }
         catch (e) { if (String(e).includes('not ready')) return false; throw e; } }; return true; })()`);

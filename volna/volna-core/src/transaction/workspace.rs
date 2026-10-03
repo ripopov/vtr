@@ -112,7 +112,7 @@ pub(crate) fn restore(raw: &RawValue, ctx: &mut RestoreContext<'_>) -> Result<Pa
             };
             Some(ShownRecord {
                 track,
-                id: crate::data::transactions::TransactionRef(pinned.id),
+                id: volna_trace::data::transactions::TransactionRef(pinned.id),
             })
         }
         None => None,
