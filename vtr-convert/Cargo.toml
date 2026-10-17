@@ -1,0 +1,23 @@
+[package]
+name = "vtr-convert"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Import foreign trace formats into VTR"
+
+[dependencies]
+vtr.workspace = true
+vtr-progress = { version = "0.1.0", path = "../vtr-progress" }
+anyhow = "1"
+flate2 = "1"
+fst-reader = "0.17"
+vcd = "0.7"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

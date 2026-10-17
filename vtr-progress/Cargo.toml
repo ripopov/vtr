@@ -1,0 +1,14 @@
+[package]
+name = "vtr-progress"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Conversion progress counters and versioned reporting for VTR import hosts"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true

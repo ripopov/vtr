@@ -1,52 +1,69 @@
 [workspace]
-resolver = "2"
-exclude = ["ext/elkrs"]
-members = [
-    "core/vtr",
-    "core/vtr-capi",
-    "core/vtr-guard",
-    "tools/vtr-cli",
-    "tools/volna-server",
-    "bench/vtr-bench",
-    "core/vtr-vdb",
-    "volna/volna-trace",
-    "volna/volna-core",
-    "volna/volna",
-    "volna/volna-egui",
-]
-# Keep the default core build independent of the viewer's platform SDK.
-default-members = [
-    "core/vtr",
-    "core/vtr-capi",
-    "core/vtr-guard",
-    "tools/vtr-cli",
-    "bench/vtr-bench",
-    "core/vtr-vdb",
-]
+members = ["vtr", "vtr-capi", "vtr-cli", "vtr-convert", "vtr-convert-wasm", "vtr-guard", "vtr-progress"]
+resolver = "3"
+default-members = ["vtr", "vtr-capi", "vtr-cli", "vtr-convert", "vtr-guard", "vtr-progress"]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT"
 repository = "https://github.com/ripopov/vtr"
-rust-version = "1.80"
 
-[profile.release]
-debug = 1
-lto = "fat"
-codegen-units = 1
+[workspace.dependencies]
+vtr = { version = "0.1.0", path = "vtr" }
+crc32fast = "1.4"
+lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
+memmap2 = "0.9"
+rand = "0.8"
+tempfile = "3"
+thiserror = "2"
+zstd = { version = "0.13", default-features = false }
+zstd-sys = { version = "2.0.16", default-features = false, features = ["experimental"] }
 
-[profile.bench]
-inherits = "release"
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+let_underscore_drop = "warn"
 
-# The egui frontend's headless rasterizer is far too slow unoptimized; its
-# tests build the crate with optimizations even in the dev/test profiles.
-[profile.dev.package.volna-egui]
-opt-level = 2
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
+redundant_clone = "warn"
 
-# Preserve the viewer's build settings without changing core benchmark profiles.
-[profile.viewer]
-inherits = "release"
-debug = 0
-lto = "thin"
-codegen-units = 4
+# Numeric codecs and pixel coordinates deliberately narrow or reinterpret values.
+# These syntactic checks cannot establish the format and range invariants.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+
+# Keep API documentation focused on contracts rather than exhaustive panic/error lists.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# Size and identifier similarity are poor proxies for clarity in codecs and UI builders.
+too_many_lines = "allow"
+many_single_char_names = "allow"
+similar_names = "allow"
+
+# Local helper declarations stay near their algorithms; hot-path inlining is intentional.
+items_after_statements = "allow"
+inline_always = "allow"
+
+# Ownership is part of callback and command APIs even when an implementation only reads.
+needless_pass_by_value = "allow"
+
+# Type inference keeps generic constructors readable; domain collection names stay explicit.
+default_trait_access = "allow"
+struct_field_names = "allow"
+
+# Exact comparisons detect unchanged geometry, sentinel values, and lossless round trips.
+float_cmp = "allow"
+
+# is_empty assertions keep tests independent of container types.
+assert_is_empty = "allow"

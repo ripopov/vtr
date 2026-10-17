@@ -1,0 +1,26 @@
+[package]
+name = "vtr-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Inspect, query, and convert hardware traces"
+
+[[bin]]
+name = "vtr"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+vtr.workspace = true
+vtr-progress = { version = "0.1.0", path = "../vtr-progress" }
+serde_json = "1"
+vtr-convert = { version = "0.1.0", path = "../vtr-convert" }
+anyhow = "1"
+clap = { version = "4.6", features = ["derive"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

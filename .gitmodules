@@ -1,26 +1,4 @@
-[submodule "ext/libfstwriter"]
-	path = ext/libfstwriter
-	url = https://github.com/gtkwave/libfstwriter
-[submodule "ext/LWTR4SC"]
-	path = ext/LWTR4SC
-	url = https://github.com/ripopov/LWTR4SC
-[submodule "ext/Konata"]
-	path = ext/Konata
-	url = https://github.com/shioyadan/Konata
-[submodule "ext/wavepeek"]
-	path = ext/wavepeek
-	url = https://github.com/kleverhq/wavepeek
-[submodule "ext/pulp-c910"]
-	path = ext/pulp-c910
-	url = https://github.com/pulp-platform/pulp-c910
-[submodule "ext/surfer"]
-	path = ext/surfer
-	url = https://github.com/ripopov/surfer
-	branch = vtr
-[submodule "ext/elkrs"]
-	path = ext/elkrs
-	url = https://github.com/ripopov/elkrs
 [submodule "ext/verilator"]
 	path = ext/verilator
 	url = https://github.com/ripopov/verilator
-	branch = vtr
+	branch = volna

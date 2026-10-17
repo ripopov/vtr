@@ -1,0 +1,25 @@
+$timescale 10 ns $end
+$scope module top $end
+$var wire 1 ! clk $end
+$var wire 1 ! alias $end
+$var wire 4 " bus [3:0] $end
+$var real 64 # temperature $end
+$var event 1 % pulse $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+0!
+b10xz "
+r1.25 #
+$end
+#5
+1!
+bz001 "
+r-2.5 #
+1%
+1%
+#7
+0!
+1%
+#10

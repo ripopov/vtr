@@ -1,4 +1,0 @@
-/* Volna ships the same faces as the viewer: Inter and JetBrains Mono, the pair of JetBrains' IDEs. WOFF2 from fonts/build.sh; the originals and licences live in volna/volna-core/assets/fonts. */
-@font-face{font-family:"Inter";src:url("../fonts/Inter-Regular.woff2") format("woff2"),url("../../../volna/volna-core/assets/fonts/Inter-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:"Inter";src:url("../fonts/Inter-SemiBold.woff2") format("woff2"),url("../../../volna/volna-core/assets/fonts/Inter-SemiBold.ttf") format("truetype");font-weight:600;font-style:normal;font-display:swap}
-@font-face{font-family:"JetBrains Mono";src:url("../fonts/JetBrainsMono-Regular.woff2") format("woff2"),url("../../../volna/volna-core/assets/fonts/JetBrainsMono-Regular.ttf") format("truetype");font-weight:400;font-style:normal;font-display:swap}

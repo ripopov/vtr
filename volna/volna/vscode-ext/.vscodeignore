@@ -1,6 +1,0 @@
-**/*.map
-**/*.test.*
-package_vsix.py
-test_package_vsix.py
-vsix-driver.cjs
-__pycache__/

@@ -1,0 +1,29 @@
+name: Verilator integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['ext/verilator', 'integrations/**', 'vtr-capi/**', '.github/workflows/verilator.yml']
+  pull_request:
+    paths: ['ext/verilator', 'integrations/**', 'vtr-capi/**', '.github/workflows/verilator.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-29
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y autoconf flex bison help2man liblz4-dev
+      - run: cargo build --release --locked -p vtr-capi -p vtr-cli
+      - run: integrations/verilator/build.sh "$PWD/build/verilator/install"
+      - run: python3 integrations/verilator/smoke/run.py --verilator build/verilator/install/bin/verilator

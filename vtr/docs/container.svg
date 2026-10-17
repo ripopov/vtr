@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="852" height="210" viewBox="0 0 852 210" role="img" aria-labelledby="title desc">
+<title id="title">VTR file structure</title>
+<desc id="desc">A header is followed by append-only sections, then the directory and trailer. Each section contains its own header and payload. Sizes are schematic.</desc>
+<style>text{font-family:system-ui,sans-serif;font-size:15px;fill:#1f2228}.small{font-size:13px;fill:#555c69}.box{fill:#f4f5f7;stroke:#b9bfc9}.accent{fill:#e3edf8;stroke:#2d6cb0}</style>
+<rect width="852" height="210" rx="8" fill="#fbfbfc"/>
+<g transform="translate(24 40)">
+<rect class="box" width="112" height="74" rx="4"/><text x="56" y="30" text-anchor="middle">File header</text><text class="small" x="56" y="52" text-anchor="middle">32 bytes</text>
+<rect class="accent" x="124" width="304" height="74" rx="4"/><text x="276" y="30" text-anchor="middle">Append-only sections</text><text class="small" x="276" y="52" text-anchor="middle">24-byte header + payload · repeated</text>
+<rect class="accent" x="440" width="24" height="74" rx="4"/>
+<rect class="accent" x="476" width="24" height="74" rx="4"/>
+<rect class="box" x="512" width="158" height="74" rx="4"/><text x="591" y="30" text-anchor="middle">Directory section</text><text class="small" x="591" y="52" text-anchor="middle">Section directory</text>
+<rect class="box" x="682" width="122" height="74" rx="4"/><text x="743" y="30" text-anchor="middle">Trailer</text><text class="small" x="743" y="52" text-anchor="middle">24 bytes</text>
+<path d="M0 106H797m-7-5 7 5-7 5" stroke="#2d6cb0" fill="none" stroke-width="2"/><text class="small" x="0" y="138">Offset 0</text><text class="small" x="804" y="138" text-anchor="end">End of file</text>
+</g></svg>

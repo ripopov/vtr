@@ -1,0 +1,29 @@
+[package]
+name = "vtr-convert-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Browser worker host for VTR conversion"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vtr.workspace = true
+vtr-convert = { version = "0.1.0", path = "../vtr-convert" }
+vtr-progress = { version = "0.1.0", path = "../vtr-progress" }
+anyhow = "1"
+flate2 = "1"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen = "0.2"
+serde_json = "1"
+console_error_panic_hook = "0.1.7"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

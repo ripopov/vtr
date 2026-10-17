@@ -1,47 +1,9 @@
-/target
-# Local viewer screenshot output.
-/results
-/bench/build
-/bench/out
-/bench/workloads/*.fst
-/bench/workloads/*.vtr
-/bench/workloads/*.ftr
-/bench/workloads/*.vcd
-/bench/workloads/*.log
-/bench/workloads/gen/
-*.o
-*.a
-!ext/**
-/bench/workloads/gen/
-/bench/results/latest/*.vtr
-/bench/results/latest/*.fst
-/bench/results/latest/*.ftr
-/bench/results/latest/*.vcd
-/bench/results/latest/*_plan.txt
-/bench/results/*.log
-
-/.venv-vdb/
-__pycache__/
-
-# Logging systems compared by bench/log (fetched by bench/log/fetch_refs.sh, not submodules)
-/ext/clp/
-/ext/NanoLog/
-/ext/binlog/
-/ext/quill/
-
-# Viewer workspaces beside bundled example traces; the landing demo's is checked in.
-/volna/volna/examples/*.volna.json
-!/volna/volna/examples/landing.vtr.volna.json
-
-# Local large examples and their workspaces.
-/volna/volna/examples/large_*
-/volna/volna/examples/large/
-
-# macOS Finder folder metadata.
-.DS_Store
-# Activity index sidecars (`vtr index`) are derived data.
-*.vtr.index
-*.fst.index
-
-# Local backup copies of retired pages and tests.
-/backup/
+/target/
+/build/
+/atemp/
+.idea/
+*.index
+*.index.lock
+*.volna.json
+**/__pycache__/
+*.rs.bk

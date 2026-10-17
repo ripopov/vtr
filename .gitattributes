@@ -1,0 +1,2 @@
+# Workspace serialization is byte-stable, including LF line endings.
+*.volna.json text eol=lf

@@ -13,14 +13,14 @@ HERE = Path(__file__).resolve().parent
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verilator', type=Path, required=True)
-    parser.add_argument('--out', type=Path, default=ROOT/'bench/build/verilator-smoke')
+    parser.add_argument('--out', type=Path, default=ROOT/'build/verilator-smoke')
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     lib = out/'lib'
     lib.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'target/release/libvtr.a', lib/'libvtr.a')
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'core/vtr-capi/include'), VTR_LIBDIR=str(lib))
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'vtr-capi/include'), VTR_LIBDIR=str(lib))
     cli = ROOT/'target/release/vtr'
     for mode in ('vtr', 'fst'):
         obj = out/f'obj_{mode}'

@@ -25,10 +25,6 @@ mkdir -p "$BUILD_DIR"
 BUILD_DIR=$(cd "$BUILD_DIR" && pwd)
 (cd "$SRC" && autoconf)
 cd "$BUILD_DIR"
-# Host compiler for Verilator itself and, through verilated.mk, for every model it
-# generates. clang is preferred: on the C910 model of the benchmark suite, gcc 15/16
-# produce code that runs 3x slower than clang 19-22 from the same generated sources
-# unless profile-guided optimisation is used (docs/BENCHMARKS.md, host compiler).
 CXX=${CXX:-$(command -v clang++ || echo g++)}
 export CXX
 "$SRC/configure" --prefix="$PREFIX"
@@ -39,6 +35,6 @@ make install
 # header, which includes the keyed tracker beside it.
 ROOT=$("$PREFIX/bin/verilator" --getenv VERILATOR_ROOT)
 mkdir -p "$ROOT/include/vtr"
-INC=$HERE/../../core/vtr-capi/include
+INC=$HERE/../../vtr-capi/include
 cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.hpp" "$INC/vtr_track.hpp" "$ROOT/include/vtr/"
 echo "$PREFIX/bin/verilator"

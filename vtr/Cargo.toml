@@ -1,0 +1,26 @@
+[package]
+name = "vtr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "VTR (Versatile Trace Record): hardware simulation waveforms, transactions, hierarchy, and relations"
+readme = "README.md"
+keywords = ["trace", "waveform", "simulation", "hardware"]
+categories = ["encoding", "science"]
+
+[dependencies]
+zstd.workspace = true
+zstd-sys.workspace = true
+lz4_flex.workspace = true
+memmap2.workspace = true
+crc32fast.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+rand.workspace = true
+
+[lints]
+workspace = true
