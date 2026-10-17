@@ -264,6 +264,11 @@ fn recovery_reports_dropped_bytes_and_preserves_complete_files() {
     w.close().unwrap();
     let bytes = std::fs::read(d.join("full.vtr")).unwrap();
     std::fs::write(d.join("cut.vtr"), &bytes[..bytes.len() - 700]).unwrap();
+    assert_eq!(
+        run(d, &["index", "cut.vtr", "--check"]).status.code(),
+        Some(1)
+    );
+    assert_eq!(run(d, &["index", "cut.vtr"]).status.code(), Some(2));
     let out = run(d, &["recover", "cut.vtr", "recovered.vtr"]);
     assert_eq!(
         out.status.code(),
@@ -276,4 +281,29 @@ fn recovery_reports_dropped_bytes_and_preserves_complete_files() {
     assert!(matches!(r.ending().unwrap().0,vtr::Ending::Recovered{dropped} if dropped>0));
     ok(d, &["recover", "full.vtr", "copy.vtr"]);
     assert_eq!(bytes, std::fs::read(d.join("copy.vtr")).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn valid_activity_index_can_be_reused_without_write_access() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let d = dir.path();
+    ok(
+        d,
+        &["convert", fixture("waves.vcd").to_str().unwrap(), "run.vtr"],
+    );
+    ok(d, &["index", "run.vtr"]);
+    std::fs::remove_file(d.join("run.vtr.index.lock")).unwrap();
+    std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = run(d, &["index", "run.vtr"]);
+    std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!d.join("run.vtr.index.lock").exists());
+    assert!(!d.join("cache").exists());
 }

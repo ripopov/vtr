@@ -32,7 +32,7 @@ Include only task-related changes; preserve unrelated work and its staging state
 
 # Compatibility
 
-Volna is a research project. Do not add backwards-compatibility machinery
+VTR is a research project. Do not add backwards-compatibility machinery
 for old assets or interfaces. When a
 protocol, serialization format, or other API layer changes, bump its version
 as needed and ignore or regenerate assets produced by older versions.

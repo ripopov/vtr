@@ -7,8 +7,8 @@ front end. `vtr-guard` provides optional Linux crash and stop handling.
 
 ## Build and link
 
-On Linux, run this from the workspace root after cloning Volna (no submodules
-or desktop development libraries are needed):
+On Linux, run this from the VTR repository root. Building the C API requires
+no simulator submodules or desktop development libraries:
 
 ```sh
 ./vtr-capi/install.sh --target-dir /tmp/vtr-build --prefix /tmp/vtr-install
@@ -37,7 +37,7 @@ cc -std=c99 $(pkg-config --cflags vtr) smoke.c \
 ./smoke trace.vtr
 ```
 
-For example, save this as `smoke.c` outside the Volna checkout:
+For example, save this as `smoke.c` outside the VTR checkout:
 
 ```c
 #include "vtr.h"

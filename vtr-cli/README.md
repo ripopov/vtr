@@ -110,7 +110,8 @@ Converters leave partial writer state after errors; discard that output.
 for a runnable example.
 
 Convert FST to VTR before running `index` or `active`. The viewer and server
-also accept VTR only; conversion is currently an explicit CLI step.
+consume VTR data. Volna can invoke this CLI automatically when opening FST or
+Kanata recordings; the server accepts the resulting VTR file.
 
 Conversion fixtures and provenance are in
 [`vtr-convert/tests/fixtures`](../vtr-convert/tests/fixtures/README.md).

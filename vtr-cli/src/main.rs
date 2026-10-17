@@ -182,14 +182,21 @@ fn activity_index(
             })
         })
         .transpose()?;
-    let identity = vtr::activity::Identity::of(reader)?;
+    let identity = match vtr::activity::Identity::of(reader) {
+        Ok(identity) => identity,
+        Err(_) if options.is_none() => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
     let sidecar = vtr::activity::Sidecar::new(
         path,
         &identity,
         vtr::activity::default_cache_dir().as_deref(),
     );
+    if let Some((_, index)) = sidecar.load(&identity) {
+        return Ok(Some(index));
+    }
     let Some(options) = options else {
-        return Ok(sidecar.load(&identity).map(|(_, index)| index));
+        return Ok(None);
     };
     let lock = sidecar
         .paths()

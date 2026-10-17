@@ -30,21 +30,27 @@ These are converter limits, not a total browser memory budget: file buffers,
 transfer buffers, and the viewer need additional RAM. Use the native app or CLI
 for larger recordings.
 
-From `docs/`, `npm run build:viewer` builds both WASM modules with the pinned Rust
-toolchain and matching `wasm-bindgen` CLI. The converter uses the installed
-`wasm32-unknown-unknown` target and no shared-memory flags. Generated assets live
-under `docs/public/viewer/converter/` and are excluded from Git. A revalidated
-manifest selects content-versioned JavaScript and WASM filenames, which can use
-normal HTTP caching. The manifest and converter assets are requested only when
-an import starts; startup and direct VTR opening do not request them.
+Build the WASM module from the VTR repository root using the pinned Rust
+toolchain and a `wasm-bindgen` CLI matching the version in `Cargo.lock`:
 
 ```sh
+rustup target add wasm32-unknown-unknown
+cargo build --locked --release -p vtr-convert-wasm --target wasm32-unknown-unknown
+wasm-bindgen --target web --out-dir build/converter target/wasm32-unknown-unknown/release/vtr_convert_wasm.wasm
 cargo test --locked -p vtr-convert-wasm -p vtr-progress -p vtr-convert
 cargo clippy --locked -p vtr-convert-wasm -p vtr-progress -p vtr-convert --all-targets -- -D warnings
-cd docs
-npm run build
-npm run test:imports
 ```
+
+[Volna](https://github.com/ripopov/volna) owns the browser worker, asset manifest,
+and viewer integration. In a Volna checkout, `cd docs && npm run build:viewer`
+builds both the viewer and converter, capping converter memory at 1 GiB without
+shared-memory flags. Generated assets live in `docs/public/viewer/converter/`
+and are excluded from Git. A revalidated manifest selects content-versioned
+JavaScript and WASM filenames. The host requests these assets only when an
+import starts; startup and direct VTR opening do not request them.
+
+Run `npm run build` and `npm run test:imports` from Volna's `docs/` directory to
+verify the browser integration.
 
 Native tests compare memory output against the same file writer byte-for-byte,
 check gzip equivalence, progress completion, and failure behavior. Browser tests

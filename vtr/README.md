@@ -124,8 +124,9 @@ paths are omitted.
 
 Requires Rust 1.97.1+ and a C compiler for Zstandard. All Rust dependencies come
 from crates.io; there are no path dependencies on other project components.
-When working in the full repository, use its pinned nightly Cargo to load the
-workspace's executable dependencies. The packaged VTR crate builds on stable Rust.
+The VTR repository pins a nightly toolchain for CI. The standalone `vtr` crate
+also builds on stable Rust 1.97.1 or newer. Run the commands below from the VTR
+repository root; in a Volna checkout, first change into its `vtr` submodule.
 
 ```sh
 cargo test -p vtr --locked

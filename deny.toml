@@ -1,23 +1,11 @@
 [graph]
 all-features = true
 
-[advisories]
-ignore = [
-    { id = "RUSTSEC-2025-0141", reason = "Bincode 1 is the current trace transport/cache encoding; replacing it requires a separate protocol migration." },
-    { id = "RUSTSEC-2024-0384", reason = "instant is pulled in by GPUI dependencies; remove this exception when GPUI migrates away." },
-    { id = "RUSTSEC-2024-0436", reason = "paste is a transitive macro dependency of the GUI and numeric stack; no maintained compatible release exists." },
-    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is required by the GPUI HTTP client; replacement requires an upstream dependency change." },
-    { id = "RUSTSEC-2026-0206", reason = "rustybuzz is required by GPUI and resvg; replacement requires their font-shaping migration." },
-    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is required by GPUI and its font stack; replacement requires an upstream migration." },
-    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38 is required by zbus-lockstep to parse packaged AT-SPI XML during code generation/tests, not trace input; remove when zbus_xml upgrades." },
-    { id = "RUSTSEC-2026-0195", reason = "The affected quick-xml is confined to zbus-lockstep packaged XML; zbus_xml has no compatible release using the fixed parser." },
-]
-
 [licenses]
 allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Unicode-3.0", "CC0-1.0", "0BSD", "MPL-2.0"]
 
 [bans]
-# Platform and GUI dependencies currently require parallel major versions.
+# Conversion dependencies require parallel major versions.
 multiple-versions = "allow"
 wildcards = "deny"
 allow-wildcard-paths = true

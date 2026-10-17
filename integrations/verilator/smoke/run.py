@@ -39,6 +39,7 @@ def main():
         subprocess.run([str(obj/'sim'), str(trace)], check=True)
         if mode == 'fst':
             converted = out/'fst.vtr'
+            converted.unlink(missing_ok=True)
             subprocess.run([str(cli), 'convert', str(trace), str(converted)], check=True)
             trace = converted
         for t in range(8):
