@@ -1305,3 +1305,93 @@ not justify format changes. The study uses experimental container framing
 and a full-record reader. Label projection, parent filtering without
 materializing unrelated records, cold-device I/O, and production writer
 integration can change absolute timings and policy tradeoffs.
+
+### 12.5 Comparison with FTR
+
+A file-backed comparison replayed the same synthetic and Kanata stage records
+from section 12.1 and the five mixed workloads from section 12.4 through the
+selected VTR prototype and the upstream
+[LWTR4SC FTR writer](https://github.com/Minres/LWTR4SC/blob/8dca86925ad64b0ca73825fcefd7308215049627/src/ftr/ftr_writer.h).
+The FTR header was used unchanged at that revision, through a C interface;
+SystemC frontend overhead is excluded. FTR used its synchronous LZ4 backend,
+default 64 KiB per-stream transaction buffers, and one stream per generator.
+VTR used 64 KiB pages, Zstandard level 1, and the selected layout.
+
+Measurements used the same Core Ultra 7 265K and NVMe ext4 filesystem,
+Rust 1.97.1, GCC 15.2.0 with `-O3`, and system LZ4 1.10.0. Each cell below
+is **VTR / FTR**, using the median of three isolated trials. Stage-only
+processes were pinned to CPU 2. Mixed processes were pinned to CPUs 2/3/4;
+VTR used two bounded encoder workers, while FTR encoded synchronously.
+Writes include encoding, checksums where provided, file output, flush, and
+fsync. Mixed writes additionally include simulation and format adaptation;
+stage-only input preparation is excluded for both formats.
+
+The stage-only files omit owner payloads, as in section 12.2, but include
+container metadata and preserve each stage's ID, generator, parent, and times.
+FTR stores the parent as a named unsigned attribute. These are complete-file
+encoding and scan measurements, not the in-memory microbenchmarks above.
+Throughput is in millions of stages per second; storage includes all file bytes.
+
+| Workload | Stages | Bytes/stage | Write, million stages/s | Scan, million stages/s |
+|---|---:|---:|---:|---:|
+| Synthetic | 1,400,000 | 2.045 / 15.762 | 16.58 / 10.16 | 45.57 / 16.23 |
+| Kanata | 631,118 | 0.572 / 12.388 | 16.81 / 10.21 | 49.58 / 17.37 |
+
+The mixed comparison preserves the source model through explicit FTR
+conventions. Arguments are named attributes, with original types identified
+in their keys. Status, span kind, parent, and embedded event/stage fields
+become attributes. Nested values use typed JSON text; byte arrays use base64
+text. Relation attributes are carried in a reversible suffix on the native
+relation kind. A metadata stream stores the source schema. A reader needs
+these conventions to reconstruct VTR semantics from the FTR records.
+
+FTR has no waveform encoding, so its four counters per producer use the same
+production VTR signal codec in a companion file. FTR storage and timings below
+include that file; VTR stores the counters in its main file. Both include the
+same signal changes. MB means 1,000,000 bytes. Each mixed trial contains about
+10.1 million independently identified records, relations, and signal changes;
+embedded details are additional payload.
+
+| Workload | File, MB | Write, seconds | Full scan, seconds |
+|---|---:|---:|---:|
+| balanced | 54.48 / 158.99 | 3.74 / 5.24 | 0.855 / 1.378 |
+| longtail | 56.00 / 161.87 | 3.72 / 5.19 | 0.871 / 1.372 |
+| logburst | 105.40 / 215.06 | 4.91 / 12.46 | 2.741 / 3.526 |
+| disordered | 66.29 / 167.93 | 4.27 / 6.31 | 0.885 / 1.379 |
+| large | 572.80 / 844.45 | 4.45 / 7.91 | 1.523 / 2.461 |
+
+Across mixed workloads, geometric means give VTR 2.30-fold smaller files,
+1.67-fold lower write wall time, and 1.52-fold faster scans. Writer
+user-plus-system CPU time is 55% higher for VTR. A separate three-trial
+balanced comparison pinned both implementations to CPU 2: VTR took
+8.11 seconds to write, versus 5.05 for FTR. The mixed write wall-time advantage
+therefore depends on parallel encoding; it does not establish lower writer
+CPU cost. The prototype's repeated encoding during page splitting contributes
+to that cost, as discussed in section 12.4.
+
+A matched-codec control changed only VTR transaction-page compression to LZ4;
+declarations and waveforms retained their shared Zstandard policy. VTR still
+used 1.95-fold less total mixed-file space, wrote in 1.71-fold less wall time
+with two workers, and scanned 1.58-fold faster geometrically. With one CPU,
+the balanced LZ4 VTR write took 7.85 seconds, versus FTR's 5.05. On the
+stage-only inputs, LZ4 VTR used 2.674 and 0.966 bytes per stage, versus FTR's
+15.762 and 12.388. The storage advantage therefore extends beyond codec choice.
+
+Reads open and scan the complete file, reconstruct source records, and compute
+the same count/sum/XOR digests for transactions, located records, relations, and
+signals. Every trial matched its pre-encoding source oracle and the other
+formats for the same seed. The 63 main trials and 27 single-core control trials
+all passed. Independent CBOR/LZ4 decoding also checked native FTR framing and
+attribute types; an existing Rust FTR parser independently checked stage records.
+The measured readers are specialized experimental readers, rather than a
+comparison of production reader libraries. VTR verifies section CRCs; FTR
+provides no equivalent checksums. These scans omit the full ownership/locator
+validation performed in section 12.4, so their read times are not interchangeable.
+
+Per-file cache-eviction advice before each scan was best effort, not proof of
+cold-device I/O. Host timing variation was visible, including an outlying
+logburst write; all trials were retained and medians are reported. The large
+workload additionally measures base64 adaptation for a value type FTR does not
+natively provide. These results compare the stated implementations and mappings;
+they do not isolate an intrinsic format-only throughput limit or measure random
+track queries, owner expansion, or label resolution against FTR.
