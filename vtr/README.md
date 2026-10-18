@@ -49,12 +49,9 @@ flowchart TB
 
 ## Container structure
 
-<figure class="v-figure">
-<div class="v-figure__canvas" tabindex="0" role="region" aria-label="Scrollable VTR container schematic">
-<img src="docs/diagrams/transaction-file-structure.drawio.svg" alt="A 32-byte file header, append-only sections, a directory section, and a 24-byte trailer in file order." width="760" height="196" />
-</div>
-<figcaption>Logical file order. Block widths are schematic and do not represent payload sizes.</figcaption>
-</figure>
+![A 32-byte file header, append-only sections, a directory section, and a 24-byte trailer in file order.](docs/diagrams/transaction-file-structure.drawio.svg)
+
+Logical file order. Block widths are schematic and do not represent payload sizes.
 
 VTR stores metadata, strings, hierarchy declarations, waveform data, transactions,
 logs, and blackout intervals in append-only sections. Each section has a 24-byte

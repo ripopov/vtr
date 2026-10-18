@@ -27,6 +27,8 @@ execution of an individual instruction with its pipeline stages. Stages and
 events describe progress within that lifetime; relations connect it to other
 activity.
 
+![A signal records state changes, two identical request records remain distinct at the same timestamp, and an instruction transaction spans several cycles with pipeline stages.](diagrams/signals-records-transactions.drawio.svg)
+
 VTR captures both physical and logical hierarchy. The **physical hierarchy** is
 the design tree of scopes, locating signals and record sources within the
 design. The **logical hierarchy** follows runtime ownership among transactions
