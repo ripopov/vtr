@@ -1,89 +1,162 @@
 # VTR design rationale
 
-This is a focused summary of the trace-library decisions inherited from the
-[prototype](https://github.com/ripopov/vtr/tree/4b4fd692e7e03a7ebea4daf7a89787203eed9cb6/core/vtr).
-The [specification](SPEC.md) is normative; Rust API contracts live in rustdoc.
-No encoding changes are introduced by this extraction.
+VTR records what hardware did during a run. It captures several kinds of
+observation: signal values, operations, resource occupancy, and diagnostic
+messages. All of them describe the same run, so a useful trace keeps enough
+identity, timing, and structure for a user to move between them directly,
+without reconstructing meaning from text.
 
 ## Boundaries
 
-VTR captures runtime facts and identity. A separate VDB supplies design-source
-semantics and presentation. Keeping those out of the format allows several
-consumers to interpret the same trace without rewriting it or introducing VDB
-as a reader dependency. Log-site provenance is the narrow exception: it
-identifies where a recorded runtime message originated.
+VTR records runtime facts and the identities that connect them. Design-source
+meaning and presentation come from a separate VDB. Keeping VDB data out of the
+format lets several consumers interpret the same trace in their own way, without
+rewriting it and without making VDB a dependency of every reader.
 
-The library owns its reader, writer, compression, recovery, hierarchy queries,
-and derived activity sidecar. Simulator adapters, C bindings, conversion,
-remote protocols, and viewers belong in separate components.
+The trace library handles recording, retrieval, compression, and recovery.
+Simulator integration, conversion, transport, and visualization live in separate
+components. This lets one trace model serve many producers and consumers.
 
-## Container and hierarchy
+## Hierarchy and record sources
 
-Append-only, self-delimiting sections permit streaming writes and recovery by
-scanning complete sections. A directory and fixed trailer provide block lookup
-without decoding all value data. Per-section CRC-32 detects damaged sections.
-Whole-file compression was rejected because it would defeat local random access.
+A hierarchy gives each observation a stable context: the module that contains a
+signal, the source that issues requests, or the resource where an operation
+executes. Scopes group related sources. Generators identify the sources of
+records and describe the kinds of records they produce and the attributes those
+records share. This split between describing a source once and recording each
+occurrence follows FTR's generators, dictionaries, and typed attributes.
 
-An interned string table and typed node attributes generalize FTR's dictionary
-idea. Explicit parent IDs avoid positional hierarchy attributes. Scope and
-variable type codes retain FST numbering; generators share the same
-hierarchy. Chunked declarations allow scopes and signals to appear during a
-run. Each block's signal counts already determine whether a late signal existed,
-so a separate per-signal creation timestamp would duplicate stored information.
+A generator can stand alone or belong to a scope. VTR does not require an extra
+stream node between them, because that level would often carry no information;
+ordinary scopes already provide grouping where it helps. Sources can also appear
+during execution, so recording must not depend on knowing the full hierarchy
+before the run starts.
 
-## Waveforms
+Values are typed so that consumers can filter and interpret them. Formatting an
+address, number, or enumeration as text throws away distinctions that consumers
+would then have to guess. Shared declarations describe repeated record fields
+once, which reduces both repetition and ambiguity. Per-occurrence attributes
+capture details that vary from one operation to the next.
 
-Time-partitioned blocks, group frames, delta-coded time indexes, and dynamic
-aliases draw on FST. Independently compressed column runs bound decoding for a
-local query; a previous-dirty-block table finds earlier values for quiet groups.
-LZ4 and Zstandard are per-blob choices, with uncompressed storage when compression
-does not help. Shuffle, delta, and dictionary transforms operate on value streams
-rather than time headers.
+## Signals and occurrences
 
-The writer can move encoding onto background threads through bounded queues.
-The reader maps the container and decodes queried pieces on demand. Loaded
-histories are owned, immutable, and shareable; decoded-cache eviction does not
-invalidate returned histories. The mapped input itself must remain unchanged
-while a reader exists.
+A signal history must answer two questions: what changed within a time window,
+and what value was already in effect when the window began. Even a signal that
+is quiet during the window therefore needs access to its earlier state.
 
-## Transactions, logs, and clocks
+Event signals work differently. Each record is a separate occurrence, so
+coincident or repeated records must keep their count even when their payloads
+are identical.
 
-FTR inspires generators, typed attributes, and relations between transactions.
-Kanata supplies stage/lane and instruction-lifecycle concepts; OpenTelemetry
-supplies span kinds, events, links, and status. These are runtime data, not
-viewer layout or pipeline-color rules.
+Waveform storage follows FST in using time partitioning, signal grouping, delta
+encoding, and aliases. These techniques exploit repeated structure while still
+supporting local queries. Compression must keep persistent state and individual
+occurrences distinct: skipping an unchanged value is safe for state, but the
+same optimization can erase a meaningful event.
 
-Logs separate static call-site metadata from dynamic arguments, following
-NanoLog and binlog. Per-block text dictionaries borrow CLP's repeated-variable
-idea. Records share transaction IDs and relation semantics while using a
-specialized column encoding. A reader reconstructs text and can query typed
-arguments without parsing formatted output.
+## Transactions, stages, and events
 
-Generators identify record sources and carry their own kinds and attributes.
-They can be roots or children of ordinary scopes. A separate stream node would
-force an extra parent onto standalone sources without contributing record data;
-ordinary scopes already group related sources. Clocks are generators of kind
-`CLOCK`, and clock associations belong to the generators that use them.
+Transactions identify operations such as instructions, requests, and transfers.
+Their lifetimes, outcomes, and relationships explain execution at a higher level
+than individual signal transitions. Several formats inform this model: FTR for
+transaction attributes and relations; Kanata for instruction lifecycles, stages,
+and lanes; and OpenTelemetry for span kinds, events, links, and status.
 
-Declared clocks use ordinary transactions for steady edge stretches. They need
-no extra section or value tag, and cycle numbering is derived from the stretches.
+Users need two complementary views of the same activity. Following one
+instruction shows its visits to fetch, decode, and execute. Following one
+execute slot over time shows visits from many instructions. When a user switches
+between the views, both must lead to the same records.
 
-## Derived activity index
+A located stage is an interval spent at a design location; a located event is a
+point occurrence at one. Each has two independent links: its generator
+identifies the location, and its owner identifies the transaction it belongs to.
+The hierarchy describes design structure, while ownership describes runtime
+activity. Record identity distinguishes repeated visits by the same transaction
+to the same location.
 
-The activity sidecar stores per-signal stretches separated by long silences.
-Thresholds are chosen per source block from disk and memory budgets. Queries
-use the index where conclusive and resolve narrow ambiguous windows from the
-trace. Source identity prevents using a sidecar for a different recording.
-Derived data stays outside the trace so rebuilding an index cannot alter the
-original recording. The generic source interface allows external format
-adapters without adding those dependencies to VTR.
+Keeping all activity inside its owner favors transaction inspection, but
+location queries must then search owners or build a separate index. Keeping a
+separate copy for each view creates consistency and identity problems. Located
+records instead express both relationships directly, so the storage design must
+support efficient access both by owner and by location.
 
-## Verification
+Unlocated stages and events describe detail that matters within one transaction
+but does not identify a separate design location. A lane groups such stages
+within their owner. Producers can therefore record local annotations without
+inventing hierarchy nodes or resource identities for them.
 
-Tests exercise multi-block round trips, aliases, event multiplicity, late
-hierarchy, clocks, logs, cache ownership, truncated-section recovery, and writer
-sealing. Activity queries are checked against recorded changes and builder
-memory is measured with a counting allocator. Small historical Verilator traces
-provide producer-output regression coverage without a simulator installation.
-The prototype's benchmark suite is not imported, so this repository makes no
-comparative size or speed claims.
+Resource occupancy must keep the evidence needed to diagnose conflicts.
+Overlapping visits to a resource may reveal a producer error or a hardware
+problem; discarding either visit would hide that evidence. For the same reason,
+coincident events and repeated visits stay distinct. Ownership, timestamp order,
+and emission order each carry different information, and none can be inferred
+from the others.
+
+## Identity and relations
+
+Stable record identities let consumers follow ownership, dependencies, and
+causality across sources. A relation can connect individually identified records,
+including operations and located occurrences. Identity must not depend on how
+records are grouped in storage or the order in which they are retrieved: a
+record selected through one query must be the same occurrence when reached
+through another.
+
+Ownership and causal relations answer different questions. An event can belong
+to one instruction while also taking part in a dependency on another operation.
+Explicit relations keep this distinction instead of forcing every connection
+into a single parent tree.
+
+## Logs and clocks
+
+A log message combines a static call site with dynamic arguments. Separating the
+two follows NanoLog and binlog; reusing repeated text values follows CLP. Keeping
+arguments typed lets consumers filter messages without parsing formatted output.
+Linking a message to the operation that produced it connects diagnostics to the
+rest of the trace.
+
+Clock cycles are a useful way to read time, but clocks can pause or change
+frequency. Recording each steady stretch of edges captures this behavior
+compactly while still letting cycle numbers be derived. Associating each source
+with its clock supports multiple clock domains without imposing one global cycle
+count.
+
+## Storage and query tradeoffs
+
+Trace workloads combine sustained writes with selective reads. A viewer usually
+needs a few signals or locations over a limited time window, while transaction
+inspection follows related activity across many locations. Grouping data for
+only one of these patterns makes the other expensive. Compressing regions
+independently lets a query decode only the regions it needs. Smaller regions
+make reads more selective but add metadata and give compression less repeated
+data to exploit.
+
+Indexes trade write cost and space for less query work. Coarse references are
+cheap to record but require more filtering during reads; fine references reduce
+filtering but require more bookkeeping during recording. The right balance
+depends on the full cost of a query, including owner lookup, related records,
+labels, decompression, and I/O. Compression ratio alone cannot decide it.
+
+A long-lived operation may accumulate many completed children. Recording should
+be able to release completed payloads while their owner is still active.
+Backpressure limits how much encoding work is queued, but active operations,
+their pending detail, and navigation metadata still occupy memory. Memory
+budgets must account for those lifetimes, not just for compression buffers.
+
+## Recovery and derived data
+
+Traces are most valuable when execution fails. Writing data incrementally in
+independently delimited pieces lets complete data survive an interrupted write,
+and integrity checks separate recoverable records from damaged bytes. Final
+lookup structures should speed up access, but they must not be the only way to
+find recorded data.
+
+Related records may become durable at different times. Recovery must keep
+whatever evidence is available and report unresolved references or incomplete
+activity. It must not invent missing records or present a partial result as
+complete.
+
+Derived activity indexes help users find interesting windows in long, mostly
+quiet traces. They can summarize activity coarsely and fall back to the original
+records where a summary is inconclusive. Keeping derived data separate means
+indexes can be rebuilt without changing the recording. Tying them to their
+source trace prevents stale summaries from being applied to a different run.
