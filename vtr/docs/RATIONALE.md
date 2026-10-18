@@ -205,6 +205,40 @@ delta encoding, and aliases. These techniques exploit repeated structure while
 still supporting local queries. Value-change encoding applies to persistent
 state; event histories must preserve occurrence counts.
 
+## Performance requirements
+
+VTR aims to **outperform FST for waveform tracing and FTR for transaction
+tracing, while approaching VCD write speed**. Comparisons should use equivalent
+observations and the same host resource budget, with compressed size and peak
+memory reported alongside runtime. VCD's simpler encoding makes its write speed
+an ambitious reference for a format that also compresses and organizes data for
+selective queries.
+
+A single-core C910 CoreMark run with Verilator 5.048 illustrates the tradeoff.
+Tracing the SoC hierarchy and on-chip memories, excluding external RAM contents,
+produced about **71.4 kB of VCD changes per clock** and **2.14 kB of FST output
+per clock**, the latter including metadata and initial state. Single-thread
+simulation took **13.7 s without tracing, 77.0 s with VCD, and 102.1 s with
+FST**. FST's file was 33.6 times smaller, but recording took 33% longer.
+These were single runs with buffered writes; timings included final flush and
+close. About 89% of VCD's added runtime above dumping-disabled execution
+remained when output was discarded, showing that capture and encoding costs
+matter alongside storage bandwidth. Encoded file sizes do not directly measure
+binary input volume or signal-change counts.
+
+Required bandwidth is data per simulated clock multiplied by simulated clocks
+per wall-clock second. Larger simulated designs produce more data per clock
+but generally simulate more slowly; design size alone cannot determine
+writer throughput. Small cores running at 2 MHz leave only 500 ns per cycle,
+so fixed capture costs also matter. System-level models need separate budgets
+for transaction owners, stages, events, and payloads, including GPU lane detail.
+Use measured producer rates to set capacity targets.
+
+Validate performance with repeated complete runs covering both large designs
+and fast small cores. Compare waveform and transaction workloads separately,
+then together, including capture, compression, indexing, final drain, and close.
+Keep queues bounded and expose backpressure without silently losing records.
+
 ## Storage and query tradeoffs
 
 Trace workloads combine sustained writes with selective reads. Queries by
