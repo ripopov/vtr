@@ -92,17 +92,22 @@ Resource occupancy must keep the evidence needed to diagnose conflicts.
 Overlapping visits to a resource may reveal a producer error or a hardware
 problem; discarding either visit would hide that evidence.
 
-## Typed payloads and logging
+## Typed payloads
 
-Values are typed so that consumers can filter and interpret them. Formatting an
-address, number, or enumeration as text throws away distinctions that consumers
-would then have to guess.
+Typed payloads describe the data carried by logs, located stages and events, and
+regular transactions. Preserving values as numbers, addresses, and enumerations
+lets consumers filter and interpret them without parsing formatted text.
 
-Reusable datatypes describe payload structure independently of generators.
-Several generators sending requests to a NoC can share one request datatype.
-Declaring its field names and types once reduces repeated metadata and lets
-consumers interpret payloads consistently across sources. Individual records
-supply the values that vary between occurrences.
+Payload datatypes are reusable and independent of generators. For example,
+several generators sending requests to a NoC can share one request datatype.
+Declaring its fields and types once reduces repeated metadata and gives
+consumers a consistent structure across sources.
+
+A transaction can also carry additional named attributes alongside its typed
+payload. These describe the transaction as a whole and capture extra details
+without changing the shared payload datatype.
+
+## Logging
 
 A log message combines a static call site with dynamic arguments. Separating the
 two follows [NanoLog][nanolog] and [binlog][binlog]; reusing repeated text values
