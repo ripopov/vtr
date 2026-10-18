@@ -6,10 +6,10 @@ conversion tools, C/C++ interface, and Verilator integration. The
 [Volna viewer](https://github.com/ripopov/volna) consumes VTR through a pinned
 submodule and is developed separately.
 
-| Crate | Purpose |
+| Package | Purpose |
 |---|---|
-| [vtr](vtr/README.md) | Trace format, reader, writer, recovery, and activity indexes |
-| [vtr-capi](vtr-capi/README.md) | C ABI, C++ headers, SystemVerilog/DPI helpers |
+| [vtr](vtr/README.md) | Rust format implementation, reader, writer, recovery, and activity indexes |
+| [vtr-cpp](vtr-cpp/README.md) | Native C++20 reader and writer, C headers, SystemVerilog/DPI helpers |
 | [vtr-guard](vtr-guard/README.md) | Linux crash and stop guard |
 | [vtr-cli](vtr-cli/README.md) | Inspection, queries, indexing, and conversion |
 | [vtr-convert](vtr-convert/README.md) | FST, Kanata, and VCD importers |
@@ -18,7 +18,7 @@ submodule and is developed separately.
 
 ## Development
 
-Use the pinned Rust toolchain and a C/C++17 compiler. Rust libraries and tests
+Use the pinned Rust toolchain and a C++20 compiler. Rust libraries and tests
 build without initializing Verilator:
 
 ```sh
@@ -28,6 +28,9 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
+
+Build and test the independent native implementation with CMake; see the
+[C++ guide](vtr-cpp/README.md). The native library does not link Rust.
 
 The standalone `vtr` crate requires Rust 1.97.1 or newer. See the
 [format specification](vtr/docs/SPEC.md), [design rationale](vtr/docs/RATIONALE.md),

@@ -19,12 +19,17 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     lib = out/'lib'
     lib.mkdir(exist_ok=True)
-    shutil.copy2(ROOT/'target/release/libvtr.a', lib/'libvtr.a')
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'vtr-capi/include'), VTR_LIBDIR=str(lib))
+    shutil.copy2(ROOT/'build/cpp/libvtr.a', lib/'libvtr.a')
+    include = out/'include'/'vtr'
+    include.mkdir(parents=True, exist_ok=True)
+    for name in ('vtr_trace.sv', 'vtr_trace_dpi.hpp', 'vtr_track.hpp'):
+        shutil.copy2(ROOT/'vtr-cpp'/'include'/name, include/name)
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'vtr-cpp/include'), VTR_LIBDIR=str(lib))
     cli = ROOT/'target/release/vtr'
     for mode in ('vtr', 'fst'):
         obj = out/f'obj_{mode}'
-        flags = []
+        flags = ['-CFLAGS', f'-I{include.parent}',
+                 '-LDFLAGS', '-lvtr -llz4 -lzstd -lz'] if mode == 'vtr' else []
         if mode == 'fst':
             for option, query in [('-CFLAGS', '--cflags'), ('-LDFLAGS', '--libs')]:
                 value = subprocess.check_output(['pkg-config', query, 'liblz4'], text=True).strip()

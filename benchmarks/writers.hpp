@@ -1,7 +1,7 @@
 #pragma once
 
 #include "workload.hpp"
-#include <vtr.h>
+#include <vtr.hpp>
 #include <fstapi.h>
 #include <ftr/ftr_writer.h>
 #include <charconv>
@@ -10,9 +10,6 @@
 #include <unordered_map>
 
 namespace bench {
-inline void check(int status) {
-    if (status != VTR_OK) throw std::runtime_error(vtr_last_error());
-}
 template<class T> T* require(T* pointer, const char* what) {
     if (!pointer) throw std::runtime_error(what);
     return pointer;
@@ -37,71 +34,38 @@ struct NullWriter : Writer {
 };
 
 class VtrWriter final : public Writer {
-    vtr_writer* writer_;
-    std::vector<std::uint32_t> signals_, generators_;
-    std::array<std::uint32_t, 5> keys_;
+    vtr::Writer writer_;
+    std::vector<vtr::Id> signals_, generators_;
+    std::array<vtr::Id, 5> keys_;
     std::unordered_map<u64, u64> active_;
-    void attr(u64 id, unsigned index, u64 value) {
-        vtr_value v{};
-        v.tag = VTR_VAL_U64;
-        v.u = value;
-        check(vtr_writer_tx_attr(writer_, id, keys_[index], &v));
-    }
 public:
-    VtrWriter(const Profile& p, const std::string& path) {
-        vtr_writer_options options;
-        vtr_writer_options_default(&options);
-        options.codec = VTR_CODEC_LZ4;
-        options.background = 0;
-        options.log_encoders = 1;
-        writer_ = require(vtr_writer_create(path.c_str(), &options), "cannot create VTR");
-        check(vtr_writer_set_timescale(writer_, -9));
-        auto top = vtr_writer_add_scope(writer_, VTR_NONE, "top", VTR_SCOPE_MODULE, nullptr);
-        if (top == VTR_NONE) throw std::runtime_error(vtr_last_error());
-        std::uint32_t scope = top;
+    VtrWriter(const Profile& p, const std::string& path) : writer_(path) {
+        writer_.metadata().timescale = -9;
+        auto top = writer_.add_scope(vtr::none, "top");
+        auto scope = top;
         for (unsigned i = 0; i < p.signals; ++i) {
-            if (i % 32 == 0) {
-                auto name = "unit_" + std::to_string(i / 32);
-                scope = vtr_writer_add_scope(writer_, top, name.c_str(), VTR_SCOPE_MODULE, nullptr);
-                if (scope == VTR_NONE) throw std::runtime_error(vtr_last_error());
-            }
-            auto name = "signal_" + std::to_string(i);
-            std::uint32_t node, signal;
-            check(vtr_writer_add_var(writer_, scope, name.c_str(), VTR_VAR_WIRE, VTR_DIR_IMPLICIT,
-                VTR_SIGNAL_BITS, width(i), 2, &node, &signal));
-            signals_.push_back(signal);
+            if (i % 32 == 0) scope = writer_.add_scope(top, "unit_" + std::to_string(i / 32));
+            signals_.push_back(writer_.add_var(scope, "signal_" + std::to_string(i),
+                {vtr::SignalKind::bits, width(i), 2}).second);
         }
-        for (unsigned g = 0; g < p.generators; ++g) {
-            auto name = "generator_" + std::to_string(g);
-            auto id = vtr_writer_add_generator(writer_, top, name.c_str(), "request");
-            if (id == VTR_NONE) throw std::runtime_error(vtr_last_error());
-            generators_.push_back(id);
-        }
-        for (unsigned i = 0; i < keys_.size(); ++i) {
-            keys_[i] = vtr_writer_intern(writer_, attr_names[i]);
-            if (keys_[i] == VTR_NONE) throw std::runtime_error(vtr_last_error());
-        }
+        for (unsigned g = 0; g < p.generators; ++g)
+            generators_.push_back(writer_.add_generator(top, "generator_" + std::to_string(g), "request"));
+        for (unsigned i = 0; i < keys_.size(); ++i) keys_[i] = writer_.intern(attr_names[i]);
     }
-    ~VtrWriter() override { if (writer_) vtr_writer_close(writer_); }
-    void time(u64 t) override { check(vtr_writer_set_time(writer_, t)); }
-    void signal(u64, unsigned s, u64 value) override { check(vtr_writer_emit_u64(writer_, signals_[s], value)); }
+    void time(u64 t) override { writer_.set_time(t); }
+    void signal(u64, unsigned s, u64 value) override { writer_.emit(signals_[s], value); }
     void begin(const Transaction& t) override {
-        u64 id;
-        check(vtr_writer_begin_tx(writer_, generators_[t.generator], t.begin, &id));
+        auto id = writer_.begin_tx(generators_[t.generator], t.begin);
         active_.emplace(t.serial, id);
-        for (unsigned i = 0; i < 4; ++i) attr(id, i, t.attrs[i]);
+        for (unsigned i = 0; i < 4; ++i) writer_.tx_attr(id, keys_[i], t.attrs[i]);
     }
     void end(const Transaction& t) override {
         auto id = active_.at(t.serial);
-        attr(id, 4, t.attrs[4]);
-        check(vtr_writer_end_tx(writer_, id, t.end, VTR_TX_STATUS_UNSET));
+        writer_.tx_attr(id, keys_[4], t.attrs[4]);
+        writer_.end_tx(id, t.end);
         active_.erase(t.serial);
     }
-    void close() override {
-        auto w = writer_;
-        writer_ = nullptr;
-        check(vtr_writer_close(w));
-    }
+    void close() override { writer_.close(); }
 };
 
 class FstWriter final : public Writer {

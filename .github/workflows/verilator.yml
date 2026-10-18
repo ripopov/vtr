@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-capi/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
+    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
   pull_request:
-    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-capi/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
+    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
 
 permissions:
   contents: read
@@ -23,7 +23,9 @@ jobs:
         with:
           toolchain: nightly-2026-09-29
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y autoconf flex bison help2man liblz4-dev
-      - run: cargo build --release --locked -p vtr-capi -p vtr-cli
+      - run: sudo apt-get update && sudo apt-get install -y autoconf flex bison help2man liblz4-dev libzstd-dev zlib1g-dev
+      - run: cargo build --release --locked -p vtr-cli
+      - run: cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - run: cmake --build build/cpp --parallel 2
       - run: integrations/verilator/build.sh "$PWD/build/verilator/install"
       - run: python3 integrations/verilator/smoke/run.py --verilator build/verilator/install/bin/verilator

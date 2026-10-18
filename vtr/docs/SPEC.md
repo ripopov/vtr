@@ -5,7 +5,9 @@ This document is normative: an independent implementation written from it
 must read every file produced by the reference implementation and produce
 files the reference reader accepts.
 
-The reference implementation lives in this [`vtr` crate](../).
+The Rust implementation lives in this [`vtr` crate](../). An independent
+[native C++20 implementation](../../vtr-cpp/README.md) reads and writes the same
+format; cross-language tests verify both directions.
 Design-source semantics and presentation metadata belong to a separate VDB
 layer. Viewer layouts, selected signals, cursors, markers, and remote query
 protocols are outside this specification and this crate.

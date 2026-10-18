@@ -22,9 +22,13 @@ Do not add trivial unit tests that merely mirror static declarations or
 configuration. Focus tests on meaningful behavior, edge cases, and nontrivial invariants.
 
 Whenever the VTR implementation or trace format changes, rebuild and rerun the
-full default benchmark suite from the repository root:
+native interoperability tests and full default benchmark suite from the
+repository root:
 
 ```sh
+cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release
+cmake --build build/cpp --parallel
+ctest --test-dir build/cpp --output-on-failure
 python3 benchmarks/build.py
 python3 benchmarks/run.py
 ```

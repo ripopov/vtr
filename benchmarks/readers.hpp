@@ -17,14 +17,6 @@ inline u64 binary(const char* data, std::size_t size) {
     return value;
 }
 
-inline u64 unpack_vtr(const vtr_signal_value& v) {
-    if (v.kind != VTR_SIGNAL_BITS || v.states != 2 || v.width > 64 || v.len != (v.width + 7) / 8)
-        throw std::runtime_error("unexpected VTR signal type");
-    u64 value = 0;
-    for (std::size_t i = 0; i < v.len; ++i) value |= u64(v.data[i]) << (8 * i);
-    return value;
-}
-
 struct Selection {
     Digest digest;
     const Query* query = nullptr;
@@ -45,80 +37,63 @@ struct Selection {
 };
 
 class VtrReader {
-    std::unique_ptr<vtr_reader, decltype(&vtr_reader_close)> reader_;
-    std::map<std::uint32_t, unsigned> generators_;
-    std::map<std::uint32_t, unsigned> attrs_;
-    std::vector<std::uint32_t> generator_ids_;
+    vtr::Reader reader_;
+    std::map<vtr::Id, unsigned> generators_, attrs_;
+    std::vector<vtr::Id> generator_ids_;
 public:
-    VtrReader(const Profile& p, const std::string& path)
-        : reader_(require(vtr_reader_open(path.c_str()), "cannot open VTR"), vtr_reader_close) {
-        if (vtr_reader_signal_count(reader_.get()) != p.signals) throw std::runtime_error("VTR signal count mismatch");
+    VtrReader(const Profile& p, const std::string& path) : reader_(path) {
+        if (reader_.signals().size() != p.signals) throw std::runtime_error("VTR signal count mismatch");
         for (unsigned g = 0; g < p.generators; ++g) {
-            std::uint32_t node;
-            auto name = "top.generator_" + std::to_string(g);
-            check(vtr_reader_find_node(reader_.get(), name.c_str(), '.', &node));
+            auto node = reader_.find_node("top.generator_" + std::to_string(g));
+            if (node == vtr::none) throw std::runtime_error("missing VTR generator");
             generator_ids_.push_back(node);
             generators_[node] = g;
         }
-        vtr_meta meta{};
-        check(vtr_reader_meta(reader_.get(), &meta));
-        for (std::uint32_t i = 0; i < meta.string_count; ++i) {
-            std::size_t len;
-            auto str = vtr_reader_str(reader_.get(), i, &len);
-            if (!str) continue;
+        const auto strings = reader_.strings();
+        for (vtr::Id i = 0; i < strings.size(); ++i) {
+            const std::string_view name = strings[i];
             for (unsigned a = 0; a < attr_names.size(); ++a)
-                if (std::string_view(str, len) == attr_names[a]) attrs_[i] = a;
+                if (name == attr_names[a]) attrs_[i] = a;
         }
     }
     void signals(Selection& select) {
-        auto callback = [](void* user, u64 time, std::uint32_t signal, const vtr_signal_value* value) {
-            auto& s = *static_cast<Selection*>(user);
-            return s.capture([&] { s.signal(time, signal, unpack_vtr(*value)); });
+        auto callback = [&](u64 time, vtr::Id signal, const vtr::SignalValue& value) {
+            select.signal(time, signal, value.as_u64());
+            return true;
         };
         if (select.query) {
             const auto& q = *select.query;
-            check(vtr_reader_changes(reader_.get(), q.source, q.begin, q.end, callback, &select));
-        } else check(vtr_reader_for_each_change(reader_.get(), 0, unlimited, callback, &select));
-        select.rethrow();
+            reader_.changes(q.source, q.begin, q.end, callback);
+        } else reader_.changes(0, unlimited, callback);
     }
     void point(Selection& select, const Query& q) {
-        std::unique_ptr<vtr_value_buf, decltype(&vtr_value_buf_free)> buffer(vtr_value_buf_new(), vtr_value_buf_free);
-        require(buffer.get(), "cannot allocate VTR value buffer");
-        check(vtr_reader_value_at(reader_.get(), q.source, q.begin, buffer.get()));
-        vtr_signal_value value{};
-        check(vtr_value_buf_get(buffer.get(), &value));
-        select.digest.signal(q.begin, q.source, unpack_vtr(value));
+        auto bytes = reader_.value_at(q.source, q.begin);
+        vtr::SignalValue value{reader_.signals()[q.source], bytes};
+        select.digest.signal(q.begin, q.source, value.as_u64());
     }
     void transactions(Selection& select) {
-        struct Context { VtrReader* self; Selection* select; } context{this, &select};
-        auto cb = [](void* user, const vtr_tx* tx) {
-            auto& ctx = *static_cast<Context*>(user);
-            return ctx.select->capture([&] {
-                auto& self = *ctx.self;
-                vtr_tx_info info{};
-                check(vtr_tx_get(self.reader_.get(), tx, &info));
-                if (info.attr_count != 5) throw std::runtime_error("VTR attribute count mismatch");
-                Transaction t{0, info.begin, info.end, self.generators_.at(info.generator), {}};
-                unsigned seen = 0;
-                for (unsigned i = 0; i < info.attr_count; ++i) {
-                    std::uint32_t key;
-                    vtr_value value{};
-                    check(vtr_tx_attr(tx, i, &key, &value));
-                    if (value.tag != VTR_VAL_U64) throw std::runtime_error("unexpected VTR attribute type");
-                    auto slot = self.attrs_.at(key);
-                    if (seen & (1u << slot)) throw std::runtime_error("duplicate VTR attribute");
-                    seen |= 1u << slot;
-                    t.attrs[slot] = value.u;
-                }
-                if (seen != 31) throw std::runtime_error("incomplete VTR transaction");
-                t.serial = t.attrs[0];
-                ctx.select->tx(t);
-            });
-        };
-        const auto q = select.query;
-        check(vtr_reader_visit_transactions(reader_.get(), q ? generator_ids_.at(q->source) : VTR_NONE,
-            VTR_NONE, q ? q->begin : 0, q ? q->end : 0, cb, &context));
-        select.rethrow();
+        vtr::Query query;
+        if (select.query) {
+            query.generator = generator_ids_.at(select.query->source);
+            query.begin = select.query->begin;
+            query.end = select.query->end;
+        }
+        reader_.transactions(query, [&](const vtr::Transaction& tx) {
+            if (tx.attrs.size() != 5) throw std::runtime_error("VTR attribute count mismatch");
+            Transaction t{0, tx.begin, tx.end, generators_.at(tx.generator), {}};
+            unsigned seen = 0;
+            for (const auto& attr : tx.attrs) {
+                if (attr.value.tag != vtr::Tag::u64) throw std::runtime_error("unexpected VTR attribute type");
+                auto slot = attrs_.at(attr.key);
+                if (seen & (1u << slot)) throw std::runtime_error("duplicate VTR attribute");
+                seen |= 1u << slot;
+                t.attrs[slot] = attr.value.number;
+            }
+            if (seen != 31) throw std::runtime_error("incomplete VTR transaction");
+            t.serial = t.attrs[0];
+            select.tx(t);
+            return true;
+        });
     }
 };
 

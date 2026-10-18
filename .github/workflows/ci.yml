@@ -8,8 +8,8 @@ permissions:
   contents: read
 
 jobs:
-  vtr-capi-install:
-    name: Install and consume VTR C API (Linux)
+  vtr-cpp-install:
+    name: Native C++ and C integration (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -17,20 +17,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-09-29
+      - run: sudo apt-get update && sudo apt-get install -y cmake liblz4-dev libzstd-dev zlib1g-dev
+      - run: cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build/cpp --parallel 2
+      - run: ctest --test-dir build/cpp --output-on-failure
       - name: Install and link an external C consumer
         shell: bash
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/vtr-capi"
-          ./vtr-capi/install.sh --target-dir "$out/target" --prefix "$out/prefix"
-          ./vtr-capi/install.sh --target-dir "$out/target" --prefix "$out/prefix"
-          cp vtr-capi/tests/c_smoke.c "$out/c_smoke.c"
+          out="$RUNNER_TEMP/vtr-cpp"
+          ./vtr-cpp/install.sh --target-dir "$out/target" --prefix "$out/prefix"
+          ./vtr-cpp/install.sh --target-dir "$out/target" --prefix "$out/prefix"
+          cp vtr-cpp/tests/c_smoke.c "$out/c_smoke.c"
           export PKG_CONFIG_PATH="$out/prefix/lib/pkgconfig"
           cc -std=c99 -Wall -Wextra -Werror -O1 \
             $(pkg-config --cflags vtr) "$out/c_smoke.c" \
             $(pkg-config --static --libs vtr) -o "$out/c_smoke"
           "$out/c_smoke" "$out/trace.vtr"
-          ./vtr-capi/install.sh --target-dir "$out/target-debug" --prefix "$out/prefix-debug" --debug
+          ./vtr-cpp/install.sh --target-dir "$out/target-debug" --prefix "$out/prefix-debug" --debug
           export PKG_CONFIG_PATH="$out/prefix-debug/lib/pkgconfig"
           cc -std=c99 -Wall -Wextra -Werror -O1 \
             $(pkg-config --cflags vtr) "$out/c_smoke.c" \

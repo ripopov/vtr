@@ -1,4 +1,4 @@
-/* vtr.h - C API for VTR (Volna Trace Record) trace files. */
+/* vtr.h - C API for VTR (Versatile Trace Record) trace files. */
 
 #ifndef VTR_H
 #define VTR_H
@@ -38,7 +38,7 @@ const char *vtr_version(void);
 #define VTR_FILE_SOFTWARE      5
 #define VTR_FILE_OTHER         255
 
-#define VTR_API_VERSION 2
+#define VTR_API_VERSION 3
 
 #define VTR_NODE_SCOPE      1
 #define VTR_NODE_VAR        2
@@ -192,12 +192,9 @@ typedef struct vtr_writer_options {
     int      level;
     uint32_t group_size;
     uint64_t block_records;
-    uint64_t chunk_records;
     uint64_t tx_block_bytes;
-    int      background;
     int      dedup;
     int      checksums;
-    uint32_t log_encoders;
     uint32_t commit_interval_ms;
 } vtr_writer_options;
 
@@ -232,7 +229,6 @@ typedef struct vtr_guard_options {
     int      stops;
     uint32_t stop_grace_ms;
     int      exit;
-    int      park_signal;
 } vtr_guard_options;
 void vtr_guard_options_default(vtr_guard_options *o);
 int  vtr_guard_install(const vtr_guard_options *opts , int *active_out );
@@ -303,7 +299,11 @@ int      vtr_writer_clock_stop(vtr_writer *w, uint32_t clock, uint64_t t);
 
 typedef struct vtr_reader vtr_reader;
 
+typedef struct vtr_reader_options {
+    int verify_crc;
+} vtr_reader_options;
 vtr_reader *vtr_reader_open(const char *path);
+vtr_reader *vtr_reader_open_with_options(const char *path, const vtr_reader_options *options);
 void        vtr_reader_close(vtr_reader *r);
 void        vtr_reader_clear_cache(vtr_reader *r);
 

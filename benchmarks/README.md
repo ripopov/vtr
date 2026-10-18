@@ -1,6 +1,6 @@
 # Synthetic format benchmarks
 
-These C++17 examples compare VTR with FST and VCD for RTL-style signal
+These C++20 examples compare VTR with FST and VCD for RTL-style signal
 streaming, and with FTR for transaction streaming. A mixed workload compares
 one VTR file with FST+FTR and VCD+FTR pairs. The suite measures the performance
 requirements in [the rationale](../vtr/docs/RATIONALE.md): complete write cost,
@@ -8,9 +8,8 @@ full decode cost, file size, peak memory, selective access, and producer cost.
 
 ## Build and run
 
-Requirements: Linux, Python 3.9+, Git, a C/C++17 compiler, the repository's Rust
-toolchain, and development packages for zlib and bzip2. For example,
-Debian/Ubuntu packages are `build-essential python3 git zlib1g-dev libbz2-dev`.
+Requirements: Linux, Python 3.9+, Git, a C/C++20 compiler, CMake 3.20+, and development packages for LZ4, Zstandard, zlib, and bzip2. For example,
+Debian/Ubuntu packages are `build-essential cmake python3 git liblz4-dev libzstd-dev zlib1g-dev libbz2-dev`.
 SystemC, Verilator, and simulator submodules are unnecessary.
 
 From this directory:
@@ -23,8 +22,8 @@ python3 run.py
 `build.py` fetches pinned revisions of
 [libfst](https://github.com/gtkwave/libfst) and
 [LWTR4SC](https://github.com/Minres/LWTR4SC) into ignored `.build/deps`, builds
-the current VTR C API in release mode, and links `.build/benchmark`.
-`python3 build.py --offline` reuses fetched revisions and Cargo's cache.
+the native `vtr-cpp` library in release mode, and links `.build/benchmark`.
+`python3 build.py --offline` reuses fetched revisions.
 It refuses to overwrite modified dependency checkouts. `CC` and `CXX` select
 compiler executables. Rebuild after modifying VTR or benchmark sources.
 
@@ -98,14 +97,13 @@ threads.
   repetitions. No simulator computation is included beyond the common synthetic
   producer. The null-producer measurement provides a generation-cost reference;
   reported write times do not subtract it.
-- VTR uses its C API, LZ4, synchronous writing, and otherwise default writer
+- VTR uses its native C++20 interface, LZ4, synchronous writing, and otherwise default writer
   settings. FST uses libfst's native writer with LZ4, compressed hierarchy, and
   parallel mode disabled. FTR uses the upstream `ftr_writer<true>` standalone
   backend with its normal 64 KiB block threshold. VCD uses a buffered text writer
   with standard binary-vector shortening. No writer receives precomputed output
   or an in-memory copy of the complete workload.
-  FST and FTR share libfst's bundled LZ4 implementation; VTR uses `lz4_flex`
-  from the workspace lockfile.
+  FST and FTR share libfst's bundled LZ4 implementation; VTR uses the system LZ4 library.
 - Complete write wall time includes file creation, declarations, producer
   generation, capture, compression, indexes, drain, and close. Capture and close
   are also reported separately. Writes use the filesystem page cache without
@@ -168,7 +166,7 @@ every design property in the rationale.
 ## C++ examples
 
 `workload.hpp` contains the streaming producer and independent result oracle.
-`writers.hpp` demonstrates VTR, libfst, standalone FTR, VCD, and paired sinks.
+`writers.hpp` demonstrates native VTR C++, libfst, standalone FTR, VCD, and paired sinks.
 `readers.hpp` demonstrates scans, predicates, and signal point lookup;
 `ftr_reader.hpp` handles the FTR subset. `benchmark.cpp` exposes each operation
 as a small command-line example that writes one JSON result:
@@ -187,3 +185,22 @@ should use the runner so that a decoding error cannot become a performance win.
 Run `python3 -m unittest discover -s . -p 'test_*.py'` after building to check
 all format/query combinations on short traces, truncated FTR rejection, and
 deadline failure reporting.
+
+The native waveform writer transforms and compresses columns at block flush;
+the Rust writer prepares chunks during capture. Compare total write time along
+with capture and close: moving work into `close()` is an intentional tradeoff,
+not an improvement in producer latency on its own. The independent codecs and
+transform sampling can produce slightly different file sizes within the same
+VTR 2.0 format. Both decoders are checked against each implementation's output
+by the native library's interoperability tests.
+
+The native migration was checked on 2026-10-19 against the Rust-backed C API at
+`bb2c8bb`, with the same default workloads and CPU affinity. Total write/read
+time and peak RSS improved in every profile. Accepted costs are the longer
+waveform close phase described above and an idle-profile file of 1.853 MiB
+versus 1.831 MiB (1.2%). Sparse point queries also retain a small median cost:
+a paired seven-repetition check measured 0.338 ms for C++ versus 0.302 ms for
+Rust, with p95 improving from 0.534 ms to 0.513 ms. The native reader eagerly builds owning
+metadata on open, and each benchmark probe includes a fresh open. This migration
+accepts that small cold-query cost alongside the larger streaming and memory
+improvements; keep it visible in subsequent comparisons.

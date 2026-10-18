@@ -1,4 +1,4 @@
-// Writes the recordings that tests/track.rs reads back: part A drives vtr::Tracker
+// Writes the recordings that tests/tracking.rs reads back: part A drives vtr::Tracker
 // (vtr_track.hpp) directly, part B the vtr_trace package's DPI functions
 // (vtr_trace_dpi.hpp) over a test host and sink.
 

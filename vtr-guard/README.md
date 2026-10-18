@@ -14,6 +14,6 @@ process-wide and supports at most 64 watched writers. `VTR_GUARD=0` disables
 installation; `VTR_GUARD_DEADLINE_MS` and `VTR_GUARD_STOP_GRACE_MS` override the
 corresponding durations.
 
-The [C API guide](../vtr-capi/README.md) covers linking `libvtr` and using the
-guard through `vtr.h`. Rust callers can use the API documented in
+The [C++ and C guide](../vtr-cpp/README.md) covers the independent native
+`libvtr` guard exposed through `vtr.h`. Rust callers can use the API documented in
 [`src/lib.rs`](src/lib.rs).

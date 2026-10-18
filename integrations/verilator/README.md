@@ -10,7 +10,9 @@ flex, bison, Perl, and help2man installed:
 
 ```sh
 git submodule update --init --recursive ext/verilator
-cargo build --release -p vtr-capi -p vtr-cli
+cargo build --release -p vtr-cli
+cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+cmake --build build/cpp --parallel
 integrations/verilator/build.sh "$PWD/build/verilator/install"
 ```
 
@@ -19,12 +21,13 @@ The build helper installs the matching `vtr_trace.sv`, `vtr_trace_dpi.hpp`, and
 
 ```sh
 build/verilator/install/bin/verilator --cc --exe --trace-vtr top.sv main.cpp
-make -C obj_dir -f Vtop.mk VTR_INCLUDE="$PWD/vtr-capi/include" VTR_LIBDIR="$PWD/target/release"
+make -C obj_dir -f Vtop.mk VTR_INCLUDE="$PWD/vtr-cpp/include" VTR_LIBDIR="$PWD/build/cpp" \
+  USER_LDLIBS="-lvtr -llz4 -lzstd -lz"
 ```
 
 The harness includes `verilated_vtr_c.h` and uses `VerilatedVtrC` in place of
 `VerilatedFstC`. CMake integrations can pass `TRACE_VTR` to `verilate()`.
-See the [C API guide](../../vtr-capi/README.md) for installation and crash recovery,
+See the [C API guide](../../vtr-cpp/README.md) for installation and crash recovery,
 and the [logging guide](../../vtr/docs/LOGGING.md) for typed simulator messages.
 
 Run the simulator smoke test after building the C API and CLI (FST comparison

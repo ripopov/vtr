@@ -46,13 +46,12 @@ def main():
             parser.error(f"dependency checkout has local changes: {dest}")
         run(["git", "-C", dest, "checkout", "--detach", revision])
 
-    cargo = ["cargo", "build", "--locked", "--release", "-p", "vtr-capi"]
-    if args.offline:
-        cargo.append("--offline")
-    run(cargo, cwd=ROOT)
-    metadata = json.loads(output(["cargo", "metadata", "--no-deps", "--format-version=1", "--offline"], cwd=ROOT))
-    libvtr = Path(metadata["target_directory"]) / "release" / "libvtr.a"
     cc, cxx = os.environ.get("CC", "cc"), os.environ.get("CXX", "c++")
+    native = BUILD / "vtr-cpp"
+    run(["cmake", "-S", ROOT / "vtr-cpp", "-B", native, "-DCMAKE_BUILD_TYPE=Release",
+         "-DBUILD_TESTING=OFF", f"-DCMAKE_CXX_COMPILER={cxx}"])
+    run(["cmake", "--build", native, "--parallel", "2"])
+    libvtr = native / "libvtr.a"
     fst = BUILD / "deps" / "libfst" / "src"
     objects = []
     for source in ("fstapi.c", "fastlz.c", "lz4.c"):
@@ -60,18 +59,18 @@ def main():
         run([cc, "-O3", "-DNDEBUG", "-D_GNU_SOURCE", "-DHAVE_FSEEKO", "-DHAVE_REALPATH",
              "-I", fst, "-c", fst / source, "-o", obj])
         objects.append(obj)
-    run([cxx, "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
-         "-I", ROOT / "vtr-capi" / "include", "-isystem", fst,
+    run([cxx, "-std=c++20", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
+         "-I", ROOT / "vtr-cpp" / "include", "-isystem", fst,
          "-isystem", BUILD / "deps" / "lwtr" / "src", HERE / "benchmark.cpp", *objects,
-         libvtr, "-lz", "-lbz2", "-ldl", "-lpthread", "-lm", "-o", BUILD / "benchmark"])
+         libvtr, "-llz4", "-lzstd", "-lz", "-lbz2", "-ldl", "-lpthread", "-lm", "-o", BUILD / "benchmark"])
     (BUILD / "build.json").write_text(json.dumps({
         "dependencies": {name: {"url": url, "revision": revision} for name, (url, revision) in DEPS.items()},
         "vtr_revision": output(["git", "rev-parse", "HEAD"], cwd=ROOT),
         "vtr_dirty": bool(output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT)),
         "compiler": output([cxx, "--version"]).splitlines()[0],
-        "rustc": output(["rustc", "--version"], cwd=ROOT),
-        "flags": "C++17 -O3 -DNDEBUG; VTR release; synchronous LZ4 writers",
-        "lz4": "FST and FTR: libfst bundled LZ4; VTR: Cargo.lock lz4_flex",
+        "vtr_implementation": "native C++20",
+        "flags": "C++20 -O3 -DNDEBUG; native VTR release; synchronous LZ4 writers",
+        "lz4": "FST and FTR: libfst bundled LZ4; VTR: system liblz4",
     }, indent=2) + "\n")
     print(f"Built {BUILD / 'benchmark'}")
 

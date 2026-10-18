@@ -1,6 +1,6 @@
 # VTR synthetic format comparison
 
-Status: **complete; all checks passed**. Elapsed suite time: **61.41 s** (budget 280 s; dependency setup/build excluded).
+Status: **complete; all checks passed**. Elapsed suite time: **54.60 s** (budget 280 s; dependency setup/build excluded).
 
 Host: Linux-7.0.0-38-generic-x86_64-with-glibc2.43. CPU affinity: 0. Repeats: 3. Scale divisor: 1. Format-order seed: 20261018.
 
@@ -16,230 +16,230 @@ Twelve deterministic probes per operation and repetition include hits, guarantee
 
 ### core
 
-Observations: 6,291,079. Null producer: 49.42 ms.
+Observations: 6,291,079. Null producer: 48.90 ms.
 
 | Metric | VTR | FST | VCD |
 |---|---:|---:|---:|
-| Write time (ms) | 160.46 | 694.92 | 167.85 |
-| Write throughput (Mobs/s) | 39.207 | 9.053 | 37.481 |
-| Read time (ms) | 80.02 | 168.97 | 184.14 |
-| Read throughput (Mobs/s) | 78.622 | 37.232 | 34.165 |
-| File size (MiB) | 7.707 | 8.941 | 149.324 |
+| Write time (ms) | 114.44 | 704.07 | 167.85 |
+| Write throughput (Mobs/s) | 54.971 | 8.935 | 37.481 |
+| Read time (ms) | 43.39 | 170.03 | 181.34 |
+| Read throughput (Mobs/s) | 144.983 | 36.999 | 34.693 |
+| File size (MiB) | 7.666 | 8.941 | 149.324 |
 | Bytes per observation | 1.28 | 1.49 | 24.89 |
-| Logical bytes / file bytes | 11.84 | 10.21 | 0.61 |
-| Write peak RSS (MiB) | 76.88 | 141.12 | 5.45 |
-| Read peak RSS (MiB) | 40.82 | 26.25 | 5.21 |
-| Capture time (ms) | 137.78 | 573.83 | 167.22 |
-| Capture time (ns/tick) | 287.0 | 1195.5 | 348.4 |
-| File bytes per tick | 16.8 | 19.5 | 326.2 |
-| Close time (ms) | 22.45 | 120.93 | 0.12 |
-| Write CPU time (ms) | 161.44 | 695.78 | 168.79 |
-| Write min / max (ms) | 160.43 / 160.64 | 693.53 / 700.78 | 167.42 / 168.08 |
+| Logical bytes / file bytes | 11.91 | 10.21 | 0.61 |
+| Write peak RSS (MiB) | 53.21 | 140.89 | 5.40 |
+| Read peak RSS (MiB) | 17.69 | 26.07 | 5.18 |
+| Capture time (ms) | 86.48 | 582.64 | 167.22 |
+| Capture time (ns/tick) | 180.2 | 1213.8 | 348.4 |
+| File bytes per tick | 16.7 | 19.5 | 326.2 |
+| Close time (ms) | 27.77 | 121.34 | 0.13 |
+| Write CPU time (ms) | 115.48 | 705.06 | 168.85 |
+| Write min / max (ms) | 112.90 / 114.87 | 703.01 / 704.14 | 167.63 / 168.87 |
 | search-signal: probes | 36 | 36 | 36 |
 | search-signal: matches | 291 | 291 | 291 |
-| search-signal: p50 (ms) | 0.714 | 2.538 | 57.122 |
-| search-signal: p95 (ms) | 2.314 | 6.271 | 90.871 |
-| search-signal: peak RSS (MiB) | 12.82 | 26.95 | 6.66 |
+| search-signal: p50 (ms) | 0.466 | 2.529 | 56.141 |
+| search-signal: p95 (ms) | 1.960 | 6.271 | 89.383 |
+| search-signal: peak RSS (MiB) | 12.69 | 26.90 | 6.60 |
 | find-signal: probes | 36 | 36 | 36 |
 | find-signal: matches | 1,068,627 | 1,068,627 | 1,068,627 |
-| find-signal: p50 (ms) | 2.660 | 3.118 | 96.200 |
-| find-signal: p95 (ms) | 26.010 | 8.567 | 101.566 |
-| find-signal: peak RSS (MiB) | 46.78 | 26.98 | 6.68 |
+| find-signal: p50 (ms) | 0.702 | 3.184 | 93.542 |
+| find-signal: p95 (ms) | 6.032 | 8.660 | 97.096 |
+| find-signal: peak RSS (MiB) | 12.62 | 26.91 | 6.57 |
 | point: probes | 36 | 36 | 36 |
 | point: matches | 36 | 36 | 36 |
-| point: p50 (ms) | 0.857 | 0.360 | 57.405 |
-| point: p95 (ms) | 2.348 | 1.565 | 91.346 |
-| point: peak RSS (MiB) | 12.81 | 8.91 | 6.69 |
+| point: p50 (ms) | 0.535 | 0.360 | 56.068 |
+| point: p95 (ms) | 2.384 | 1.557 | 90.109 |
+| point: peak RSS (MiB) | 12.63 | 8.83 | 6.55 |
 
 ### soc
 
-Observations: 20,143,793. Null producer: 143.13 ms.
+Observations: 20,143,793. Null producer: 143.23 ms.
 
 | Metric | VTR | FST | VCD |
 |---|---:|---:|---:|
-| Write time (ms) | 472.09 | 839.78 | 519.01 |
-| Write throughput (Mobs/s) | 42.669 | 23.987 | 38.812 |
-| Read time (ms) | 282.11 | 592.03 | 578.75 |
-| Read throughput (Mobs/s) | 71.405 | 34.025 | 34.806 |
-| File size (MiB) | 24.880 | 52.345 | 485.555 |
-| Bytes per observation | 1.30 | 2.72 | 25.28 |
-| Logical bytes / file bytes | 11.75 | 5.58 | 0.60 |
-| Write peak RSS (MiB) | 127.19 | 145.62 | 5.66 |
-| Read peak RSS (MiB) | 81.75 | 22.65 | 5.23 |
-| Capture time (ms) | 458.38 | 814.96 | 518.10 |
-| Capture time (ns/tick) | 19099.3 | 33956.9 | 21587.6 |
-| File bytes per tick | 1087.0 | 2287.0 | 21214.2 |
-| Close time (ms) | 12.36 | 24.11 | 0.21 |
-| Write CPU time (ms) | 473.11 | 840.63 | 519.99 |
-| Write min / max (ms) | 471.34 / 472.31 | 838.53 / 840.71 | 518.18 / 520.41 |
+| Write time (ms) | 387.46 | 851.71 | 515.77 |
+| Write throughput (Mobs/s) | 51.990 | 23.651 | 39.056 |
+| Read time (ms) | 111.09 | 598.18 | 574.31 |
+| Read throughput (Mobs/s) | 181.325 | 33.675 | 35.075 |
+| File size (MiB) | 24.806 | 52.345 | 485.555 |
+| Bytes per observation | 1.29 | 2.72 | 25.28 |
+| Logical bytes / file bytes | 11.78 | 5.58 | 0.60 |
+| Write peak RSS (MiB) | 114.39 | 145.45 | 5.57 |
+| Read peak RSS (MiB) | 30.14 | 22.54 | 5.21 |
+| Capture time (ms) | 359.99 | 826.18 | 514.82 |
+| Capture time (ns/tick) | 14999.5 | 34424.2 | 21450.8 |
+| File bytes per tick | 1083.8 | 2287.0 | 21214.2 |
+| Close time (ms) | 26.36 | 24.73 | 0.17 |
+| Write CPU time (ms) | 388.49 | 852.60 | 516.75 |
+| Write min / max (ms) | 386.69 / 397.64 | 846.53 / 881.28 | 514.81 / 516.28 |
 | search-signal: probes | 36 | 36 | 36 |
 | search-signal: matches | 297 | 297 | 297 |
-| search-signal: p50 (ms) | 0.320 | 0.435 | 183.111 |
-| search-signal: p95 (ms) | 0.508 | 6.260 | 255.919 |
-| search-signal: peak RSS (MiB) | 9.95 | 22.67 | 6.60 |
+| search-signal: p50 (ms) | 0.290 | 0.452 | 186.996 |
+| search-signal: p95 (ms) | 0.495 | 6.862 | 262.649 |
+| search-signal: peak RSS (MiB) | 6.40 | 22.58 | 6.57 |
 | find-signal: probes | 36 | 36 | 36 |
 | find-signal: matches | 53,517 | 53,517 | 53,517 |
-| find-signal: p50 (ms) | 0.374 | 6.824 | 279.264 |
-| find-signal: p95 (ms) | 1.423 | 7.106 | 286.417 |
-| find-signal: peak RSS (MiB) | 12.79 | 22.29 | 6.60 |
+| find-signal: p50 (ms) | 0.324 | 7.390 | 283.152 |
+| find-signal: p95 (ms) | 0.575 | 7.658 | 288.666 |
+| find-signal: peak RSS (MiB) | 6.59 | 22.32 | 6.59 |
 | point: probes | 36 | 36 | 36 |
 | point: matches | 36 | 36 | 36 |
-| point: p50 (ms) | 0.330 | 0.199 | 186.017 |
-| point: p95 (ms) | 0.489 | 0.320 | 264.806 |
-| point: peak RSS (MiB) | 9.96 | 5.03 | 6.66 |
+| point: p50 (ms) | 0.302 | 0.200 | 184.517 |
+| point: p95 (ms) | 0.484 | 0.318 | 262.026 |
+| point: peak RSS (MiB) | 6.40 | 4.92 | 6.51 |
 
 ### idle
 
-Observations: 2,547,072. Null producer: 17.97 ms.
+Observations: 2,547,072. Null producer: 18.28 ms.
 
 | Metric | VTR | FST | VCD |
 |---|---:|---:|---:|
-| Write time (ms) | 74.30 | 115.71 | 67.43 |
-| Write throughput (Mobs/s) | 34.283 | 22.013 | 37.776 |
-| Read time (ms) | 35.55 | 74.01 | 73.54 |
-| Read throughput (Mobs/s) | 71.651 | 34.415 | 34.634 |
-| File size (MiB) | 1.831 | 4.165 | 61.551 |
-| Bytes per observation | 0.75 | 1.71 | 25.34 |
-| Logical bytes / file bytes | 20.19 | 8.88 | 0.60 |
-| Write peak RSS (MiB) | 45.72 | 77.48 | 5.59 |
-| Read peak RSS (MiB) | 16.44 | 14.64 | 5.32 |
-| Capture time (ms) | 60.61 | 59.00 | 66.49 |
-| Capture time (ns/tick) | 1262.6 | 1229.2 | 1385.3 |
-| File bytes per tick | 40.0 | 91.0 | 1344.6 |
-| Close time (ms) | 12.69 | 56.09 | 0.18 |
-| Write CPU time (ms) | 75.20 | 116.55 | 68.53 |
-| Write min / max (ms) | 74.12 / 75.47 | 114.89 / 117.14 | 66.34 / 68.33 |
+| Write time (ms) | 59.70 | 117.46 | 66.63 |
+| Write throughput (Mobs/s) | 42.662 | 21.684 | 38.230 |
+| Read time (ms) | 16.06 | 74.52 | 72.80 |
+| Read throughput (Mobs/s) | 158.644 | 34.179 | 34.986 |
+| File size (MiB) | 1.853 | 4.165 | 61.551 |
+| Bytes per observation | 0.76 | 1.71 | 25.34 |
+| Logical bytes / file bytes | 19.95 | 8.88 | 0.60 |
+| Write peak RSS (MiB) | 22.14 | 77.52 | 5.58 |
+| Read peak RSS (MiB) | 7.20 | 14.63 | 5.10 |
+| Capture time (ms) | 36.75 | 59.90 | 65.73 |
+| Capture time (ns/tick) | 765.6 | 1247.8 | 1369.4 |
+| File bytes per tick | 40.5 | 91.0 | 1344.6 |
+| Close time (ms) | 21.74 | 56.94 | 0.17 |
+| Write CPU time (ms) | 60.60 | 118.37 | 67.51 |
+| Write min / max (ms) | 59.01 / 59.94 | 116.91 / 117.60 | 66.56 / 66.69 |
 | search-signal: probes | 36 | 36 | 36 |
 | search-signal: matches | 3 | 3 | 3 |
-| search-signal: p50 (ms) | 0.373 | 0.331 | 14.151 |
-| search-signal: p95 (ms) | 0.580 | 4.253 | 34.819 |
-| search-signal: peak RSS (MiB) | 7.13 | 15.07 | 6.67 |
+| search-signal: p50 (ms) | 0.340 | 0.335 | 13.711 |
+| search-signal: p95 (ms) | 0.544 | 4.321 | 33.332 |
+| search-signal: peak RSS (MiB) | 5.86 | 14.98 | 6.54 |
 | find-signal: probes | 36 | 36 | 36 |
 | find-signal: matches | 6,744 | 6,744 | 6,744 |
-| find-signal: p50 (ms) | 0.357 | 0.345 | 36.563 |
-| find-signal: p95 (ms) | 0.601 | 4.196 | 38.044 |
-| find-signal: peak RSS (MiB) | 7.29 | 15.07 | 6.68 |
+| find-signal: p50 (ms) | 0.339 | 0.335 | 35.410 |
+| find-signal: p95 (ms) | 0.545 | 4.268 | 36.399 |
+| find-signal: peak RSS (MiB) | 5.89 | 15.00 | 6.56 |
 | point: probes | 36 | 36 | 36 |
 | point: matches | 36 | 36 | 36 |
-| point: p50 (ms) | 0.300 | 0.099 | 13.692 |
-| point: p95 (ms) | 0.551 | 0.322 | 34.785 |
-| point: peak RSS (MiB) | 7.14 | 5.50 | 6.68 |
+| point: p50 (ms) | 0.334 | 0.096 | 13.338 |
+| point: p95 (ms) | 0.521 | 0.321 | 33.469 |
+| point: peak RSS (MiB) | 5.89 | 5.38 | 6.54 |
 
 ## Transaction results
 
 ### requests
 
-Observations: 205,728. Null producer: 7.29 ms.
+Observations: 205,728. Null producer: 7.62 ms.
 
 | Metric | VTR | FTR |
 |---|---:|---:|
-| Write time (ms) | 51.81 | 38.59 |
-| Write throughput (Mobs/s) | 3.971 | 5.332 |
-| Read time (ms) | 56.55 | 11.38 |
-| Read throughput (Mobs/s) | 3.638 | 18.084 |
-| File size (MiB) | 2.312 | 4.424 |
-| Bytes per observation | 11.78 | 22.55 |
-| Logical bytes / file bytes | 5.77 | 3.02 |
-| Write peak RSS (MiB) | 22.82 | 4.92 |
-| Read peak RSS (MiB) | 73.90 | 8.78 |
-| Capture time (ms) | 43.69 | 38.36 |
-| Capture time (ns/tick) | 364.1 | 319.7 |
-| File bytes per tick | 20.2 | 38.7 |
-| Close time (ms) | 7.94 | 0.17 |
-| Write CPU time (ms) | 52.85 | 39.46 |
-| Write min / max (ms) | 51.77 / 52.62 | 38.26 / 39.51 |
+| Write time (ms) | 30.11 | 37.91 |
+| Write throughput (Mobs/s) | 6.832 | 5.427 |
+| Read time (ms) | 16.57 | 11.54 |
+| Read throughput (Mobs/s) | 12.414 | 17.820 |
+| File size (MiB) | 2.292 | 4.424 |
+| Bytes per observation | 11.68 | 22.55 |
+| Logical bytes / file bytes | 5.82 | 3.02 |
+| Write peak RSS (MiB) | 9.65 | 4.88 |
+| Read peak RSS (MiB) | 7.70 | 8.62 |
+| Capture time (ms) | 29.02 | 37.68 |
+| Capture time (ns/tick) | 241.8 | 314.0 |
+| File bytes per tick | 20.0 | 38.7 |
+| Close time (ms) | 1.03 | 0.18 |
+| Write CPU time (ms) | 31.06 | 38.78 |
+| Write min / max (ms) | 29.90 / 30.72 | 37.71 / 38.75 |
 | search-transaction: probes | 36 | 36 |
 | search-transaction: matches | 27 | 27 |
-| search-transaction: p50 (ms) | 26.523 | 3.485 |
-| search-transaction: p95 (ms) | 40.094 | 4.321 |
-| search-transaction: peak RSS (MiB) | 74.09 | 8.65 |
+| search-transaction: p50 (ms) | 1.932 | 3.497 |
+| search-transaction: p95 (ms) | 2.392 | 4.379 |
+| search-transaction: peak RSS (MiB) | 6.10 | 8.64 |
 | find-transaction: probes | 36 | 36 |
 | find-transaction: matches | 2,715 | 2,715 |
-| find-transaction: p50 (ms) | 36.843 | 5.018 |
-| find-transaction: p95 (ms) | 45.626 | 5.421 |
-| find-transaction: peak RSS (MiB) | 73.96 | 8.79 |
+| find-transaction: p50 (ms) | 10.631 | 5.017 |
+| find-transaction: p95 (ms) | 11.845 | 5.220 |
+| find-transaction: peak RSS (MiB) | 7.72 | 8.61 |
 
 ### many-generators
 
-Observations: 329,168. Null producer: 14.33 ms.
+Observations: 329,168. Null producer: 13.89 ms.
 
 | Metric | VTR | FTR |
 |---|---:|---:|
-| Write time (ms) | 90.00 | 68.71 |
-| Write throughput (Mobs/s) | 3.658 | 4.791 |
-| Read time (ms) | 91.24 | 20.94 |
-| Read throughput (Mobs/s) | 3.608 | 15.717 |
-| File size (MiB) | 3.806 | 7.571 |
-| Bytes per observation | 12.12 | 24.12 |
-| Logical bytes / file bytes | 5.61 | 2.82 |
-| Write peak RSS (MiB) | 25.40 | 6.02 |
-| Read peak RSS (MiB) | 113.66 | 11.79 |
-| Capture time (ms) | 84.14 | 67.94 |
-| Capture time (ns/tick) | 3505.8 | 2830.8 |
-| File bytes per tick | 166.3 | 330.8 |
-| Close time (ms) | 5.72 | 0.70 |
-| Write CPU time (ms) | 91.06 | 69.66 |
-| Write min / max (ms) | 89.03 / 90.38 | 67.73 / 69.48 |
+| Write time (ms) | 55.42 | 67.57 |
+| Write throughput (Mobs/s) | 5.940 | 4.871 |
+| Read time (ms) | 29.17 | 21.15 |
+| Read throughput (Mobs/s) | 11.285 | 15.563 |
+| File size (MiB) | 3.775 | 7.571 |
+| Bytes per observation | 12.02 | 24.12 |
+| Logical bytes / file bytes | 5.66 | 2.82 |
+| Write peak RSS (MiB) | 9.25 | 6.05 |
+| Read peak RSS (MiB) | 9.25 | 11.84 |
+| Capture time (ms) | 54.00 | 66.83 |
+| Capture time (ns/tick) | 2250.0 | 2784.5 |
+| File bytes per tick | 164.9 | 330.8 |
+| Close time (ms) | 1.31 | 0.70 |
+| Write CPU time (ms) | 56.20 | 68.51 |
+| Write min / max (ms) | 55.04 / 56.52 | 66.97 / 67.73 |
 | search-transaction: probes | 36 | 36 |
 | search-transaction: matches | 15 | 15 |
-| search-transaction: p50 (ms) | 26.810 | 0.626 |
-| search-transaction: p95 (ms) | 28.315 | 1.361 |
-| search-transaction: peak RSS (MiB) | 53.38 | 11.86 |
+| search-transaction: p50 (ms) | 1.911 | 0.626 |
+| search-transaction: p95 (ms) | 3.772 | 1.387 |
+| search-transaction: peak RSS (MiB) | 6.80 | 11.90 |
 | find-transaction: probes | 36 | 36 |
 | find-transaction: matches | 537 | 537 |
-| find-transaction: p50 (ms) | 55.983 | 1.350 |
-| find-transaction: p95 (ms) | 65.916 | 1.512 |
-| find-transaction: peak RSS (MiB) | 113.68 | 11.85 |
+| find-transaction: p50 (ms) | 16.703 | 1.359 |
+| find-transaction: p95 (ms) | 17.866 | 1.506 |
+| find-transaction: peak RSS (MiB) | 9.17 | 11.86 |
 
 ## Mixed signal and transaction results
 
 ### mixed
 
-Observations: 1,341,285. Null producer: 12.33 ms.
+Observations: 1,341,285. Null producer: 12.07 ms.
 
 | Metric | VTR | FST+FTR | VCD+FTR |
 |---|---:|---:|---:|
-| Write time (ms) | 60.04 | 94.85 | 50.27 |
-| Write throughput (Mobs/s) | 22.339 | 14.141 | 26.679 |
-| Read time (ms) | 38.27 | 39.02 | 42.06 |
-| Read throughput (Mobs/s) | 35.044 | 34.372 | 31.890 |
-| File size (MiB) | 2.521 | 4.010 | 31.812 |
-| Bytes per observation | 1.97 | 3.13 | 24.87 |
-| Logical bytes / file bytes | 9.36 | 5.89 | 0.74 |
-| Write peak RSS (MiB) | 37.96 | 41.17 | 6.09 |
-| Read peak RSS (MiB) | 36.48 | 9.28 | 6.16 |
-| Capture time (ms) | 45.70 | 46.53 | 49.47 |
-| Capture time (ns/tick) | 1904.0 | 1938.8 | 2061.2 |
-| File bytes per tick | 110.1 | 175.2 | 1389.9 |
-| Close time (ms) | 14.09 | 48.32 | 0.26 |
-| Write CPU time (ms) | 61.04 | 95.92 | 51.29 |
-| Write min / max (ms) | 59.99 / 60.21 | 94.80 / 104.77 | 49.38 / 51.05 |
+| Write time (ms) | 37.01 | 98.32 | 49.69 |
+| Write throughput (Mobs/s) | 36.239 | 13.642 | 26.990 |
+| Read time (ms) | 15.24 | 38.73 | 41.48 |
+| Read throughput (Mobs/s) | 88.036 | 34.631 | 32.334 |
+| File size (MiB) | 2.500 | 4.010 | 31.812 |
+| Bytes per observation | 1.95 | 3.13 | 24.87 |
+| Logical bytes / file bytes | 9.44 | 5.89 | 0.74 |
+| Write peak RSS (MiB) | 17.34 | 40.95 | 6.02 |
+| Read peak RSS (MiB) | 8.17 | 9.32 | 6.07 |
+| Capture time (ms) | 31.02 | 46.22 | 48.91 |
+| Capture time (ns/tick) | 1292.7 | 1926.0 | 2038.1 |
+| File bytes per tick | 109.2 | 175.2 | 1389.9 |
+| Close time (ms) | 5.83 | 51.90 | 0.27 |
+| Write CPU time (ms) | 38.02 | 99.19 | 50.66 |
+| Write min / max (ms) | 37.00 / 37.15 | 95.68 / 102.79 | 49.58 / 50.09 |
 | search-signal: probes | 36 | 36 | 36 |
 | search-signal: matches | 294 | 294 | 294 |
-| search-signal: p50 (ms) | 0.083 | 0.233 | 12.391 |
-| search-signal: p95 (ms) | 0.243 | 2.115 | 17.218 |
-| search-signal: peak RSS (MiB) | 6.29 | 9.85 | 6.71 |
+| search-signal: p50 (ms) | 0.057 | 0.237 | 12.533 |
+| search-signal: p95 (ms) | 0.204 | 2.097 | 16.990 |
+| search-signal: peak RSS (MiB) | 6.05 | 9.79 | 6.57 |
 | find-signal: probes | 36 | 36 | 36 |
 | find-signal: matches | 53,496 | 53,496 | 53,496 |
-| find-signal: p50 (ms) | 0.151 | 0.237 | 18.328 |
-| find-signal: p95 (ms) | 1.204 | 2.050 | 18.759 |
-| find-signal: peak RSS (MiB) | 7.83 | 9.82 | 6.70 |
+| find-signal: p50 (ms) | 0.070 | 0.243 | 18.428 |
+| find-signal: p95 (ms) | 0.338 | 2.062 | 19.209 |
+| find-signal: peak RSS (MiB) | 6.04 | 9.74 | 6.55 |
 | point: probes | 36 | 36 | 36 |
 | point: matches | 36 | 36 | 36 |
-| point: p50 (ms) | 0.074 | 0.037 | 12.371 |
-| point: p95 (ms) | 0.223 | 0.162 | 17.548 |
-| point: peak RSS (MiB) | 6.43 | 5.19 | 6.69 |
+| point: p50 (ms) | 0.062 | 0.038 | 12.333 |
+| point: p95 (ms) | 0.216 | 0.171 | 17.176 |
+| point: peak RSS (MiB) | 6.03 | 5.11 | 6.57 |
 | search-transaction: probes | 36 | 36 | 36 |
 | search-transaction: matches | 24 | 24 | 24 |
-| search-transaction: p50 (ms) | 16.764 | 0.449 | 0.439 |
-| search-transaction: p95 (ms) | 17.037 | 1.160 | 1.089 |
-| search-transaction: peak RSS (MiB) | 34.80 | 6.06 | 6.09 |
+| search-transaction: p50 (ms) | 2.076 | 0.443 | 0.431 |
+| search-transaction: p95 (ms) | 2.775 | 1.110 | 1.094 |
+| search-transaction: peak RSS (MiB) | 6.54 | 6.00 | 6.07 |
 | find-transaction: probes | 36 | 36 | 36 |
 | find-transaction: matches | 543 | 543 | 543 |
-| find-transaction: p50 (ms) | 17.617 | 1.097 | 1.092 |
-| find-transaction: p95 (ms) | 17.946 | 1.166 | 1.185 |
-| find-transaction: peak RSS (MiB) | 34.76 | 6.05 | 6.02 |
+| find-transaction: p50 (ms) | 4.499 | 1.086 | 1.093 |
+| find-transaction: p95 (ms) | 5.679 | 1.203 | 1.173 |
+| find-transaction: peak RSS (MiB) | 6.55 | 6.04 | 6.04 |
 
 ## Interpretation
 
-FST uses upstream libfst. FTR uses LWTR4SC's standalone upstream writer, bypassing SystemC. VCD uses the included buffered C++ writer and streaming subset reader. FTR reads use the included CBOR/LZ4 subset reader, with stream/time chunk pruning. These read timings compare the named implementations, not inherent format limits. VTR and FST use native signal/time selection; VCD scans from the beginning. FTR and VTR filter attribute values after selecting candidate transactions; no secondary value index is built. The FTR header scan/index is charged on every open. No result asserts asynchronous scaling, four-state/wide-vector performance, recovery, or rich owner/stage/relation navigation; those are outside these common-format workloads.
+VTR uses the native C++20 reader and writer in vtr-cpp. FST uses upstream libfst. FTR uses LWTR4SC's standalone upstream writer, bypassing SystemC. VCD uses the included buffered C++ writer and streaming subset reader. FTR reads use the included CBOR/LZ4 subset reader, with stream/time chunk pruning. These read timings compare the named implementations, not inherent format limits. VTR uses its default reader mode without whole-section CRC scans; validation still checks every decoded observation against the producer. VTR and FST use native signal/time selection; VCD scans from the beginning. FTR and VTR filter attribute values after selecting candidate transactions; no secondary value index is built. The FTR header scan/index is charged on every open. No result asserts asynchronous scaling, four-state/wide-vector performance, recovery, or rich owner/stage/relation navigation; those are outside these common-format workloads.

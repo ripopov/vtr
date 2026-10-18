@@ -146,10 +146,11 @@ def report(data):
             lines.append("")
 
     lines += ["## Interpretation", "",
-              "FST uses upstream libfst. FTR uses LWTR4SC's standalone upstream writer, bypassing SystemC. "
+              "VTR uses the native C++20 reader and writer in vtr-cpp. FST uses upstream libfst. FTR uses LWTR4SC's standalone upstream writer, bypassing SystemC. "
               "VCD uses the included buffered C++ writer and streaming subset reader. "
               "FTR reads use the included CBOR/LZ4 subset reader, with stream/time chunk pruning. "
               "These read timings compare the named implementations, not inherent format limits. "
+              "VTR uses its default reader mode without whole-section CRC scans; validation still checks every decoded observation against the producer. "
               "VTR and FST use native signal/time selection; VCD scans from the beginning. "
               "FTR and VTR filter attribute values after selecting candidate transactions; no secondary value index is built. "
               "The FTR header scan/index is charged on every open. "

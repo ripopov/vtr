@@ -35,6 +35,6 @@ make install
 # header, which includes the keyed tracker beside it.
 ROOT=$("$PREFIX/bin/verilator" --getenv VERILATOR_ROOT)
 mkdir -p "$ROOT/include/vtr"
-INC=$HERE/../../vtr-capi/include
+INC=$HERE/../../vtr-cpp/include
 cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.hpp" "$INC/vtr_track.hpp" "$ROOT/include/vtr/"
 echo "$PREFIX/bin/verilator"

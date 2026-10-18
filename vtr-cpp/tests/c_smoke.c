@@ -267,7 +267,8 @@ int main(int argc, char **argv) {
     }
     CHECK(vtr_writer_close(w));
 
-    vtr_reader *rd = vtr_reader_open(path);
+    vtr_reader_options read_options = {1};
+    vtr_reader *rd = vtr_reader_open_with_options(path, &read_options);
     ASSERT(rd != NULL);
     vtr_meta m;
     CHECK(vtr_reader_meta(rd, &m));

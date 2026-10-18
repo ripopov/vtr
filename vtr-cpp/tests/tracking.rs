@@ -1,15 +1,6 @@
-//! C++ and `SystemVerilog` keyed tracker integration tests.
-
-#![cfg(target_os = "linux")]
-
 use std::fmt::Write as _;
-
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
+use std::path::Path;
 use vtr::{Reader, TxQuery, Value};
-
-mod support;
 
 fn dump(path: &Path) -> String {
     let r = Reader::open(path).unwrap();
@@ -61,41 +52,7 @@ fn dump(path: &Path) -> String {
     out
 }
 
-#[test]
-fn tracker_and_package() {
-    let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".into());
-    assert!(
-        Command::new(&cxx)
-            .arg("--version")
-            .output()
-            .expect("C++ compiler is required")
-            .status
-            .success()
-    );
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let lib = support::static_library();
-    let temporary = tempfile::tempdir().unwrap();
-    let out_dir = temporary.path();
-    let exe = out_dir.join("track_test");
-    let st = Command::new(&cxx)
-        .args(["-std=c++17", "-Wall", "-Wextra", "-Werror", "-O1"])
-        .arg("-I")
-        .arg(root.join("include"))
-        .arg("-I")
-        .arg(root.join("tests/dpi_stub"))
-        .arg(root.join("tests/track_test.cpp"))
-        .arg(lib)
-        .args(["-lpthread", "-ldl", "-lm"])
-        .arg("-o")
-        .arg(&exe)
-        .status()
-        .unwrap();
-    assert!(st.success(), "C++ compilation failed");
-    let out = Command::new(&exe).arg(out_dir).output().unwrap();
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    eprintln!("{}", String::from_utf8_lossy(&out.stderr));
-    assert!(out.status.success(), "track_test failed:\n{stdout}");
-
+pub fn verify(out_dir: &Path, stdout: &str) {
     let want = "\
 RET 2 1 2 2 2
 OPEN 1 0
