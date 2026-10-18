@@ -21,6 +21,25 @@ change the code if the conversation disappeared?
 Do not add trivial unit tests that merely mirror static declarations or
 configuration. Focus tests on meaningful behavior, edge cases, and nontrivial invariants.
 
+Whenever the VTR implementation or trace format changes, rebuild and rerun the
+full default benchmark suite from the repository root:
+
+```sh
+python3 vtr/benchmarks/build.py
+python3 vtr/benchmarks/run.py
+```
+
+Compare the generated `vtr/benchmarks/report.md` with the previously committed
+report for every workload and every measured metric, including write/read
+speed, file size, memory, query latency, and producer costs. Validate that there
+are no unexpected regressions. Investigate regressions before accepting the
+change; fix unintended regressions and document the rationale and evidence for
+any intentional tradeoff. Use comparable hardware, CPU affinity, and benchmark
+settings, and rerun when measurement noise makes a comparison inconclusive.
+Do not substitute smoke runs or partial suites for this check. Include the
+updated report with the implementation or format change when staging or
+committing it.
+
 # Staging and commits
 
 Stage completed changes. Commit only when explicitly requested by the user.

@@ -79,6 +79,9 @@ write-and-read round trip.
 - [File-format specification](docs/SPEC.md): container, encodings, recovery,
   and the activity sidecar.
 - [Design rationale](docs/RATIONALE.md): format and library boundaries.
+- [Synthetic benchmarks](benchmarks/README.md): C++ signal and transaction
+  workloads comparing write/read speed, size, memory, and queries with FST,
+  VCD, and FTR.
 - [Structured logging](docs/LOGGING.md): typed sites, records, and queries.
 - `examples/waveform.rs`: minimal waveform round trip.
 - [Transaction example](examples/transactions.rs): attributes, stages, and dependency relations.
