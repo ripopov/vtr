@@ -234,6 +234,13 @@ so fixed capture costs also matter. System-level models need separate budgets
 for transaction owners, stages, events, and payloads, including GPU lane detail.
 Use measured producer rates to set capacity targets.
 
+Most tracing work should run off the main simulation threads. Simulator threads
+capture observations and pass them to the tracer through a thread-safe handoff;
+tracer worker threads handle encoding, compression, and efficient writing.
+The handoff must give workers stable data without depending on mutable simulator
+state. Batching and reusable buffers should keep capture and synchronization
+costs low, with bounded queues to limit memory use when workers fall behind.
+
 Validate performance with repeated complete runs covering both large designs
 and fast small cores. Compare waveform and transaction workloads separately,
 then together, including capture, compression, indexing, final drain, and close.
