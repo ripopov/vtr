@@ -3,7 +3,7 @@
 These C++17 examples compare VTR with FST and VCD for RTL-style signal
 streaming, and with FTR for transaction streaming. A mixed workload compares
 one VTR file with FST+FTR and VCD+FTR pairs. The suite measures the performance
-requirements in [the rationale](../docs/RATIONALE.md): complete write cost,
+requirements in [the rationale](../vtr/docs/RATIONALE.md): complete write cost,
 full decode cost, file size, peak memory, selective access, and producer cost.
 
 ## Build and run

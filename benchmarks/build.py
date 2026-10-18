@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parent
 BUILD = HERE / ".build"
 DEPS = {
     "libfst": ("https://github.com/gtkwave/libfst.git", "17f6a5d27b2f576d65b550114fbde3c035cc74a8"),

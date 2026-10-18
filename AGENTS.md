@@ -25,11 +25,11 @@ Whenever the VTR implementation or trace format changes, rebuild and rerun the
 full default benchmark suite from the repository root:
 
 ```sh
-python3 vtr/benchmarks/build.py
-python3 vtr/benchmarks/run.py
+python3 benchmarks/build.py
+python3 benchmarks/run.py
 ```
 
-Compare the generated `vtr/benchmarks/report.md` with the previously committed
+Compare the generated `benchmarks/report.md` with the previously committed
 report for every workload and every measured metric, including write/read
 speed, file size, memory, query latency, and producer costs. Validate that there
 are no unexpected regressions. Investigate regressions before accepting the
