@@ -114,6 +114,23 @@ two follows [NanoLog][nanolog] and [binlog][binlog]; reusing repeated text value
 follows [CLP][clp]. Linking a message to the transaction that produced it
 connects diagnostics to the rest of the trace.
 
+An illustrative C++ macro captures call-site metadata automatically:
+
+```cpp
+void log_request(Logger& log,
+                 std::uint64_t addr, std::uint32_t bytes) {
+    LOG_INFO(log, "request addr={:#x} bytes={}", addr, bytes);
+}
+```
+
+![A call site stores the format string, severity, source provenance, and argument names and types once. A table of log records contains only identities, timestamps, site references, and argument values; its column names come from the shared metadata.](diagrams/logging-call-site.drawio.svg)
+
+The macro captures the format string, severity, source provenance, and argument
+names and types once per call site. Each invocation references that metadata and
+records its own timestamp and argument values; format strings and argument names
+are not repeated. Formatting can wait until the trace is read, keeping that work
+off the recording path.
+
 ## Time
 
 Clock cycles are a useful way to read time, but clocks can pause or change
