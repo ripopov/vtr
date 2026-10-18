@@ -1,7 +1,7 @@
 # VTR design rationale
 
 VTR records what hardware did during a run. It captures several kinds of
-observation: signal values, operations, resource occupancy, and diagnostic
+observation: signal values, transactions, resource occupancy, and diagnostic
 messages. All of them describe the same run, so a useful trace keeps enough
 identity, timing, and structure for a user to move between them directly,
 without reconstructing meaning from text.
@@ -22,9 +22,7 @@ components. This lets one trace model serve many producers and consumers.
 A hierarchy gives each observation a stable context: the module that contains a
 signal, the source that issues requests, or the resource where an operation
 executes. Scopes group related sources. Generators identify the sources of
-records and describe the kinds of records they produce and the attributes those
-records share. This split between describing a source once and recording each
-occurrence follows FTR's generators, dictionaries, and typed attributes.
+transactions and other records, with attributes describing each source.
 
 A generator can stand alone or belong to a scope. VTR does not require an extra
 stream node between them, because that level would often carry no information;
@@ -34,9 +32,13 @@ before the run starts.
 
 Values are typed so that consumers can filter and interpret them. Formatting an
 address, number, or enumeration as text throws away distinctions that consumers
-would then have to guess. Shared declarations describe repeated record fields
-once, which reduces both repetition and ambiguity. Per-occurrence attributes
-capture details that vary from one operation to the next.
+would then have to guess.
+
+Reusable datatypes describe payload structure independently of generators.
+Several generators sending requests to a NoC can share one request datatype.
+Declaring its field names and types once reduces repeated metadata and lets
+consumers interpret payloads consistently across sources. Individual records
+supply the values that vary between occurrences.
 
 ## Signals and occurrences
 
@@ -48,19 +50,20 @@ Event signals work differently. Each record is a separate occurrence, so
 coincident or repeated records must keep their count even when their payloads
 are identical.
 
-Waveform storage follows FST in using time partitioning, signal grouping, delta
-encoding, and aliases. These techniques exploit repeated structure while still
-supporting local queries. Compression must keep persistent state and individual
-occurrences distinct: skipping an unchanged value is safe for state, but the
-same optimization can erase a meaningful event.
+Waveform storage follows [FST][fst] in using time partitioning, signal grouping,
+delta encoding, and aliases. These techniques exploit repeated structure while
+still supporting local queries. Compression must keep persistent state and
+individual occurrences distinct: skipping an unchanged value is safe for state,
+but the same optimization can erase a meaningful event.
 
 ## Transactions, stages, and events
 
 Transactions identify operations such as instructions, requests, and transfers.
 Their lifetimes, outcomes, and relationships explain execution at a higher level
-than individual signal transitions. Several formats inform this model: FTR for
-transaction attributes and relations; Kanata for instruction lifecycles, stages,
-and lanes; and OpenTelemetry for span kinds, events, links, and status.
+than individual signal transitions. Several formats inform this model: [FTR][ftr]
+for transaction attributes and relations; [Kanata][kanata] for instruction
+lifecycles, stages, and lanes; and [OpenTelemetry][otel] for span kinds, events,
+links, and status.
 
 Users need two complementary views of the same activity. Following one
 instruction shows its visits to fetch, decode, and execute. Following one
@@ -109,10 +112,10 @@ into a single parent tree.
 ## Logs and clocks
 
 A log message combines a static call site with dynamic arguments. Separating the
-two follows NanoLog and binlog; reusing repeated text values follows CLP. Keeping
-arguments typed lets consumers filter messages without parsing formatted output.
-Linking a message to the operation that produced it connects diagnostics to the
-rest of the trace.
+two follows [NanoLog][nanolog] and [binlog][binlog]; reusing repeated text values
+follows [CLP][clp]. Keeping arguments typed lets consumers filter messages without
+parsing formatted output. Linking a message to the operation that produced it
+connects diagnostics to the rest of the trace.
 
 Clock cycles are a useful way to read time, but clocks can pause or change
 frequency. Recording each steady stretch of edges captures this behavior
@@ -160,3 +163,28 @@ quiet traces. They can summarize activity coarsely and fall back to the original
 records where a summary is inconclusive. Keeping derived data separate means
 indexes can be rebuilt without changing the recording. Tying them to their
 source trace prevents stale summaries from being applied to a different run.
+
+## References
+
+- [FTR / LWTR4SC][ftr]: generators, shared dictionaries, typed transaction
+  attributes, and explicit relations between transactions.
+- [FST / libfst][fst]: time partitioning, signal grouping, delta encoding, and
+  aliases for compact waveform storage and local queries.
+- [Kanata / Konata][kanata]: instruction lifecycles, stages, and lanes for
+  describing progress within a transaction. Konata documents and reads the Kanata
+  trace format.
+- [OpenTelemetry specification][otel]: span kinds, timestamped events, causal
+  links, and completion status.
+- [NanoLog][nanolog]: separating static log-site information from dynamic
+  arguments and deferring message formatting.
+- [binlog][binlog]: recording shared log-site metadata once and preserving
+  arguments as typed binary values.
+- [CLP][clp]: dictionary reuse of repeated string variables in log messages.
+
+[ftr]: https://github.com/Minres/LWTR4SC
+[fst]: https://github.com/gtkwave/libfst
+[kanata]: https://github.com/shioyadan/Konata
+[otel]: https://github.com/open-telemetry/opentelemetry-specification
+[nanolog]: https://github.com/PlatformLab/NanoLog
+[binlog]: https://github.com/morganstanley/binlog
+[clp]: https://github.com/y-scope/clp
