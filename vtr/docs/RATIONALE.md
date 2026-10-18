@@ -107,6 +107,47 @@ A transaction can also carry additional named attributes alongside its typed
 payload. These describe the transaction as a whole and capture extra details
 without changing the shared payload datatype.
 
+An ergonomic simulator API can bind typed stage and event sites to a module once,
+then reuse them for each instruction. This SystemC module excerpt uses an
+illustrative API; `SystemCModule` extends `sc_core::sc_module` with a built-in
+`trace` scope and simulation-time capture. `VTR_O(name)` declares a site member,
+binds it to that scope, and uses its identifier as the site name. The instruction
+already has a transaction, `inst.trace`, that follows it through the pipeline.
+
+```cpp
+// C++26 reflection derives VTR schemas and serialization from these aggregates.
+struct OperandFetch { std::uint32_t operands; };
+struct BankConflict { std::uint32_t bank; std::uint32_t requests; };
+
+struct OperandCollector : vtr::SystemCModule {
+    using SystemCModule::SystemCModule;
+
+    sc_core::sc_in<bool> clk{"clk"};
+    vtr::StageSite<OperandFetch> VTR_O(operand_fetch);
+    vtr::EventSite<BankConflict> VTR_O(bank_conflict);
+
+    auto fetch(Instruction& inst) -> void {
+        const auto visit = operand_fetch.enter(
+            inst.trace, {.operands = inst.operand_count()});
+        while (const auto conflict = try_fetch_operands(inst)) {
+            bank_conflict.emit(inst.trace, *conflict);
+            wait(clk.posedge_event());
+        }
+    }
+
+    auto try_fetch_operands(Instruction& inst) -> std::optional<BankConflict>;
+};
+```
+
+Here, `fetch` runs in a SystemC thread, and `try_fetch_operands` returns conflict
+details when fetching must retry, or `std::nullopt` on success. The same typed
+result becomes the event payload without copying fields into a separate trace
+structure. The stage opens on entry and closes when `visit` leaves scope,
+spanning any clock waits. Each conflict is an instantaneous event during that
+visit. Stages and events belong to the instruction and identify their module
+through their sites. Payload field names and types are declared once; visits and
+events supply only their values.
+
 ## Logging
 
 A log message combines a static call site with dynamic arguments. Separating the
