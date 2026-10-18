@@ -6,6 +6,35 @@ messages. All of them describe the same run, so a useful trace keeps enough
 identity, timing, and structure for a user to move between them directly,
 without reconstructing meaning from text.
 
+## Signals, Records and Transactions
+
+A **signal** represents the value on a wire or in a register, as in a VCD
+waveform. Its value persists until it changes. A value-change history therefore
+records changes in state: writing `0` when the value is already `0` adds no
+transition.
+
+A **record** captures an individual occurrence. Instantaneous records, such as
+log messages and events, have a single timestamp. Their payloads can contain
+aggregate values: structs, arrays, and arrays of structs. Every occurrence
+matters, even when its payload matches the previous one. Two requests sent at
+the same timestamp with identical `{addr, byte_en, type}` payloads must remain
+two records. Treating them as signal values would lose the second request.
+
+A **transaction** is a record representing a logical unit of computation in the
+design. It has an identity and a lifetime that can span many cycles. Examples
+include a GPU grid dispatch, the lifetime of an individual warp, and the
+execution of an individual instruction with its pipeline stages. Stages and
+events describe progress within that lifetime; relations connect it to other
+activity.
+
+VTR captures both physical and logical hierarchy. The **physical hierarchy** is
+the design tree of scopes, locating signals and record sources within the
+design. The **logical hierarchy** follows runtime ownership among transactions
+and records: a dispatch can contain warps, each with its own instructions and
+associated records. Dependency and causal relations can connect activity across
+that ownership tree. Keeping both structures lets users follow a unit of work
+through the design or inspect the work occurring at one location.
+
 ## Boundaries
 
 VTR records runtime facts and the identities that connect them. Design-source
@@ -40,15 +69,14 @@ Declaring its field names and types once reduces repeated metadata and lets
 consumers interpret payloads consistently across sources. Individual records
 supply the values that vary between occurrences.
 
-## Signals and occurrences
+## Signal history and storage
 
 A signal history must answer two questions: what changed within a time window,
 and what value was already in effect when the window began. Even a signal that
 is quiet during the window therefore needs access to its earlier state.
 
-Event signals work differently. Each record is a separate occurrence, so
-coincident or repeated records must keep their count even when their payloads
-are identical.
+Event signals describe occurrences rather than persistent state, so they follow
+the same multiplicity rule as instantaneous records.
 
 Waveform storage follows [FST][fst] in using time partitioning, signal grouping,
 delta encoding, and aliases. These techniques exploit repeated structure while
@@ -58,12 +86,9 @@ but the same optimization can erase a meaningful event.
 
 ## Transactions, stages, and events
 
-Transactions identify operations such as instructions, requests, and transfers.
-Their lifetimes, outcomes, and relationships explain execution at a higher level
-than individual signal transitions. Several formats inform this model: [FTR][ftr]
-for transaction attributes and relations; [Kanata][kanata] for instruction
-lifecycles, stages, and lanes; and [OpenTelemetry][otel] for span kinds, events,
-links, and status.
+Several formats inform the transaction model: [FTR][ftr] for transaction
+attributes and relations; [Kanata][kanata] for instruction lifecycles, stages,
+and lanes; and [OpenTelemetry][otel] for span kinds, events, links, and status.
 
 Users need two complementary views of the same activity. Following one
 instruction shows its visits to fetch, decode, and execute. Following one
