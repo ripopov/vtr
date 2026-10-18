@@ -75,28 +75,6 @@ write-and-read round trip.
 
 <!-- include-code: examples/waveform.rs rust -->
 
-Configure metadata with `Writer::builder()` before creating the file.
-`Timescale` defaults to picoseconds, names common time units, and supports
-arbitrary decimal exponents.
-`add_module`, `add_wire`, and `add_reg` simplify common declarations; wires and
-registers use four-state logic. Use `add_var` with
-`SignalKind::bits(width, LogicStates::Four)` for access to the hierarchy node ID,
-or choose `LogicStates::Two` or `LogicStates::Nine` for other logic alphabets. Scalar `emit_bit` takes a `Logic` value
-such as `Logic::One` or `Logic::X`.
-
-`Writer` accepts non-decreasing waveform times through `set_time`.
-Transaction and log timestamps are independent of that time and may arrive
-out of order, including from temporally decoupled TLM simulations.
-Transactions are stored in `end_tx` call order, and `Reader::visit_transactions`
-returns file order without timestamp sorting. Time-window queries still find
-matching intervals. Consumers needing chronological iteration must sort;
-see [transaction semantics and reading](docs/SPEC.md#72-semantics).
-
-`Reader` is `Send + Sync`. Do not modify or
-truncate a file while it is memory-mapped by a reader; see the safety contract
-in `Reader::open_with`. Explicitly call `Writer::close` to observe write errors
-rather than relying on `Drop`.
-
 ## Documentation and examples
 
 - `cargo doc -p vtr --no-deps --open`: build and open the Rust API documentation,
