@@ -4,7 +4,6 @@
 #include <atomic>
 #include <mutex>
 #include <optional>
-#include <set>
 
 struct vtr_writer {
   vtr::Writer writer;

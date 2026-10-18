@@ -2,7 +2,6 @@
 #include <bit>
 #include <iomanip>
 #include <sstream>
-#include <unordered_set>
 
 using namespace vtr;
 using namespace vtr::detail;

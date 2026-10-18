@@ -204,3 +204,30 @@ Rust, with p95 improving from 0.534 ms to 0.513 ms. The native reader eagerly bu
 metadata on open, and each benchmark probe includes a fresh open. This migration
 accepts that small cold-query cost alongside the larger streaming and memory
 improvements; keep it visible in subsequent comparisons.
+
+## Container tuning
+
+The [container report](containers.md) compares the native baseline at `3f7a764`
+with vendored unordered_dense maps/sets and indexed alias/dictionary storage.
+It covers every measured metric with seven shuffled pairs at full workload size.
+Waveform write time falls by 2–15% and full read time by 3–7%; transaction
+streaming is largely unchanged. File sizes are identical in bytes for all six
+profiles. These are end-to-end results for the combined changes, not isolated
+hash-table speedups. The [dependency notes](../vtr-cpp/third_party/README.md)
+record the alternatives considered, upstream revision, license, and reference
+invalidation constraints.
+
+To compare future native changes, preserve the benchmark binary before rebuilding:
+
+```sh
+cp .build/benchmark /tmp/vtr-before
+# Modify the implementation, then rebuild.
+python3 build.py --offline
+python3 compare.py /tmp/vtr-before --baseline-label before --candidate-label after
+```
+
+`compare.py` runs both binaries on one CPU in shuffled pairs, verifies both
+producer replays and every read/query digest, and archives the Markdown report
+and raw data in `results/paired-<timestamp>/`. Its default seven repetitions
+have a 280-second deadline. It supplements the full cross-format default suite;
+the tracked [report.md](report.md) continues to come from `run.py`.

@@ -1,0 +1,12 @@
+{
+  "name": "unordered_dense",
+  "version": "5.3.2",
+  "revision": "ddd49116e63be7345b448351cad153653a712fdb",
+  "url": "https://github.com/martinus/unordered_dense",
+  "license": "MIT",
+  "files": {
+    "include/ankerl/unordered_dense.h": "ad4e2fb7de67f8c7265028440b4250885c8a57b541565c3cd0ff9dbfaa942237",
+    "include/ankerl/stl.h": "efc0170257b6148ee7655b22a34465f6ce105f1b720e557167ef27a59d6d5241",
+    "LICENSE": "4f5a62734899ec0ba85d3e8264a7ed1fcb4bcb8f0b4359c0afd627b6314ae599"
+  }
+}

@@ -1,3 +1,4 @@
+#include "containers.hpp"
 #include "c_api_internal.hpp"
 #include <chrono>
 #include <csignal>
@@ -9,7 +10,6 @@
 #include <sys/syscall.h>
 #include <thread>
 #include <unistd.h>
-#include <unordered_map>
 using namespace vtr;
 using namespace vtr::detail;
 using namespace vtr::capi;
@@ -21,7 +21,7 @@ struct Notice {
 struct Guard {
   std::mutex mutex;
   std::vector<vtr_writer *> writers;
-  std::unordered_map<std::uint64_t, std::pair<void (*)(void *, int), void *>>
+  HashMap<std::uint64_t, std::pair<void (*)(void *, int), void *>>
       callbacks;
   std::uint64_t next = 1;
   int pipe[2]{-1, -1};

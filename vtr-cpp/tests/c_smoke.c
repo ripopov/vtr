@@ -329,6 +329,9 @@ int main(int argc, char **argv) {
     uint32_t some[2] = {6, 5}, per[2];
     ASSERT(vtr_contributions_count(con, some, 1, per, 2) == 2 && per[0] == 1 && per[1] == 1);
     ASSERT(vtr_contributions_count(con, some, 2, per, 2) == 2 && per[0] == 2 && per[1] == 2);
+    uint32_t repeated[] = {5, 5, 6, 6};
+    ASSERT(vtr_contributions_count(con, repeated, 4, per, 2) == 2 && per[0] == 2 && per[1] == 2);
+    ASSERT(vtr_contributions_count(con, NULL, 0, per, 2) == 2 && per[0] == 0 && per[1] == 0);
     vtr_contributions_free(con);
     vtr_scope_sizes_free(sz);
     CHECK(vtr_reader_transaction_generator(rd, 7, &owner_late));

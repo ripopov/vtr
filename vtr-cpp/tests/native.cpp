@@ -199,6 +199,86 @@ int main(int argc, char **argv) {
         return true;
       });
     }
+    {
+      auto crowded = path + ".crowded";
+      Writer w(crowded);
+      auto scope = w.add_scope(none, "crowded");
+      auto gen = w.add_generator(scope, "requests", "request");
+      std::vector<Id> keys;
+      std::vector<std::uint64_t> ids;
+      for (unsigned i = 0; i < 4096; ++i) {
+        auto name = "attribute-with-a-long-name-" + std::to_string(i);
+        keys.push_back(w.intern(name));
+        ids.push_back(w.begin_tx(gen, i));
+        w.tx_attr(ids.back(), keys.back(), std::uint64_t(i));
+      }
+      for (unsigned i = 0; i < keys.size(); ++i)
+        check(w.intern("attribute-with-a-long-name-" + std::to_string(i)) ==
+                  keys[i],
+              "interned key changed after growth");
+      std::shuffle(ids.begin(), ids.end(), values);
+      for (auto id : ids) {
+        w.tx_attr(id, w.intern("completion"), std::uint64_t(id));
+        w.end_tx(id, 10000);
+      }
+      w.close();
+      Reader r(crowded);
+      std::vector<bool> seen(ids.size());
+      r.transactions({}, [&](auto &t) {
+        check(t.id > 0 && t.id <= seen.size() && !seen[t.id - 1],
+              "transaction identity lost during erase");
+        seen[t.id - 1] = true;
+        check(t.attrs.size() == 2 && t.attrs[0].key == keys[t.id - 1] &&
+                  t.attrs[0].value.number == t.id - 1 &&
+                  t.attrs[1].value.number == t.id && t.end == 10000,
+              "transaction attributes lost during growth or erase");
+        return true;
+      });
+      check(std::all_of(seen.begin(), seen.end(), [](bool v) { return v; }),
+            "open transaction lost");
+    }
+    {
+      auto aliased = path + ".aliases";
+      WriterOptions opts;
+      opts.group_size = 16;
+      opts.block_records = 4096;
+      Writer w(aliased, opts);
+      auto scope = w.add_scope(none, "aliases");
+      for (unsigned i = 0; i < 257; ++i)
+        w.add_var(scope, "s" + std::to_string(i), {SignalKind::bits, 8, 2});
+      for (Time t = 0; t < 300; ++t) {
+        w.set_time(t);
+        for (Id signal = 0; signal < 257; ++signal)
+          w.emit(signal, (t + signal % 3) % 256);
+      }
+      w.close();
+      Reader r(aliased);
+      std::vector<unsigned> positions(257);
+      r.changes(0, forever, [&](Time t, Id signal, SignalValue value) {
+        check(t == positions.at(signal)++ &&
+                  value.as_u64() == (t + signal % 3) % 256,
+              "cross-group alias lost or reordered changes");
+        return true;
+      });
+      check(std::all_of(positions.begin(), positions.end(),
+                        [](auto n) { return n == 300; }),
+            "alias fan-out lost a signal");
+      auto retained = r.load_signal(0);
+      for (Id signal = 0; signal < 257; ++signal) {
+        auto history = r.load_signal(signal);
+        check(history->times.size() == 300 &&
+                  history->at(299).as_u64() == (299 + signal % 3) % 256 &&
+                  SignalValue{history->kind, r.value_at(signal, 255)}.as_u64() ==
+                      (255 + signal % 3) % 256,
+              "selective alias history changed");
+      }
+      r.clear_cache();
+      check(retained->at(256).as_u64() == 0,
+            "cache growth or clear invalidated retained history");
+      unsigned callbacks = 0;
+      r.changes(0, forever, [&](Time, Id, SignalValue) { return ++callbacks < 3; });
+      check(callbacks == 3, "alias scan ignored callback cancellation");
+    }
     // Mutations exercise checked lengths, identifiers, checksums, and recovery
     // under sanitizers.
     std::mt19937 random(1729);

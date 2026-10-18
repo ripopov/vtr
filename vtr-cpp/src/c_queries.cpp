@@ -1,5 +1,5 @@
+#include "containers.hpp"
 #include "c_api_internal.hpp"
-#include <unordered_set>
 using namespace vtr;
 using namespace vtr::detail;
 using namespace vtr::capi;
@@ -7,11 +7,11 @@ struct vtr_scope_sizes {
   std::vector<vtr_scope_size> sizes;
 };
 struct vtr_contributions {
-  std::vector<std::set<Id>> signals;
+  std::vector<HashSet<Id>> signals;
 };
 struct vtr_census {
   std::vector<vtr_scope_size> scopes;
-  std::vector<std::set<Id>> signals;
+  std::vector<HashSet<Id>> signals;
   std::vector<Id> stack;
 };
 struct vtr_clock_timeline {
@@ -144,7 +144,10 @@ size_t vtr_contributions_count(const vtr_contributions *x,
     auto &c = need(x);
     span(signals, n);
     require(out || !cap, "null output array", 8);
-    std::set<Id> selected(signals, signals + n);
+    HashSet<Id> selected;
+    selected.reserve(n);
+    for (size_t i = 0; i < n; ++i)
+      selected.insert(signals[i]);
     for (size_t i = 0; i < std::min(cap, c.signals.size()); ++i) {
       out[i] = 0;
       for (auto s : selected)

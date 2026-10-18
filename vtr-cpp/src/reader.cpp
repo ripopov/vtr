@@ -1,3 +1,4 @@
+#include "containers.hpp"
 #include "format.hpp"
 #include <fcntl.h>
 #include <filesystem>
@@ -52,7 +53,8 @@ struct RecordBlock {
 };
 struct Group {
   std::size_t first = 0, count = 0;
-  std::unordered_map<Id, Id> aliases;
+  std::vector<Id> aliases;
+  Id alias(Id local) const { return aliases.empty() ? none : aliases[local]; }
   Bytes frame;
   struct Run {
     std::size_t first, count;
@@ -87,10 +89,9 @@ struct Reader::Impl {
   std::vector<RecordBlock> tx_blocks, log_blocks;
   std::vector<std::pair<Time, bool>> blackout;
   std::vector<LogSite> sites;
-  std::unordered_map<Id, Id> site_by_node;
+  HashMap<Id, Id> site_by_node;
   mutable std::mutex cache_mutex;
-  mutable std::unordered_map<Id, std::shared_ptr<const SignalData>>
-      history_cache;
+  mutable HashMap<Id, std::shared_ptr<const SignalData>> history_cache;
   mutable std::vector<Time> all_times;
   mutable bool times_loaded = false;
   explicit Impl(const std::string &path, ReaderOptions options)
@@ -544,13 +545,16 @@ struct Reader::Impl {
             "invalid group signal count");
     auto aliases = c.var();
     require(aliases <= result.count, "invalid alias count");
+    if (aliases)
+      result.aliases.resize(result.count, none);
     for (std::uint64_t i = 0; i < aliases; ++i) {
       auto local = c.id(), target = c.id();
       require(local < result.count && target < b.n_signals &&
                   target < result.first + local &&
                   signals[target] == signals[result.first + local],
               "invalid dynamic alias");
-      require(result.aliases.emplace(local, target).second, "duplicate alias");
+      require(result.alias(local) == none, "duplicate alias");
+      result.aliases[local] = target;
     }
     result.frame = decompress(c.blob());
     auto n = c.var();
@@ -706,13 +710,12 @@ struct Reader::Impl {
       const SignalBlock &b, const Group &g, Id signal,
       const std::vector<Time> &times, Time begin, Time end,
       const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-    auto alias = g.aliases.find(static_cast<Id>(signal - g.first));
-    if (alias != g.aliases.end()) {
-      auto target = alias->second;
+    auto target = g.alias(static_cast<Id>(signal - g.first));
+    if (target != none) {
       auto target_group = group(b, target / b.group_size);
       require(target_group.has_value() &&
-                  !target_group->aliases.contains(
-                      static_cast<Id>(target - target_group->first)),
+                  target_group->alias(
+                      static_cast<Id>(target - target_group->first)) == none,
               "alias target is absent or aliased");
       return one_signal(
           b, *target_group, target, times, begin, end,
@@ -911,18 +914,31 @@ void Reader::changes(
     auto times = p.block_times(b);
     std::vector<std::optional<Group>> groups;
     groups.reserve(b.n_groups);
-    std::unordered_map<Id, std::vector<Id>> aliases;
+    std::vector<Id> alias_heads, next_alias;
     for (Id g = 0; g < b.n_groups; ++g) {
       groups.push_back(p.group(b, g));
-      if (groups.back())
-        for (auto [local, target] : groups.back()->aliases)
-          aliases[target].push_back(
-              static_cast<Id>(groups.back()->first + local));
+      if (groups.back() && !groups.back()->aliases.empty()) {
+        if (alias_heads.empty()) {
+          alias_heads.resize(b.n_signals, none);
+          next_alias.resize(b.n_signals, none);
+        }
+        auto &group = *groups.back();
+        for (Id local = 0; local < group.count; ++local) {
+          auto target = group.alias(local);
+          if (target != none) {
+            auto id = static_cast<Id>(group.first + local);
+            next_alias[id] = alias_heads[target];
+            alias_heads[target] = id;
+          }
+        }
+      }
     }
-    for (auto &[target, ids] : aliases) {
+    for (Id target = 0; target < alias_heads.size(); ++target) {
+      if (alias_heads[target] == none)
+        continue;
       auto &owner = groups[target / b.group_size];
-      require(owner && !owner->aliases.contains(
-                           static_cast<Id>(target - owner->first)),
+      require(owner &&
+                  owner->alias(static_cast<Id>(target - owner->first)) == none,
               "alias target is absent or aliased");
     }
     for (auto &group : groups) {
@@ -937,10 +953,10 @@ void Reader::changes(
         for (std::size_t i = 0; i < run.count; ++i) {
           auto col = r.take(sizes[i]);
           auto id = static_cast<Id>(run.first + i);
-          if (group->aliases.contains(static_cast<Id>(id - group->first)))
+          if (group->alias(static_cast<Id>(id - group->first)) != none)
             continue;
-          auto copies = aliases.find(id);
-          if (copies == aliases.end()) {
+          auto copies = alias_heads.empty() ? none : alias_heads[id];
+          if (copies == none) {
             if (!p.column(id, col, run.transform, times, begin, end, visit))
               return;
           } else if (!p.column(
@@ -948,7 +964,8 @@ void Reader::changes(
                          [&](Time t, Id signal, const SignalValue &value) {
                            if (!visit(t, signal, value))
                              return false;
-                           for (auto alias : copies->second)
+                           for (auto alias = copies; alias != none;
+                                alias = next_alias[alias])
                              if (!visit(t, alias, value))
                                return false;
                            return true;

@@ -26,6 +26,10 @@ occurrences, long-lived transactions, recovery, malformed files, and Linux
 termination handling. `-DBUILD_TESTING=OFF` builds the library without Rust or
 Python.
 
+High-performance hash maps and sets are
+[vendored with pinned sources and licenses](third_party/README.md). They are
+private implementation dependencies and need no separate installation.
+
 Install into an independent prefix:
 
 ```sh

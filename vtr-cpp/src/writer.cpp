@@ -1,9 +1,9 @@
+#include "containers.hpp"
 #include "format.hpp"
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <limits>
-#include <unordered_set>
 
 namespace vtr {
 using namespace detail;
@@ -31,23 +31,43 @@ std::size_t attribute_bytes(std::span<const Attribute> attrs) {
 }
 Bytes dictionary(View values, std::size_t width) {
   Bytes dict, codes;
-  std::unordered_map<std::string_view, std::uint8_t> ids;
+  if (width == 1) {
+    std::array<std::uint16_t, 256> ids{};
+    std::uint16_t count = 0;
+    codes.reserve(values.size());
+    for (auto value : values) {
+      auto &id = ids[value];
+      if (!id) {
+        id = ++count;
+        dict.push_back(value);
+      }
+      codes.push_back(static_cast<std::uint8_t>(id - 1));
+    }
+    Bytes out;
+    put(out, count);
+    append(out, dict);
+    append(out, codes);
+    return out;
+  }
+  HashMap<std::string_view, std::uint8_t> ids;
+  auto capacity = std::min<std::size_t>(values.size() / width, 256);
+  ids.reserve(capacity);
+  dict.reserve(capacity * width);
+  codes.reserve(capacity);
   for (std::size_t i = 0; i < values.size(); i += width) {
     std::string_view key(reinterpret_cast<const char *>(values.data() + i),
                          width);
-    auto it = ids.find(key);
-    if (it == ids.end()) {
-      if (ids.size() == 256) {
+    auto [it, inserted] =
+        ids.try_emplace(key, static_cast<std::uint8_t>(ids.size()));
+    if (inserted) {
+      if (ids.size() > 256) {
         Bytes out{0};
         append(out, values);
         return out;
       }
-      auto id = static_cast<std::uint8_t>(ids.size());
-      ids.emplace(key, id);
       append(dict, values.subspan(i, width));
-      codes.push_back(id);
-    } else
-      codes.push_back(it->second);
+    }
+    codes.push_back(it->second);
   }
   Bytes out;
   put(out, ids.size());
@@ -99,7 +119,7 @@ struct Writer::Impl {
       std::chrono::steady_clock::now();
   std::vector<Section> directory;
   std::vector<std::string> strings{std::string{}};
-  std::unordered_map<std::string, Id> interned{{std::string{}, 0}};
+  StringMap<Id> interned{{std::string{}, 0}};
   std::vector<Node> nodes;
   std::vector<WaveColumn> waves;
   std::size_t written_strings = 0, written_nodes = 0, written_signals = 0;
@@ -108,7 +128,7 @@ struct Writer::Impl {
   std::vector<std::uint32_t> previous_dirty;
   std::uint32_t block_index = 0;
   std::vector<Transaction> open{1024};
-  std::unordered_map<std::uint64_t, Transaction> overflow_open;
+  HashMap<std::uint64_t, Transaction> overflow_open;
   TxColumns tx_columns, relation_columns;
   std::vector<Id> tx_generators;
   std::vector<bool> tx_generator_seen;
@@ -120,9 +140,9 @@ struct Writer::Impl {
   std::vector<LogSite> sites;
   std::array<Bytes, 9> log_columns;
   std::vector<Id> log_generators;
-  std::unordered_map<Id, Id> log_generator_ids;
+  HashMap<Id, Id> log_generator_ids;
   std::vector<std::string> log_dictionary;
-  std::unordered_map<std::string, Id> log_text_ids;
+  StringMap<Id> log_text_ids;
   std::uint64_t log_count = 0, log_prev_id = 0, log_prev_time = 0;
   std::uint64_t log_min_id = forever, log_max_id = 0, log_min_time = forever,
                 log_max_time = 0;
@@ -193,8 +213,8 @@ struct Writer::Impl {
   Id intern(std::string_view value) {
     alive();
     validate_utf8(view(value));
-    auto [it, inserted] = interned.try_emplace(std::string(value),
-                                               static_cast<Id>(strings.size()));
+    auto [it, inserted] =
+        interned.try_emplace(value, static_cast<Id>(strings.size()));
     if (inserted) {
       require(strings.size() < none, "string limit reached", 1);
       strings.emplace_back(value);
@@ -398,17 +418,21 @@ struct Writer::Impl {
     std::vector<Bytes> containers;
     std::vector<Id> alias_of(waves.size(), none);
     std::vector<bool> alias(waves.size(), false);
-    std::unordered_map<std::uint64_t, std::vector<Id>> duplicates;
+    HashMap<std::uint64_t, Id> duplicates;
+    duplicates.reserve(waves.size());
+    std::vector<Id> next_candidate(waves.size(), none);
     for (Id s = 0; s < waves.size(); ++s)
       if (waves[s].count) {
         auto &c = waves[s];
         auto hash_bytes = [](const Bytes &b) {
-          return std::hash<std::string_view>{}(
+          return StringHash{}(
               {reinterpret_cast<const char *>(b.data()), b.size()});
         };
         auto hash = hash_bytes(c.headers) ^ std::rotl(hash_bytes(c.values), 17);
-        auto &candidates = duplicates[hash];
-        for (auto other : candidates)
+        auto [entry, inserted] = duplicates.try_emplace(hash, none);
+        (void)inserted;
+        for (auto other = entry->second; other != none;
+             other = next_candidate[other])
           if (waves[other].kind == c.kind &&
               waves[other].headers == c.headers &&
               waves[other].values == c.values) {
@@ -416,8 +440,10 @@ struct Writer::Impl {
             alias[s] = true;
             break;
           }
-        if (!alias[s])
-          candidates.push_back(s);
+        if (!alias[s]) {
+          next_candidate[s] = entry->second;
+          entry->second = s;
+        }
       }
     for (Id g = 0; g < groups; ++g) {
       auto first = std::size_t(g) * options.group_size,

@@ -2,6 +2,7 @@
 """Build the C++ benchmark with pinned upstream FST/FTR implementations."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--offline", action="store_true", help="require already fetched dependency revisions")
     args = parser.parse_args()
+    containers = ROOT / "vtr-cpp" / "third_party" / "unordered_dense"
+    container_manifest = json.loads((containers / "UPSTREAM.json").read_text())
+    for path, expected in container_manifest["files"].items():
+        if hashlib.sha256((containers / path).read_bytes()).hexdigest() != expected:
+            parser.error(f"vendored container checksum mismatch: {containers / path}")
     BUILD.mkdir(exist_ok=True)
     for name, (url, revision) in DEPS.items():
         dest = BUILD / "deps" / name
@@ -69,6 +75,7 @@ def main():
         "vtr_dirty": bool(output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT)),
         "compiler": output([cxx, "--version"]).splitlines()[0],
         "vtr_implementation": "native C++20",
+        "vtr_containers": container_manifest,
         "flags": "C++20 -O3 -DNDEBUG; native VTR release; synchronous LZ4 writers",
         "lz4": "FST and FTR: libfst bundled LZ4; VTR: system liblz4",
     }, indent=2) + "\n")
