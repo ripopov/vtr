@@ -1,19 +1,25 @@
 # VTR transactions
 
-Status: proposed; production format not implemented.
+Status: proposed; validated C++20 reference in `atemp/vtr3-reference`.
+Production readers and writers still use version 2.
 
 This document specifies the transaction model, encoding, and reader and writer
 behavior for format version 3.0. [SPEC.md](SPEC.md) defines the current version-2
 container, compression, string table, and hierarchy framing. This proposal
 inherits that framing except where explicitly replaced below. TX_BLOCK retains
 section kind 5; RECORD_BLOCK uses kind 9 and replaces LOG_BLOCK storage.
+DATATYPES uses kind 10. The header, directory and activity-sidecar changes below
+are also part of version 3.0.
 Adoption requires regeneration of older trace assets.
 
 Every transaction record has a file-wide ID. Events and stages associated with
 design locations are stored separately from their owning transactions, grouped
 by generator and packed into independently compressed pages. Each owner lists
-the blocks containing its children. The recommended writer settings are 64 KiB
-pages for both block kinds and Zstandard level 1. Section 12 gives the performance rationale.
+the blocks containing its children. The reference defaults are 64 KiB raw
+pages for both block kinds and Zstandard level 1. Complete layout comparisons
+select fast LZ4 for both old and new writers.
+[VTR3_COMPARISON.md](VTR3_COMPARISON.md) reports complete old/new measurements
+and the remaining performance limitations.
 
 ## Notation and common types
 
@@ -35,6 +41,7 @@ type TransactionId = u64;
 type NodeId = u32;
 type GeneratorId = NodeId;
 type StringId = u32;
+type TypeId = u32;
 type Timestamp = u64;
 type BlockNumber = u64;
 type Bytes = Vec<u8>;
@@ -130,7 +137,7 @@ struct Generator {
     parent_scope: Option<NodeId>,
     kind: StringId,
     metadata: Attributes,
-    arguments: Vec<ArgumentDeclaration>,
+    payload_type: TypeId,
 }
 ```
 
@@ -154,59 +161,71 @@ Generator metadata consists of keyed typed values describing the source.
 Argument declarations describe values supplied by every record. Metadata is
 not copied into individual records and is not a default for missing arguments.
 
-### 2.1 Mandatory arguments
+### 2.1 Reusable payload datatypes
 
-```rust
-type ArgumentType = u8;
-
-struct ArgumentDeclaration {
-    name: StringId,
-    value_type: ArgumentType,
-}
-```
-
-Every generator declares an ordered list of arguments. An empty list is
-valid. Names are unique within the schema. Each record supplies exactly
-one value of the declared type for every argument, in declaration order.
-There are no optional positions or implicit default values.
-
-`ArgumentType` accepts only the tags below. Values use the corresponding
-`Value` variant from section 2.2.
-
-| Tag | Type | Value variant | Meaning |
-|---|---|---|---|
-| 1 | bool | `Bool` | Boolean |
-| 2 | i8 | `I8` | Signed 8-bit integer |
-| 3 | i16 | `I16` | Signed 16-bit integer |
-| 4 | i32 | `I32` | Signed 32-bit integer |
-| 5 | i64 | `I64` | Signed 64-bit integer |
-| 6 | u8 | `U8` | Unsigned 8-bit integer |
-| 7 | u16 | `U16` | Unsigned 16-bit integer |
-| 8 | u32 | `U32` | Unsigned 32-bit integer |
-| 9 | u64 | `U64` | Unsigned 64-bit integer |
-| 10 | f32 | `F32` | IEEE binary32 |
-| 11 | f64 | `F64` | IEEE binary64 |
-| 12 | str | `Str` | Interned string ID |
-| 13 | text | `Text` | UTF-8 text, deduplicated within one column set (section 8.1) |
-| 14 | bytes | `Bytes` | Opaque byte sequence |
-| 18 | time | `Time` | Unsigned value in file time units |
-| 20 | pointer | `Pointer` | Unsigned address |
+Every generator references one immutable payload datatype. Several generators
+can share that datatype without redeclaring fields. Unit (type 0) means no
+payload. Every occurrence supplies exactly one value of its datatype; there are
+no omitted fields or implicit defaults. `TypedPayload` below denotes that logical
+value, whose shape follows its datatype rather than a per-occurrence tag list.
 
 The generator-specific hierarchy payload is `varint kind_string_id`, then
-`varint argument_count`, then that many `{varint name_string_id, u8 type_tag}`
-pairs. The enclosing hierarchy record supplies its ID, name, parent and metadata.
-Names and kind strings use the file string table. A schema change requires a
-new generator declaration with a distinct node ID.
+`varint payload_type_id`. The enclosing hierarchy record supplies its ID, name,
+parent and metadata. A schema change requires a new generator with a distinct
+node ID. Datatypes may be added during recording, before their first use.
 
-Arguments are exposed as named attributes by readers. Ordinary transactions
-can also carry optional keyed attributes; these must not duplicate a declared
-argument name. Located events, located stages, and logs carry only their
-schema-defined arguments. Their encoded records omit argument counts, keys,
-and type tags.
+Builtin datatype IDs 0–22 match the value tags in section 2.2: unit, bool,
+i8/i16/i32/i64, u8/u16/u32/u64, f32/f64, str, text, bytes, bits, logic, logic9,
+time, enum, pointer, fixed and ufixed. ID 19 is reserved: an enumeration requires
+a declared datatype with an integer underlying type. Lists and maps are optional
+attribute values; typed aggregates use the declarations below. Datatype IDs and
+attribute tags have separate namespaces.
 
-Readers can determine each generator's argument columns from its declaration
-without reading records. Tables combining generators must account for their
-different schemas.
+Declared datatype IDs start at 23. They form an immutable DAG: every referenced
+type must have a smaller ID, and nesting depth including scalar leaves is at
+most 64. A DATATYPES section is an uncompressed payload:
+
+```text
+varint first_type_id, type_count
+repeat type_count times:
+    u8 kind
+    length-prefixed UTF-8 type_name
+    kind 1 (struct):
+        varint field_count
+        repeat field_count: length-prefixed UTF-8 field_name, varint type_id
+    kind 2 (fixed array): varint element_type_id, element_count
+    kind 3 (sequence): varint element_type_id
+    kind 4 (enum):
+        varint underlying_integer_type_id, literal_count
+        repeat literal_count: u64 value_bits, length-prefixed UTF-8 literal_name
+```
+
+Chunks append contiguous IDs. Counts fit `u32`; the section is consumed exactly.
+Struct fields have unique, nonempty names; enumerators have unique nonempty
+names and unique values representable in their underlying type. Signed enum
+literal bits are sign-extended to `u64`; unsigned values are zero-extended. Type and field
+names are inline UTF-8, independent of the container string table. Unknown enum
+numeric values remain valid and preserve their underlying value.
+
+Struct fields are visited in declaration order; arrays and sequences in element
+order. A struct or fixed array adds no per-occurrence keys, tags or counts. A
+sequence adds its `u32`-valued element count to the numeric stream. Enumerations
+consume their underlying scalar, with names supplied by the declaration.
+Section 8.1 defines the scalar streams. These rules allow structs, arrays,
+arrays of structs and nested aggregates without interpreting formatted text.
+
+Optional ordinary-transaction attributes must not duplicate a top-level payload
+field name. Located events, located stages and logs carry their typed payload
+without an additional per-record attribute list. Readers expose declared names
+and types alongside values and can traverse aggregate fields.
+
+The C++20 reference binds member names once with `Record<T>`/`Enum<T>` and member
+pointers. Capture copies values into owned canonical bytes without object
+padding: fixed-width little-endian scalars, `u32` text/byte/sequence lengths,
+`u64` packed-bit widths, then declaration-order values. This is an internal
+handoff representation, not an additional file payload. C++26 reflection and
+SystemC site/lifetime wrappers can supply the same schemas in a separate
+integration layer; they are not dependencies of the format.
 
 ### 2.2 Attributes and labels
 
@@ -324,7 +343,7 @@ struct Transaction {
     status: TransactionStatus,
     span_kind: SpanKind,
     parent: Option<TransactionId>,
-    arguments: Vec<Value>,
+    payload: TypedPayload,
     attributes: Attributes,
     events: Vec<UnlocatedEvent>,
     stages: Vec<UnlocatedStage>,
@@ -345,7 +364,7 @@ struct Transaction {
 `SpanKind` accepts `unspecified` (0), `internal` (1), `server` (2), `client` (3),
 `producer` (4), and `consumer` (5). They classify an individual operation and
 are independent of the generator's kind string. Child and optional attribute
-lists may be empty; the argument list must match the generator's schema.
+lists may be empty; the payload must match the generator's datatype.
 Ordinary parentage does not require an inverse child list. Located child block
 locators cover only EVENT and STAGE records.
 
@@ -353,12 +372,14 @@ locators cover only EVENT and STAGE records.
 
 ```rust
 struct UnlocatedEvent {
+    id: TransactionId,
     time: Timestamp,
     name: StringId,
     attributes: Attributes,
 }
 
 struct UnlocatedStage {
+    id: TransactionId,
     name: StringId,
     lane: StringId,
     begin: Timestamp,
@@ -371,8 +392,9 @@ Each unlocated event or stage belongs to one ordinary transaction. Names and
 lanes are interned strings. A lane groups stage intervals within a transaction;
 it is not a hierarchy node or an independently queryable generator.
 
-These records have no independent transaction ID. They cannot be relation
-endpoints or runtime parents. Their order preserves insertion order rather
+These records have global record IDs allocated at creation, greater than their
+owner ID. They can be relation endpoints and are resolvable through global ID
+lookup. They cannot be runtime parents. Their order preserves insertion order rather
 than timestamp order. Repeated names, repeated lanes, overlapping intervals,
 and records outside the owner's time interval are permitted.
 
@@ -423,7 +445,7 @@ struct LocatedEvent {
     generator: GeneratorId,
     time: Timestamp,
     parent: TransactionId,
-    arguments: Vec<Value>,
+    payload: TypedPayload,
 }
 
 struct LocatedStage {
@@ -432,7 +454,7 @@ struct LocatedStage {
     begin: Timestamp,
     end: Timestamp,
     parent: TransactionId,
-    arguments: Vec<Value>,
+    payload: TypedPayload,
 }
 ```
 
@@ -458,16 +480,16 @@ one resource slot. Simultaneous independent slots use separate generators.
 Overlaps do not invalidate the file and are not rejected by the writer or
 reader. Neither retains completed stage history solely to check exclusivity.
 
-The viewer detects overlapping positive-duration intervals on a located stage
-track and renders the conflicting portions as `XXX`, retaining every record
-for inspection. Zero-duration stages do not occupy an interval. Coincident
+Consumers can detect overlapping positive-duration intervals from the stored
+facts; presentation is outside VTR. Zero-duration stages do not occupy an
+interval. Coincident
 EVENT records are valid and must remain individually accessible.
 
 ## 5. Logs
 
 A LOG generator represents a logging call site. Its name is the message format
-string. Its argument schema supplies argument names and types in argument index
-order, starting at zero. Producers without argument names use `"0"`, `"1"`, and
+string. Its payload datatype is normally a struct whose declaration supplies argument
+names and types in field order, starting at zero. Producers without argument names use `"0"`, `"1"`, and
 so on. Placeholders may repeat or reorder these indexes.
 
 | Metadata | Type | Meaning |
@@ -486,7 +508,7 @@ struct Log {
     generator: GeneratorId,
     time: Timestamp,
     parent: Option<TransactionId>,
-    arguments: Vec<Value>,
+    payload: TypedPayload,
 }
 ```
 
@@ -517,24 +539,21 @@ Text arguments are deduplicated within each generator segment. Use `text` for
 dynamic or repeated message strings, `str` for strings explicitly interned in
 the file string table, and `bytes` for opaque payloads.
 
-### 5.1 Run ending
+### 5.1 Run ending and provenance
 
-The root scope `vtr.run` is reserved for run-ending logs. An abnormal ending
-is described by one record from a FATAL LOG generator under this scope, at
-the current writer time, as the last log created, with the greatest log ID:
+Integrations may emit typed diagnostic LOG sites under the reserved root scope
+`vtr.run`, for example to record a stop signal, exit status or fault address.
+These are observations supplied by the integration, using ordinary LOG schemas
+and severity metadata. The reference does not install simulator signal handlers
+or synthesize such observations after a failure.
 
-| Generator format string | Ordered arguments | Meaning |
-|---|---|---|
-| `run stopped by signal {}` | signal: i64 | Stop request followed by normal close |
-| `run exited with status {}` | status: i64 | Program exited without closing |
-| `run crashed by signal {} (code {}, address {}, thread {}, sealed {})` | signal: i64, code: i64, address: pointer, thread: u64, sealed: bool | Fatal signal; sealed means only data already handed to the encoder was retained |
-| `run recovered by scanning, {} bytes dropped` | dropped: u64 | Recovery rewrote the file |
-| `run sealed after a panic in the writer` | Empty | Writer failed mid-call and retained encoded data |
-
-Signal numbers belong to the producing platform. A reader reports the record
-with the greatest ID under `vtr.run`. Without such a record, a file with a final
-directory indicates normal close; a file recovered without a directory has an
-unknown ending and is reported as recovered.
+Completion comes from container provenance. A normally finalized directory has
+flags zero; a sealed or recovered directory remains explicitly incomplete.
+Without a final directory, a reader scans the surviving complete prefix and
+reports incompleteness and discarded bytes. Missing diagnostics do not imply
+normal termination, and an ending log cannot make an incomplete trace complete.
+Recovery preserves observations and rebuilds lookup/provenance data without
+inventing a recovery log, owner or payload.
 
 ## 6. Relations
 
@@ -563,7 +582,8 @@ Relations may refer to records stored later in the file.
 ## 7. Clocks
 
 A CLOCK generator records steady stretches of rising edges using the
-`Transaction` structure from section 3. Its schema is empty. A stretch begins
+`Transaction` structure from section 3. Its payload datatype is unit. Starting a
+stretch allocates and returns its global record ID, usable in relations. A stretch begins
 at its first edge and ends at its last edge. For multiple edges, `vtr.period`
 is a positive `time` attribute and `end - begin` must be an exact multiple of the period.
 A single-edge stretch has equal begin and end and omits the period.
@@ -579,8 +599,8 @@ continues across stretches in chronological order. At time `t`, the cycle
 is the number of the last edge at or before `t`, or absent before the first
 edge. Cycle numbers are computed rather than stored.
 
-The generator metadata `vtr.clock`, of type `str`, associates any generator
-with a clock by its hierarchical path joined with `.`. An absent association
+The generator metadata `vtr.clock`, of type `u32`, associates any generator
+with the node ID of a CLOCK generator. Node zero is a valid association; absence
 means no declared clock. Clock generators are normally named after the clock
 net and placed in its scope to permit path-based waveform matching.
 
@@ -597,13 +617,28 @@ generators must be declared before their block. RECORD_BLOCK stores located
 events, located stages, and logs in a paged layout. TX_BLOCK stores ordinary
 transactions, clocks, and relations in independently compressed pages.
 
+Types and strings are checked against declarations preceding each block, not
+against declarations appearing later in the final file.
+
 Both block kinds carry a nonzero `u64 block_number`, unique across RECORD_BLOCK
 and TX_BLOCK within the file. The writer assigns increasing numbers when
 records enter a block, before background encoding. Numbers never wrap or
 get reused and need not match physical section order.
 
+The 32-byte file header retains the magic and version fields. Version is 3.0;
+flags at offsets 12–15 are zero. Offsets 16–31 contain a nonzero random 128-bit
+recording ID. A new recording or rewrite of observations gets a new ID;
+byte-preserving copies retain it. Recovery retains the execution's ID.
+This identity is not a checksum or content authentication mechanism.
+
+DIRECTORY starts with `u64 entry_count, u64 recovered_dropped_bytes`. Flag bit 1
+(value 2) marks incomplete sealed/recovered output; all other directory flags
+are zero. Normal close has flags zero and dropped bytes zero. The dropped count
+records bytes discarded by that recovery operation. A rebuilt directory does
+not make incomplete observations complete. The trailer framing is unchanged.
+
 Version 3 DIRECTORY entries occupy 48 bytes, replacing SPEC.md section 2.3's
-40-byte entries. The entry count and trailer framing are unchanged:
+40-byte entries:
 
 | Offset | Size | Field |
 |---:|---:|---|
@@ -617,7 +652,8 @@ Version 3 DIRECTORY entries occupy 48 bytes, replacing SPEC.md section 2.3's
 
 For RECORD_BLOCK and TX_BLOCK, `aux0/aux1` are their `t_min/t_max`, and
 `block_number` identifies the block. Other section kinds store zero in
-`block_number` and retain their SPEC.md auxiliary-field meanings. Entries remain
+`block_number` and retain their SPEC.md auxiliary-field meanings. DATATYPES uses
+`aux0/aux1` for first type ID and declared count. Entries remain
 in physical file order. Block numbers are unique across both block kinds.
 
 Readers construct the block-number-to-section map directly from DIRECTORY,
@@ -671,17 +707,20 @@ in declaration order, selecting streams by the declared type:
 
 | Stream | Contents |
 |---|---|
-| numeric | bool as byte; i8/i16/i32/i64 as svarint; u8/u16/u32/u64, time, pointer as varint |
+| numeric | bool as byte; signed integers as svarint; unsigned integers, time, pointer and sequence counts as varint; fixed/ufixed raw then signed scale |
 | floating | f32 as 4 little-endian bytes; f64 as 8 little-endian bytes |
 | text | Varint index into this column set's text dictionary |
 | dictionary | Varint entry count, then length-prefixed UTF-8 entries |
-| miscellaneous | str as varint string ID; bytes as length-prefixed bytes |
+| miscellaneous | str as varint string ID; bytes as length-prefixed bytes; bits/logic/logic9 as varint width then packed states |
 
 Dictionary entries are distinct text values in first-occurrence order. Empty
 dictionaries encode a zero count. A dictionary belongs to one segment or one
 TX_BLOCK page; no page depends on another page's dictionary or delta state.
-Argument counts, keys, and type tags come from the generator declaration and
-are omitted from records.
+Payload traversal comes from the shared datatype declaration. Counts for struct
+fields and fixed arrays, field names and scalar tags are omitted from records.
+Unit consumes no bytes. Scalar widths and value ranges remain declared,
+including exact binary32/binary64 bits, fixed-point signed scale, packed-logic
+width, zero padding and valid state codes.
 
 ### 8.2 RECORD_BLOCK
 
@@ -782,11 +821,13 @@ owner expansion. Preserve each generator's assignment order.
 Readers must accept both mixed and single-kind pages and blocks. Separate LOG
 block buffers are an optional policy: they can reduce log-driven block turnover
 and header storage, but larger EVENT/STAGE blocks can increase the child rows
-scanned for one owner. Section 12.4 measures this tradeoff.
+scanned for one owner. The comparison report measures complete navigation with LOG segments on
+separate pages.
 
-Zstandard level 1 is recommended. Each blob may use any container-supported
-codec and settings. Store uncompressed bytes when compression does not reduce
-the page size. Section 12 compares compression and throughput.
+The reference defaults to Zstandard level 1; each blob may use any
+container-supported codec and settings. Store uncompressed bytes when compression does not reduce
+the page size. Codec choice remains a writer policy; the complete old/new comparisons use
+LZ4 on both sides to isolate layout and implementation costs.
 
 ### 8.3 TX_BLOCK
 
@@ -797,6 +838,8 @@ u64 block_number
 u64 transaction_count, relation_count
 u64 min_id, max_id                 ordinary and clock IDs; zero if none
 u64 t_min, t_max                   smallest begin, largest end; zero if none
+u64 min_parent, max_parent         present ordinary parents; zero if none
+u64 min_embedded, max_embedded     embedded event/stage IDs; zero if none
 u64 rel_min_from, rel_max_from, rel_min_to, rel_max_to
 u32 generator_count, page_count
 generator_count * u32 generator_node_id
@@ -805,6 +848,8 @@ page_count * {
     u64 transaction_count, relation_count
     u64 min_id, max_id             zero when this page has no transactions
     u64 t_min, t_max               owner/clock bounds; zero if none
+    u64 min_parent, max_parent     present ordinary parents; zero if none
+    u64 min_embedded, max_embedded embedded IDs; zero if none
     u64 rel_min_from, rel_max_from, rel_min_to, rel_max_to
     u32 blob_offset, blob_length, raw_length
 }
@@ -837,16 +882,20 @@ Page offsets are relative to the start of the page-blob area. Blobs use SPEC.md
 section 3.1 framing, occur in page-table order, and consume that area without
 gaps or overlaps. Each raw length agrees with the blob framing and decompressed
 length. The `u32` field limits and checked range arithmetic from section 8.2
-also apply here.
+also apply here. Independently compressed raw blobs must be smaller than 1 GiB
+under the inherited compression framing. This is a format limit, separate from
+page targets and reader resource budgets.
 
 Block counts are sums of page counts. Block ID/time bounds are extrema over
-pages containing transactions; relation endpoint bounds are extrema over pages
+pages containing transactions; present-parent and embedded-ID bounds are
+extrema over their present values, or zero when absent; relation endpoint bounds are extrema over pages
 containing relations. Endpoint ranges include zero. All four endpoint bounds
 are zero when their relation count is zero. A relation-only block has no
 generators or transaction bounds. Blocks and pages with neither transactions
 nor relations are not emitted.
 
-Each decompressed page contains one column set with 31 columns:
+The fixed block header is 128 bytes and each page header is 124 bytes.
+Each decompressed page contains one column set with 33 columns:
 
 | Index | Column | Encoding |
 |---|---|---|
@@ -877,6 +926,8 @@ Each decompressed page contains one column set with 31 columns:
 | 24–28 | arguments | Numeric, floating, text, dictionary, miscellaneous |
 | 29 | located child block count | Varint per transaction |
 | 30 | located child block number | Varint first number, then positive deltas within that owner's list |
+| 31 | unlocated event ID | Svarint event ID delta within the page |
+| 32 | unlocated stage ID | Svarint stage ID delta within the page |
 
 The located block list is sorted and distinct. Its delta state resets for each
 owner, independently of other columns. Zero first numbers and zero subsequent
@@ -903,7 +954,7 @@ stage end, encode `end - begin + 1` without wrapping to the open marker. When
 A codec can test for that duration before incrementing, and reconstruct it
 without a wider integer type. Decoded end addition must still fit in `u64`.
 
-TX_BLOCK uses the same recommended Zstandard level-1 policy as RECORD_BLOCK.
+TX_BLOCK uses the same configurable codec policy as RECORD_BLOCK.
 Stable generator grouping applies only to RECORD_BLOCK; TX_BLOCK page packing
 preserves the block's sorted transaction-ID sequence.
 
@@ -963,8 +1014,9 @@ when their parent ranges all contain the owner ID.
 
 Global ID lookup filters block ranges, then RECORD_BLOCK segment ranges or
 TX_BLOCK page ranges. Within one TX_BLOCK, binary search over the ordered
-transaction-page ID ranges selects at most one page for one ID. Multiple IDs
-should be batched, with each selected page decompressed once. Relation lookup
+transaction-page ID ranges selects at most one page for one ID. A reader can batch multiple IDs,
+with each selected page decompressed once; the reference currently exposes
+individual owning lookups. Relation lookup
 uses block and page endpoint ranges.
 
 Ranges across blocks can overlap, including when a long-lived owner finishes
@@ -974,8 +1026,11 @@ candidates; they are not an exact global ID-to-row map. One lookup may require
 pages from several blocks. Readers cache decoded owners and stop searching
 once every requested owner has been resolved.
 
-Readers build header-based block-number and generator/segment indexes. They
-cache decoded pages and records on demand. Section CRC verification still
+The reference builds a block-number map and parses segment/page headers at
+open. It caches decoded owners and waveform histories on demand, with entry/byte
+budgets for owners, and does not retain a cross-query record-page cache.
+Consumers may add bounded page or parent indexes and must charge their setup
+and memory in comparisons. Section CRC verification still
 covers the entire section payload and may require reading the other compressed
 pages; independent pages bound decompression, not the I/O needed for full
 section integrity verification.
@@ -992,9 +1047,10 @@ close. Missing arguments are a writer error; close must not fabricate values
 or emit an incomplete argument list.
 
 The submission path assigns each finalized record to a block before handing
-the block to a background encoder. The recommended buffer policy uses one
-ordered stream of bounded RECORD_BLOCK buffers for EVENT, STAGE, and LOG and
-another for TX_BLOCK. Separate LOG buffers may use the same block-number
+the block to a background encoder. The reference uses one bounded RECORD_BLOCK stream for EVENT/STAGE/LOG,
+with LOG segments separated into pages, and a TX_BLOCK stream for owners and
+relations. Clock finalization flushes before and after its stretch, giving it a
+separate block. A writer using separate LOG buffers may share the block-number
 allocator; the EVENT/STAGE stream must still reserve increasing numbers.
 A block's first record reserves its block number. For a located child,
 assignment also records that number in the active owner. A record must
@@ -1021,9 +1077,68 @@ The recommended RECORD_BLOCK buffer limits are 65,536 finalized records and
 An oversized record that fits the encoded limits is accepted alone. Byte
 accounting must include
 variable-length arguments.
-Bounded encoder queues apply backpressure when producers outrun encoding.
-TX_BLOCK uses a separate byte budget, also 4 MiB, so large embedded
-details and relations also count toward its memory budget.
+TX_BLOCK uses a separate 4 MiB target; embedded detail, optional attributes and
+relations count toward it. Source waveform capture has a 16 MiB logical byte
+target and a 16,777,216-observation limit. A split may fall between observations
+at the same timestamp;
+all occurrences and next-block initial state must survive. One observation can
+exceed a target and is accepted alone when it fits format limits. These are
+capture/accounting targets, not exact allocator or RSS ceilings.
+
+The public writer serializes producer calls, copies borrowed payloads before
+returning, assigns IDs/block numbers and fixes owner locators on capture.
+A signal-update span amortizes synchronization over a time step without
+coalescing event occurrences; its handles/kinds are preflighted before changes.
+An owning final-payload overload validates readiness before moving the bytes and
+ending the owner under one lock, avoiding an extra copy and lock acquisition.
+The typed `end_value` overload serializes inline into reusable owning storage
+and ends under the same lock. Borrowed metadata/type views require external
+serialization; configure metadata immediately after construction, before binding
+types or declaring sources, because these operations commit META. Mutation
+methods serialize internally.
+Immutable datatype/generator snapshots remain valid for already submitted jobs
+when declarations are added. Owning waveform batches retain initial frames,
+time/value streams, signal kinds and predecessor state; workers never borrow
+mutable simulator or declaration state.
+
+Worker mode performs record transposition/grouping, page packing, waveform
+alias/transform/run construction, time-table encoding, compression, checksums
+and output. Capture still performs payload copying/validation, waveform value
+normalization/deduplication, time-index header packing and current-state updates.
+The reference is not a claim that all encoding or allocation has left simulator
+threads. Synchronous mode uses the same codecs and remains available for equal
+single-CPU comparisons.
+
+Bounded queues retain charges through queued, encoding, ready and writing states,
+until output buffers are released after section output. Both job count and a
+conservative byte charge limit admission; output follows submission order even
+when encoding completes in reverse order. Declarations precede uses and wave
+blocks retain capture order. A single individually oversized job is admitted
+only to an empty queue and excludes later submissions until written. Its count
+and peak charge are exposed. Producers block under backpressure; records are
+never silently dropped. Workers do not acquire the producer mutex while a
+producer waits. Queue statistics expose waits, current/peak jobs and charges.
+Codec workspace, producer current buffers, active state and global metadata are
+separate from those queue limits.
+
+The reference recycles payload and completed-row storage after encoding has
+produced an independent owning output buffer. Its retained-capacity budget
+defaults to 16 MiB in worker mode and zero synchronously; explicit budgets
+override either choice. Source-local spares and shared worker returns each
+receive half the budget, including cached vector metadata. Full caches release
+spare storage without dropping observations. Active input/output, allocator
+overhead and codec workspace are outside this budget. Recycling does not release
+a job’s queue charge before writing finishes.
+
+The first unexpected allocation, encoding or I/O failure poisons the writer,
+wakes blocked producers and prevents normal close. Shutdown joins workers before
+closing output state and cancels unprocessed jobs. No normal directory/trailer
+is appended after failure. Explicit seal or destruction with unfinished records
+retains completed observations with incomplete provenance; it never fabricates
+mandatory payloads. Missing owner/stage payloads are rejected before end/close
+changes active records. Argument errors are retryable when they have not poisoned
+the writer. Flush drains submitted work; close drains before the final directory.
+Stdio close does not imply fsync or durable storage.
 
 RECORD_BLOCK encoding gathers records into generator buckets in first-occurrence
 order, preserving order within each bucket. This linear pass requires no ID or
@@ -1042,7 +1157,7 @@ absent and are interpreted through the owner's end. Explicit writer end calls
 clamp an end earlier than its begin; malformed on-disk negative durations are
 not valid. Clock finalization follows the last-edge rule in section 7.
 
-The writer checks schema arity and types, key uniqueness, generator kind,
+The writer checks complete payload shape and types, key uniqueness, generator kind,
 active-owner validity, and local duration constraints. It does not retain
 completed records to check cross-record properties such as stage exclusivity.
 
@@ -1056,7 +1171,7 @@ targets; memory is not bounded independently of active owner size.
 ## 10. Reader validation and recovery
 
 Readers reject invalid encodings, undeclared generators, mismatched record
-and generator kinds, unsupported schema types, malformed counts, invalid
+and generator kinds, unsupported datatype definitions, malformed counts, invalid
 status/kind codes, and out-of-range indexes. Page and segment byte ranges must
 partition their containers as specified. Loaded column sets must consume every
 column exactly, and decoded record counts and bounds must agree with headers.
@@ -1067,8 +1182,15 @@ with the present parents in each loaded RECORD_BLOCK segment. Directory block
 numbers agree with their section headers; lookup must not rely on physical
 section order.
 
+Full waveform validation also checks time-table bounds, dirty-group directory
+partitions and exact predecessor links, legal logic states and padding, and
+checkpoint frames against the preceding decoded values. Event-signal duplicate
+occurrences remain present. A checksum alone cannot establish frame/history
+consistency.
+
 Globally unique record IDs and block numbers, acyclic ownership, relation
-endpoint existence, and owner-locator consistency are complete-file invariants.
+endpoint existence, clock associations/periods/overlaps, label types, payload and optional
+attribute collisions and owner-locator consistency are complete-file invariants.
 For each owner, its locator list must equal the set of RECORD_BLOCKs containing
 EVENT or STAGE records with that parent. LOG records are excluded from this
 invariant. Full validation may check these separately; loading one track must
@@ -1086,222 +1208,75 @@ Recovery retains complete container sections with valid integrity checks.
 Pages do not introduce partial-section recovery: an incomplete block is dropped
 as a whole. Recovery preserves surviving block numbers and does not renumber
 them when rebuilding the directory, so existing locators remain meaningful.
-Records or blocks appended during recovery must use identifiers above all
-surviving or referenced values in their respective namespaces, including
-unresolved references to missing data.
+Recovery does not append observations, invent missing owners, or fill mandatory
+payloads. A rewrite that changes observations is a new recording with a new ID.
 
 Readers expose arguments under their declared names, preserve optional
 attributes, distinguish embedded records from located records, and retain all
 records involved in resource overlaps. Cached decoded results remain valid
 for callers while held, even if the reader evicts its own cache entry.
 
-## 11. Performance and validation criteria
+## 11. Derived activity indexes
 
-Performance evaluation covers writer CPU and memory, compressed storage, and
-reader latency for both track queries and transaction inspection.
+Derived activity remains separate from the trace. A reusable source fingerprint
+contains the recording ID, finalized file length and CRC-32 of the DIRECTORY
+payload. A reader without a finalized directory exposes no reusable fingerprint.
+The binding assumes immutable observations after finalization; it is not a full
+content digest. Recovery preserves recording identity but changes the directory's
+incomplete/drop provenance and therefore invalidates the original fingerprint.
 
-Before adoption, establish reproducible benchmarks covering the complete
-writer, reader, and container, including owner payloads, argument dictionaries,
-checksums, directory/header costs, and caches. Measure writer throughput and
-peak memory, complete scans, uncached track loading, owner expansion, parent
-label lookup, and repeated navigation. Report decoded-cache state separately
-from filesystem-cache state and actual disk or remote I/O.
+The reference sidecar is VTI version 3.0. File-header flags/reserved bytes are
+zero. Its HEADER extends the previous 40-byte payload with the source recording
+ID at offsets 40–55. Source format is 1; signal count and first waveform time
+must match; disk/memory budget fields are zero. BLOCK, TAIL, 40-byte sidecar
+DIRECTORY entries and trailer keep their previous framing. HEADER, one BLOCK per
+source wave block in order, TAIL and DIRECTORY are required; every CRC is checked.
+Identity is checked before decoding activity rows. Older sidecars are regenerated.
 
-Exercise ordinary transactions with and without schemas, mixed generators,
-skewed generator traffic, large arguments, out-of-order timestamps, long-lived
-owners, repeated visits, overlaps, coincident points, open records, logs,
-clocks, relations, and forward references. Include blocks and pages mixing
-EVENT, STAGE, and LOG generators, and verify that a log whose parent is an
-owner is excluded from that owner's located children. Verify segment splits reset all
-delta and dictionary state; one page decodes independently; owner finalization
-assigns every child block before serialization; and asynchronous completion
-does not change locators or per-generator order. Test truncation after an
-owner block but before its referenced child blocks, and the reverse order.
+The reference uses threshold one/exponent zero: adjacent integer-time activity
+points merge, other silences remain explicit. Queries are exact; the first wave
+time is excluded and repeated same-time occurrences count as one activity point.
+The decoder validates source block/time bounds, stretches, counts, directory
+entries and its configured budget for input, decoded rows and raw workspace.
+Adaptive summaries, cache selection and atomic publication belong to the cache
+layer rather than this byte API.
 
-Persistent owner-to-page and exact ID indexes require evidence that faster
-uncached owner expansion and label lookup justify their write, memory, and
-storage costs.
+## 12. Reference implementation and evaluation
 
-## 12. Performance rationale
+The C++20 reference in `atemp/vtr3-reference` implements the model, full container,
+waveform codec, typed aggregates, both record blocks, bounded worker handoff,
+reader navigation, failure/recovery handling and source-bound activity sidecars.
+It is experimental; production version-2 support is unchanged. Regenerate older
+assets when adopting version 3 rather than adding compatibility machinery.
 
-Prototype measurements support the recommended layout and writer settings.
-The stage-only prototypes in sections 12.1–12.3 use different headers from
-section 8 and omit full container framing, integrity checks, and directory
-costs. Section 12.4 adds a file-backed mixed-workload study. These results
-describe their workloads and do not establish production throughput.
+The default record policy uses 64 KiB raw pages, 4 MiB record block targets,
+a 16 MiB waveform capture target, 65,536 completed records per block, separate
+log pages/clock blocks and Zstandard
+level 1. Codec and waveform batching are policies, not changes to identity or
+query semantics. A synchronous mode establishes format costs on one CPU; worker
+counts and shared CPU affinity must be stated for asynchronous measurements.
 
-### 12.1 Workloads and method
+[VTR3_COMPARISON.md](VTR3_COMPARISON.md) records source/build provenance,
+complete repeated comparisons with version 2, FST, FTR and VCD, all existing
+benchmark metrics, located-stage/event workloads and cold/warm navigation costs.
+Its reported limits are adoption gates: compression or narrow-query wins do not
+by themselves demonstrate the write-speed and producer-cost targets in
+[RATIONALE.md](RATIONALE.md). The current reference still has material write
+regressions relative to version 2; asynchronous speedups must be judged alongside
+CPU use, capture stalls, final drain and memory.
 
-The synthetic model contains 200,000 instructions from a 4-wide out-of-order
-pipeline, with seven located stages per instruction and 58 STAGE generators.
-Execute latency and issue wait vary. Owners carry PC and opcode arguments;
-stages carry no arguments. IDs follow creation order, stages enter blocks on
-completion, and blocks hold at most 65,536 records. This model is not a
-cycle-accurate resource-occupancy simulation.
+Validation includes independent Python schema/column decoders, an independent
+Rust waveform reader, an independent producer replay for every measured read
+and query, malformed input/full-file invariants, payload expansion limits,
+concurrent producers with late declarations and mutable caller buffers,
+reordered/saturated worker queues, bounded buffer reuse across owner-slot
+lifetimes, injected allocation and I/O failures, truncation/recovery and ASan/UBSan/ThreadSanitizer runs. Independent waveform
+checking adapts only container header/directory framing; it does not re-encode
+waveform sections. Reference reader limits default to 64 MiB of reconstructed
+canonical primary payload per record and a 4,096-entry/32 MiB accounted owner
+cache; they are configurable and are not a global process-memory ceiling.
 
-The Kanata comparison extracts 631,118 stages from the first 100,000
-instructions of a qsort trace. Generators correspond to nine distinct
-`(thread, lane, stage name)` tuples; these are overlapping logical locations,
-not reconstructed physical slots. Sixteen active stages close at the sample
-cutoff. Owner payloads, labels, and relations are excluded from native timings.
-
-Native results use an optimized Rust prototype, VTR's compression and varint
-code, one pinned core of an Intel Core Ultra 7 265K, and Zstandard level 1.
-Each reported timing is the median of five passes after a warm-up. Write time
-includes grouping, optional dictionary construction and sorting, serialization,
-and compression. Reads include decompression and record reconstruction with
-compressed input in memory, reusable buffers, and no decoded-record cache.
-All layouts passed record round trips and sampled query-result comparisons.
-
-Track latency is the average per query within the median pass over 128
-generator/block selections. A query reads one generator's records from one
-located block. Full scans read all stages. Neither measures the public writer
-interface, disk I/O, or owner/label resolution.
-
-### 12.2 Stage storage and speed
-
-Synthetic results, with compressed storage reported per stage:
-
-| Layout | Bytes/stage | Write, million stages/s | Full read, million stages/s | Track query, microseconds |
-|---|---:|---:|---:|---:|
-| Mixed generators in one frame | 2.381 | 32.79 | 141.46 | 402.60 |
-| Stable generator groups, one frame | 1.845 | 40.99 | 167.93 | 124.56 |
-| Groups with an owner-ID dictionary | 1.626 | 26.08 | 174.57 | 133.46 |
-| Owner dictionary and creation-ID sorting | 1.577 | 24.95 | 184.71 | 129.45 |
-| **Stable groups, 64 KiB pages** | **2.001** | **37.38** | **154.47** | **35.59** |
-| Pages with an owner-ID dictionary | 1.740 | 25.24 | 164.87 | 50.94 |
-| One frame per generator | 2.276 | 34.64 | 127.29 | 9.85 |
-
-Compared with one grouped frame, 64 KiB pages use about 8% more space, retain
-91% of write throughput, and reduce track-query latency by a factor of 3.5.
-Owner dictionaries save more space but substantially reduce write throughput.
-Sorting by ID adds another encoding pass with little benefit for track queries.
-
-Kanata stage-only results:
-
-| Layout | Bytes/stage | Write, million stages/s | Full read, million stages/s | Track query, microseconds |
-|---|---:|---:|---:|---:|
-| Mixed generators in one frame | 0.632 | 53.39 | 191.42 | 298.23 |
-| Stable generator groups, one frame | 0.487 | 44.37 | 222.71 | 114.51 |
-| Groups with an owner-ID dictionary | 0.455 | 23.67 | 193.65 | 137.06 |
-| **Stable groups, 64 KiB pages** | **0.558** | **39.79** | **205.66** | **42.99** |
-
-On this more compressible trace, grouping slows writing relative to mixed
-records. Pages still reduce storage and track-query latency. An owner
-dictionary nearly halves grouped write throughput for a smaller storage saving
-than on synthetic data. Direct parent deltas offer a better balance here.
-
-### 12.3 Owners, codecs, and deferred alternatives
-
-A separate Python encoding estimate for the synthetic owners gave 3.05 bytes
-per stage for owners containing individual `(generator ID, child ID)` pairs,
-and 0.45 for owners containing distinct child block locators. These values
-include owner fields and arguments divided across seven stages. They do not
-measure owner write throughput or the complete paged format. The locator
-choice removes substantial repeated data without adding per-child dictionary
-construction or changing global record identity.
-
-Locators do not eliminate owner-expansion work. The native synthetic queries
-that scan one located block for a parent's children averaged 339 microseconds
-with one grouped frame, 363 with pages, and 451 with one frame per generator.
-Those timings start with the correct child block already identified and omit
-owner loading. Per-generator frames favor a narrow track query at the expense
-of compression and some broader reads; bounded pages provide the chosen
-compromise.
-
-For synthetic pages, Zstandard level 3 reduced stage storage from 2.001 to
-1.971 bytes but reduced write throughput from 37.38 to 33.42 million stages/s.
-LZ4 used 2.632 bytes/stage, wrote 41.18 million stages/s, and reduced track
-latency to 16.97 microseconds. On Kanata, LZ4 pages used 0.951 bytes/stage and
-reduced track latency to 36.97 microseconds. These results support Zstandard
-level 1 as the recommended setting, with LZ4 available when throughput takes
-priority over storage size.
-
-The RECORD_BLOCK encoding omits owner-ID dictionaries, ID sorting, and adaptive
-integer bit-packing. TX_BLOCK sorts owners for page lookup as specified in
-section 8.3. The tested bit-packing variant reduced raw size but did
-not improve compressed size on both workloads. Encoding times in units of a
-shared time quantum also saved little after compression. These transforms
-need further evidence to justify their encoding cost and format complexity.
-
-Global IDs remain on every located record. An owner-local child ordinal could
-replace them and still support relations if relation endpoints were redesigned
-as compound identities. That would change the common identity model and lose
-global creation order unless stored separately. The available size estimates
-do not justify this added complexity.
-
-### 12.4 File-backed mixed workloads
-
-A standalone Rust study compared 15 layout variants over five simulated
-workloads. Each file contains about 10.1 million ordinary transactions,
-located stages/events, logs, relations, and signal changes. There are
-128–192 interleaved ordinary-transaction generators representing cores, NoC
-endpoints, and accelerators, with different argument schemas. Four waveform
-counters per producer use the production signal codec in the same file.
-The workloads cover normal traffic, long-lived owners, log bursts,
-out-of-order timestamps/completions, and 128 KiB incompressible attributes.
-
-The screen wrote and validated 75 files. A confirmation batch compared the
-original monolithic-TX proposal, the selected layout in section 8, and an
-ablation without parent bounds, using three seeds for each workload:
-45 more files and 120 trials overall. Complete scans checked source digests,
-global IDs, ownership, relation endpoints, exact child-block locator sets,
-page partitions, header bounds, schemas, and signal changes. Sampled track,
-owner, label, relation, and window queries also matched source oracles.
-
-The machine was an Intel Core Ultra 7 265K on Linux with NVMe ext4 storage,
-Rust 1.97.1, Zstandard level 1, CPU affinity 2/3/4, and two bounded encoder
-workers. Write timing includes simulation, allocation, checksums, file I/O,
-and fsync. Queries use filesystem-warm input with an empty decoded cache.
-The following are median three-trial values; query cells are medians of
-trial medians. Each cell is original proposal → selected layout.
-
-| Workload | File, MB | Write, seconds | Owner lookup, ms | Expansion including owner, ms | Pipeline with labels, ms |
-|---|---:|---:|---:|---:|---:|
-| balanced | 51.13 → 54.48 | 3.60 → 3.57 | 4.14 → 0.26 | 9.15 → 2.77 | 116.96 → 10.51 |
-| longtail | 52.49 → 56.00 | 3.35 → 3.83 | 4.19 → 0.27 | 10.17 → 3.03 | 174.38 → 16.52 |
-| logburst | 102.76 → 105.40 | 4.53 → 5.08 | 5.36 → 0.35 | 9.38 → 1.20 | 166.68 → 15.23 |
-| disordered | 63.42 → 66.29 | 4.04 → 4.44 | 15.25 → 1.00 | 23.97 → 8.11 | 156.57 → 26.96 |
-| large | 571.29 → 572.80 | 3.74 → 4.47 | 4.49 → 0.16 | 7.49 → 2.55 | 145.12 → 11.17 |
-
-Across workloads, geometric-mean speedups were 17.5-fold for full owner lookup,
-3.8-fold for expansion including owner loading, and 9.9-fold for pipeline loading.
-Files grew 4.1%, write wall time grew 10.8%, and writer user-plus-system
-CPU time grew 39.9%. The prototype re-encodes column sets while splitting pages;
-that encoder cost is included. A production encoder may improve it.
-
-Paging without ID sorting gave only 1.36-fold owner-lookup and 1.43-fold
-pipeline speedups in the screen. Sorting before slicing into pages is
-important; paging alone leaves broad candidate ranges. Parent bounds cut
-child-row decoding by 61.9% on logburst and 34.1% on disordered traffic.
-In confirmation, adding parent bounds to the otherwise selected layout
-improved logburst expansion by 1.79-fold; benefits were smaller elsewhere.
-Narrower fields offset much of the extra header cost: the screen saved
-1.8% of total file bytes geometrically and 4.4% on logburst. A segment with
-parent bounds occupies 68 bytes rather than 80 with the original widths.
-
-Separate LOG pages reduced irrelevant decompression without increasing
-child-row counts. Separate LOG blocks saved more storage but increased
-large-owner expansion from 61,712 to 81,087 child rows per query, slowing
-that case. This supports a page-separation policy rather than a universal
-block-separation rule. Directory block numbers removed all block-header
-reads needed solely to build the block map; independent audits observed
-6,803 physical block-number descents across the retained files.
-
-The timestamp cap, integer-width normalization, and first-occurrence TX
-generator tables provided no material storage benefit. Normalization also
-lost attribute-width identity. A stage-end bitmap saved 0.8% of file bytes
-geometrically without a stable latency benefit. The single full-duration
-code can instead be handled with `u64` operations as in section 8.1.
-Expanded embedded-time bounds benefited an additional embedded-activity
-search, but are not needed for the owner-interval queries in section 8.4.
-
-With full section CRC checking, pipeline queries were 6.6-fold faster.
-That does not imply page-sized I/O: each selected section still needs its
-complete compressed payload for CRC verification. Per-file cache-eviction
-advice before opening was best effort; query input was filesystem warm.
-Host timing noise was visible, so small one-pass timing differences did
-not justify format changes. The study uses experimental container framing
-and a full-record reader. Label projection, parent filtering without
-materializing unrelated records, cold-device I/O, and production writer
-integration can change absolute timings and policy tradeoffs.
+No simulator-specific capacity claim follows from these synthetic runs. Validate
+real producer rates and large/fast design traces before setting integration
+budgets. SystemC site wrappers, formatting, VDB interpretation, transport and
+visualization remain separate components.
