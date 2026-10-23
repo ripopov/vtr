@@ -1,296 +1,76 @@
-//! Logging demo: a toy simulator writes timestamped log messages next to a transaction
-//! stream, then the file is read back three ways.
+//! Typed log fields, severity metadata, and retained record decoding.
 
-use vtr::{
-    LogArgType, LogQuery, LogSiteSpec, Reader, ScopeType, Severity, Timescale, TxQuery, TxStatus,
-    Value, Writer,
-};
+use vtr::{Attribute, FormatLocale, Reader, Recorder, Result, SourceOptions, Value, Writer};
 
-fn main() -> vtr::Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "demo_log.vtr".into());
-    let mut w = Writer::builder()
-        .timescale(Timescale::Nanoseconds)
-        .create(&path)?;
+struct Step {
+    phase: String,
+    cycles: u64,
+}
+vtr::impl_payload!(Step { phase, cycles });
 
-    let soc = w.add_scope(None, "soc", ScopeType::Generic, "")?;
-    let cpu = w.add_scope(Some(soc), "cpu0", ScopeType::Core, "")?;
-    let cpu_log = w.add_scope(Some(cpu), "log", vtr::ScopeType::Generic, "")?;
-    let dma = w.add_scope(Some(soc), "dma", ScopeType::Generic, "")?;
-    let dma_log = w.add_scope(Some(dma), "log", vtr::ScopeType::Generic, "")?;
-    let dma_tx = w.add_scope(Some(dma), "transfers", vtr::ScopeType::Generic, "")?;
-    let gen_xfer = w.add_generator(Some(dma_tx), "transfer", "TLM")?;
-    let _ = soc;
-
-    let s_fetch = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(cpu_log),
-            Severity::Debug,
-            "fetch pc={:#010x} inst={:#010x}",
-            &[LogArgType::U64, LogArgType::U64, LogArgType::Text],
-        )
-        .names(&["pc", "inst", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let s_retire = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(cpu_log),
-            Severity::Info,
-            "retire pc={:#010x} rd=x{} value={:#x}",
-            &[
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::Text,
-            ],
-        )
-        .names(&["pc", "rd", "value", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let s_stall = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(cpu_log),
-            Severity::Warn,
-            "{} stalled {} cycles waiting for {}",
-            &[
-                LogArgType::Text,
-                LogArgType::U64,
-                LogArgType::Text,
-                LogArgType::Text,
-            ],
-        )
-        .names(&["unit", "cycles", "resource", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let s_dma_start = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(dma_log),
-            Severity::Info,
-            "channel {} start {} bytes {:#x} -> {:#x}",
-            &[
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::Text,
-            ],
-        )
-        .names(&["channel", "bytes", "source", "destination", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let s_dma_done = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(dma_log),
-            Severity::Info,
-            "channel {} done in {:.2} us",
-            &[LogArgType::U64, LogArgType::F64, LogArgType::Text],
-        )
-        .names(&["channel", "duration_us", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let s_dma_err = w.add_log_site(
-        &LogSiteSpec::new(
-            Some(dma_log),
-            Severity::Error,
-            "channel {} bus error at {:#x} ({})",
-            &[
-                LogArgType::U64,
-                LogArgType::U64,
-                LogArgType::Text,
-                LogArgType::Text,
-            ],
-        )
-        .names(&["channel", "address", "response", "vtr.label"])
-        .location(file!(), line!()),
-    )?;
-    let k_label = w.intern("vtr.label");
-
-    let mut t = 0u64;
-    let mut pc = 0x8000_0000u64;
-    let mut open_xfer = None;
-    for cycle in 0..20_000u64 {
-        t += 10;
-        let caption = format!("fetch pc 0x{pc:08x}");
-        w.log(
-            s_fetch,
-            t,
-            &[
-                pc.into(),
-                (0x0040_0093 ^ cycle).into(),
-                caption.as_str().into(),
-            ],
-        )?;
-        if cycle % 3 == 0 {
-            let caption = format!("retire pc 0x{pc:08x}");
-            w.log(
-                s_retire,
-                t + 2,
-                &[
-                    pc.into(),
-                    (cycle % 32).into(),
-                    (cycle * 0x9e37).into(),
-                    caption.as_str().into(),
-                ],
-            )?;
-        }
-        if cycle % 97 == 0 {
-            let unit = if cycle % 2 == 0 { "lsu" } else { "fpu" };
-            let caption = format!("{unit} stall at cycle {cycle}");
-            w.log(
-                s_stall,
-                t + 3,
-                &[
-                    unit.into(),
-                    (cycle % 7 + 1).into(),
-                    "dcache".into(),
-                    caption.as_str().into(),
-                ],
-            )?;
-        }
-        pc += 4;
-        if cycle % 500 == 0 {
-            let tx = w.begin_tx(gen_xfer, t)?;
-            let ch = cycle / 500 % 4;
-            let caption = format!("DMA transfer {}", cycle / 500);
-            let value = w.intern(&caption);
-            w.tx_attr(tx, k_label, &vtr::Value::Str(value))?;
-            w.log_with_parent(
-                s_dma_start,
-                t,
-                Some(tx),
-                &[
-                    ch.into(),
-                    4096u64.into(),
-                    0x1000_0000u64.into(),
-                    0x2000_0000u64.into(),
-                    caption.as_str().into(),
-                ],
-            )?;
-            open_xfer = Some((tx, ch, t));
-        }
-        if let Some((tx, ch, t0)) = open_xfer
-            && t - t0 >= 3000
-        {
-            if ch == 3 {
-                let caption = format!("DMA channel {ch} error");
-                w.log_with_parent(
-                    s_dma_err,
-                    t,
-                    Some(tx),
-                    &[
-                        ch.into(),
-                        0x1000_0800u64.into(),
-                        "SLVERR".into(),
-                        caption.as_str().into(),
-                    ],
-                )?;
-                w.end_tx(tx, t, TxStatus::Error)?;
-            } else {
-                let caption = format!("DMA channel {ch} complete");
-                w.log_with_parent(
-                    s_dma_done,
-                    t,
-                    Some(tx),
-                    &[
-                        ch.into(),
-                        ((t - t0) as f64 / 1000.0).into(),
-                        caption.as_str().into(),
-                    ],
-                )?;
-                w.end_tx(tx, t, TxStatus::Ok)?;
-            }
-            open_xfer = None;
-        }
-    }
-    let stats = w.stats();
-    w.close()?;
-    println!(
-        "wrote {path}: {} log records, {} transactions, {} bytes",
-        stats.log_records,
-        stats.transactions,
-        std::fs::metadata(&path)?.len()
+fn main() -> Result<()> {
+    let temporary = tempfile::tempdir()?;
+    let path = std::env::args_os().nth(1).map_or_else(
+        || temporary.path().join("logging.vtr"),
+        std::path::PathBuf::from,
     );
-
-    let r = Reader::open(&path)?;
-    for tx in r.transactions(&TxQuery::default())? {
-        assert!(tx.attrs.iter().any(|attr| {
-            r.str(attr.key) == "vtr.label" && matches!(attr.value, Value::Str(_) | Value::Text(_))
-        }));
+    let mut writer = Writer::create(&path)?;
+    let cpu = writer.scope("cpu", None)?;
+    let severity = writer.intern("log.severity")?;
+    let mut source = SourceOptions::new("{} completed in {:L} cycles", Some(cpu));
+    source.attributes.push(Attribute {
+        key: severity,
+        value: Value::U64(2),
+    });
+    let source = writer.logs::<Step>(source)?;
+    for time in 0..10 {
+        writer.advance_time(time)?;
+        let mut step = Step {
+            phase: format!("step {time}"),
+            cycles: time * 3000,
+        };
+        writer.log(source, &step, None)?;
+        step.phase.clear();
     }
-    println!("\n-- severity >= warn --");
-    let mut n = 0;
-    r.visit_log(
-        &LogQuery {
-            min_severity: Severity::Warn,
-            ..Default::default()
-        },
-        |rec| {
-            n += 1;
-            if n <= 5 {
-                println!(
-                    "{:>8} ns {:<5} {}: {}",
-                    rec.time,
-                    rec.severity().name(),
-                    r.full_path(rec.site.scope.unwrap(), "."),
-                    rec.format(r.strings())
-                );
-            }
-            true
-        },
-    )?;
-    println!("({n} records)");
+    writer.close()?;
 
-    println!("\n-- log of the first DMA transfer --");
-    let first = r
-        .transactions(&TxQuery {
-            scope: Some(dma_tx),
-            ..Default::default()
-        })?
-        .into_iter()
-        .next()
-        .unwrap();
-    r.visit_log(
-        &LogQuery {
-            scope: Some(dma_log),
-            window: Some((first.begin, first.end)),
-            ..Default::default()
+    let reader = Reader::open(path)?;
+    let locale = FormatLocale {
+        thousands_sep: b'_',
+        grouping: &[3],
+        ..FormatLocale::default()
+    };
+    let mut retained = Vec::new();
+    reader.records(
+        vtr::RecordQuery {
+            kind: Some(vtr::RecordKind::Log),
+            ..vtr::RecordQuery::default()
         },
-        |rec| {
-            if rec.parent == Some(first.id) {
-                println!(
-                    "{:>8} ns tx {} : {}",
-                    rec.time,
-                    first.id,
-                    rec.format(r.strings())
-                );
-            }
+        |record| {
+            println!(
+                "{}: {}",
+                record.begin(),
+                reader
+                    .format_log_with_locale(&record, &locale)
+                    .expect("log format")
+            );
+            retained.push(record);
             true
         },
     )?;
-
-    println!("\n-- longest stalls (structured query on site arguments) --");
-    let stall_site = r
-        .log_sites()
-        .iter()
-        .find(|s| r.str(s.fmt).starts_with("{} stalled"))
-        .unwrap();
-    let mut worst = Vec::new();
-    r.visit_log(
-        &LogQuery {
-            generator: Some(stall_site.node),
-            ..Default::default()
-        },
-        |rec| {
-            if let Some(vtr::LogArg::U64(cycles)) = rec.arg(1) {
-                worst.push((cycles, rec.time));
-            }
-            true
-        },
-    )?;
-    worst.sort_unstable_by(|a, b| b.cmp(a));
-    for (cycles, time) in worst.iter().take(3) {
-        println!("{cycles} cycles at {time} ns");
-    }
+    assert_eq!(
+        reader.format_log(&retained[3])?,
+        "step 3 completed in 9000 cycles"
+    );
+    assert_eq!(
+        reader.format_log_with_locale(&retained[3], &locale)?,
+        "step 3 completed in 9_000 cycles"
+    );
+    drop(reader);
+    assert_eq!(retained[3].payload().decode::<Step>()?.phase, "step 3");
+    assert_eq!(
+        retained[3].payload().field("cycles")?.decode::<u64>()?,
+        9000
+    );
     Ok(())
 }

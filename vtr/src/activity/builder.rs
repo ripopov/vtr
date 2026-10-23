@@ -5,7 +5,7 @@ use super::format::{
     TAIL_COLUMNS,
 };
 use super::scan::BlockScan;
-use super::{Budget, Identity, Summary, bucket, threshold};
+use super::{Identity, Summary};
 use crate::codec::Compressor;
 use crate::error::{Error, Result};
 use crate::varint::put_u64;
@@ -22,11 +22,10 @@ pub struct Builder<W: Write> {
     out: FileWriter<W>,
     header: Header,
     sigs: Vec<Sig>,
-    ends: Vec<u64>,
-    minima: Vec<(u32, u64)>,
+    blocks: u32,
+    previous_end: Option<u64>,
     changes: u64,
     stretches: u64,
-    delta: Option<(u64, u64)>,
     cols: [Vec<u8>; BLOCK_COLUMNS],
     next: Vec<Sig>,
     raw: Vec<u8>,
@@ -35,17 +34,10 @@ pub struct Builder<W: Write> {
 }
 
 impl<W: Write> Builder<W> {
-    pub fn new(
-        out: W,
-        identity: Identity,
-        signals: u32,
-        t_min: u64,
-        budget: Budget,
-    ) -> Result<Builder<W>> {
+    pub fn new(out: W, identity: Identity, signals: u32, t_min: u64) -> Result<Builder<W>> {
         let header = Header {
             identity,
             signals,
-            budget,
             t_min,
         };
         let mut out = FileWriter::new(out)?;
@@ -54,30 +46,36 @@ impl<W: Write> Builder<W> {
             out,
             header,
             sigs: vec![Sig::default(); signals as usize],
-            ends: Vec::new(),
-            minima: Vec::new(),
+            blocks: 0,
+            previous_end: None,
             changes: 0,
             stretches: 0,
-            delta: None,
             cols: Default::default(),
-            next: Vec::new(),
+            next: Vec::with_capacity(signals as usize),
             raw: Vec::new(),
             body: Vec::new(),
             compressor: Compressor::new(),
         })
     }
 
+    pub(super) fn base_bytes(signals: u32) -> u64 {
+        u64::from(signals) * 2 * std::mem::size_of::<Sig>() as u64
+    }
+
     pub fn blocks_added(&self) -> usize {
-        self.ends.len()
+        self.blocks as usize
     }
 
     pub fn prev_end(&self) -> Option<u64> {
-        self.ends.last().copied()
+        self.previous_end
     }
 
     pub fn add(&mut self, mut scan: BlockScan) -> Result<()> {
-        scan.close();
         let block = scan.block;
+        let count = self
+            .blocks
+            .checked_add(1)
+            .ok_or(Error::invalid("too many activity blocks"))?;
         if scan.t_min != self.header.t_min || scan.prev_end != self.prev_end() {
             return Err(Error::invalid(
                 "activity scan made for another position in the trace",
@@ -106,23 +104,18 @@ impl<W: Write> Builder<W> {
             return Err(Error::invalid("activity scan names an unknown signal"));
         }
 
-        let mut hist = scan.hist;
+        for stretch in &scan.stretches {
+            if stretch.start < block.start || stretch.end > block.end {
+                return Err(Error::invalid("activity change outside its block"));
+            }
+        }
         let mut changes = scan.changes;
-        for r in &scan.rows {
-            let last = self.sigs[r.signal as usize].last;
-            if last != 0 && r.first > last {
-                hist[bucket(r.first - last)] += 1;
-            } else if last != 0 {
+        for row in &scan.rows {
+            if self.sigs[row.signal as usize].last == scan.stretches[row.first].start {
                 changes -= 1;
             }
         }
-        let mut j = threshold(&hist, scan.cap, scan.j_max);
-        let disk = (self.header.budget.disk.max(0.0) * block.bytes as f64) as usize;
-        let (mut rows, mut closed) = self.encode(&scan, 1u64 << j)?;
-        while self.body.len() > disk && j < scan.j_max {
-            j += 1;
-            (rows, closed) = self.encode(&scan, 1u64 << j)?;
-        }
+        let (rows, closed) = self.encode(&scan)?;
 
         let head = BlockHead {
             start: block.start,
@@ -130,7 +123,7 @@ impl<W: Write> Builder<W> {
             bytes: block.bytes,
             rows,
             closed,
-            exponent: j as u8,
+            exponent: 0,
         };
         self.out.section(
             KIND_BLOCK,
@@ -141,76 +134,65 @@ impl<W: Write> Builder<W> {
         for (r, s) in scan.rows.iter().zip(&self.next) {
             self.sigs[r.signal as usize] = *s;
         }
-        let delta = 1u64 << j;
-        let b = self.ends.len() as u32;
-        while self.minima.last().is_some_and(|m| m.1 >= delta) {
-            self.minima.pop();
-        }
-        self.minima.push((b, delta));
-        self.ends.push(block.end);
+        self.blocks = count;
+        self.previous_end = Some(block.end);
         self.changes += changes;
         self.stretches += u64::from(closed);
-        self.delta = Some(
-            self.delta
-                .map_or((delta, delta), |(a, z)| (a.min(delta), z.max(delta))),
-        );
         Ok(())
     }
 
-    fn min_delta_from(&self, t: u64) -> u64 {
-        let k = self.ends.partition_point(|&e| e < t) as u32;
-        let i = self.minima.partition_point(|m| m.0 < k);
-        self.minima.get(i).map_or(u64::MAX, |m| m.1)
-    }
-
-    fn encode(&mut self, scan: &BlockScan, delta: u64) -> Result<(u32, u32)> {
-        for c in &mut self.cols {
-            c.clear();
+    fn encode(&mut self, scan: &BlockScan) -> Result<(u32, u32)> {
+        for column in &mut self.cols {
+            column.clear();
         }
         self.next.clear();
-        let (mut prev_sig, mut rows, mut closed) = (0u32, 0u32, 0u32);
-        for r in &scan.rows {
-            let s = self.sigs[r.signal as usize];
-            let (mut open, mut gap, mut n) = (s.open, s.gap, 0u32);
-            let first = s.last == 0;
-            if first {
-                open = r.first;
-                gap = 0;
-            } else if r.first > s.last {
-                let len = r.first - s.last;
-                if len > self.min_delta_from(s.last.saturating_add(1)).min(delta) {
-                    close(&mut self.cols, open, s.last, r.first, gap);
-                    n += 1;
-                    open = r.first;
-                    gap = 0;
-                } else {
-                    gap = gap.max(len);
+        let (mut previous_signal, mut rows, mut closed) = (0, 0, 0u32);
+        for row in &scan.rows {
+            let stretches = &scan.stretches[row.first..row.first + row.count];
+            let initial = self.sigs[row.signal as usize].last == 0;
+            let mut state = self.sigs[row.signal as usize];
+            let mut count = 0u32;
+            for stretch in stretches {
+                if state.last == 0 {
+                    state.open = stretch.start;
+                } else if stretch.start > state.last {
+                    if stretch.start - state.last == 1 {
+                        state.gap = 1;
+                    } else {
+                        close(
+                            &mut self.cols,
+                            state.open,
+                            state.last,
+                            stretch.start,
+                            state.gap,
+                        );
+                        count = count
+                            .checked_add(1)
+                            .ok_or(Error::invalid("too many activity stretches"))?;
+                        state.open = stretch.start;
+                        state.gap = 0;
+                    }
                 }
-            }
-            for c in &scan.cands[r.cand0 as usize..(r.cand0 + r.ncand) as usize] {
-                if c.b - c.a > delta {
-                    close(&mut self.cols, open, c.a, c.b, gap.max(c.pre));
-                    n += 1;
-                    open = c.b;
-                    gap = 0;
-                } else {
-                    gap = gap.max(c.pre).max(c.b - c.a);
+                if stretch.end > stretch.start {
+                    state.gap = 1;
                 }
+                state.last = stretch.end;
             }
-            self.next.push(Sig {
-                last: r.last,
-                open,
-                gap: gap.max(r.tail),
-            });
-            if first || n > 0 {
-                put_u64(&mut self.cols[0], u64::from(r.signal - prev_sig));
-                prev_sig = r.signal;
-                put_u64(&mut self.cols[1], (u64::from(n) << 1) | u64::from(first));
-                if first {
-                    put_u64(&mut self.cols[2], r.first - scan.block.start);
+            self.next.push(state);
+            if initial || count != 0 {
+                put_u64(&mut self.cols[0], u64::from(row.signal - previous_signal));
+                previous_signal = row.signal;
+                put_u64(
+                    &mut self.cols[1],
+                    (u64::from(count) << 1) | u64::from(initial),
+                );
+                if initial {
+                    put_u64(&mut self.cols[2], stretches[0].start - scan.block.start);
                 }
                 rows += 1;
-                closed += n;
+                closed = closed
+                    .checked_add(count)
+                    .ok_or(Error::invalid("too many activity stretches"))?;
             }
         }
         format::pack(
@@ -247,11 +229,11 @@ impl<W: Write> Builder<W> {
         self.out.section(KIND_TAIL, &[&head, &self.body], 0, 0)?;
         let bytes = self.out.finish()?;
         Ok(Summary {
-            blocks: self.ends.len() as u32,
+            blocks: self.blocks,
             signals: self.header.signals,
             changes: self.changes,
             stretches: self.stretches + u64::from(rows),
-            delta: self.delta,
+            delta: (self.blocks != 0).then_some((1, 1)),
             bytes,
             source_bytes: self.header.identity.length,
         })

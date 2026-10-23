@@ -1,6 +1,6 @@
-//! Transactions with attributes, pipeline stages, and dependency relations.
+//! Typed instructions, embedded pipeline stages, and dependency relations.
 
-use vtr::{Reader, ScopeType, TxQuery, TxStatus, Value, Writer};
+use vtr::{Reader, Recorder, SourceOptions, Status, TransactionQuery, Writer};
 
 fn main() -> vtr::Result<()> {
     let temporary = tempfile::tempdir()?;
@@ -8,43 +8,76 @@ fn main() -> vtr::Result<()> {
         || temporary.path().join("transactions.vtr"),
         std::path::PathBuf::from,
     );
-    let mut w = Writer::create(&path)?;
-    let core = w.add_scope(None, "cpu", ScopeType::Core, "")?;
-    let pipe = w.add_scope(Some(core), "pipe", vtr::ScopeType::Generic, "")?;
-    let insn = w.add_generator(Some(pipe), "instruction", "PIPELINE")?;
-    let (k_pc, k_dep, lane, st_f, st_x) = (
-        w.intern("pc"),
-        w.intern("depends_on"),
-        w.intern("0"),
-        w.intern("F"),
-        w.intern("X"),
-    );
-    let mut prev = None;
-    for i in 0..100u64 {
-        let tx = w.begin_tx(insn, i)?;
-        w.tx_attr(tx, k_pc, &Value::U64(0x1000 + i * 4))?;
-        w.tx_stage_begin(tx, st_f, lane, i)?;
-        w.tx_stage_begin(tx, st_x, lane, i + 1)?;
-        if let Some(p) = prev {
-            w.relate(k_dep, p, tx, &[])?;
+    let mut writer = Writer::create(&path)?;
+    let core = writer.scope("cpu", None)?;
+    let instructions = writer
+        .transactions::<[u64; 2]>(SourceOptions::new("instructions", Some(core)), "PIPELINE")?;
+    let depends_on = writer.intern("depends_on")?;
+    let fetch = writer.intern("fetch")?;
+    let execute = writer.intern("execute")?;
+    let lane = writer.intern("0")?;
+    let mut previous = None;
+    for serial in 0..100 {
+        writer.advance_time(serial)?;
+        let instruction = writer.begin_deferred(instructions, None)?;
+        writer.embedded_stage(
+            instruction.owner(),
+            serial,
+            fetch,
+            lane,
+            Some(serial + 1),
+            vec![],
+        )?;
+        writer.embedded_stage(
+            instruction.owner(),
+            serial + 1,
+            execute,
+            lane,
+            Some(serial + 3),
+            vec![],
+        )?;
+        if let Some(previous) = previous {
+            writer.relate(depends_on, previous, instruction.id(), vec![])?;
         }
-        w.end_tx(tx, i + 3, TxStatus::Ok)?;
-        prev = Some(tx);
+        writer.end_at_with_payload(
+            instruction,
+            serial + 3,
+            &[serial, 0x1000 + serial * 4],
+            Status::Ok,
+        )?;
+        previous = Some(instruction.id());
     }
-    w.close()?;
+    writer.close()?;
 
-    let rd = Reader::open(&path)?;
-    assert_eq!(rd.tx_counts(), (100, 99));
-    let q = TxQuery {
-        window: Some((10, 12)),
-        ..Default::default()
-    };
-    rd.visit_transactions(&q, |tx| {
-        for s in &tx.stages {
-            println!("{} {}: {}..{:?}", tx.id, rd.str(s.name), s.begin, s.end);
-        }
-        true
-    })?;
-    assert_eq!(rd.relations_to(5)?[0].from, 4);
+    let reader = Reader::open(path)?;
+    reader.transactions(
+        TransactionQuery {
+            begin: 10,
+            end: 12,
+            ..TransactionQuery::default()
+        },
+        |record| {
+            let [serial, pc] = record
+                .payload()
+                .decode::<[u64; 2]>()
+                .expect("instruction payload");
+            println!(
+                "instruction {serial}, pc {pc:#x}: {}..{}",
+                record.begin(),
+                record.end()
+            );
+            for stage in record.stages() {
+                println!(
+                    "  {}: {}..{:?}",
+                    reader.string(stage.name).expect("stage name"),
+                    stage.begin,
+                    stage.end
+                );
+            }
+            true
+        },
+    )?;
+    let report = reader.validate()?;
+    assert_eq!(report.relations, 99);
     Ok(())
 }

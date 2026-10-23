@@ -2,7 +2,11 @@
 
 use anyhow::{Result, bail, ensure};
 use std::io::{self, Write};
-use vtr::{NodeData, NodeId, Reader, ScopeType, SignalKind, SignalValue};
+use vtr::{
+    ScopeType, SignalKind, SignalValue, VarType,
+    declarations::NodeData,
+    trace::{Reader, TimeWindow},
+};
 
 fn id_code(mut i: usize) -> String {
     let mut s = String::new();
@@ -47,14 +51,14 @@ fn scope_keyword(t: ScopeType) -> &'static str {
 
 pub fn write_vcd(r: &Reader, mut w: impl Write) -> Result<u64> {
     ensure!(
-        r.meta().time_zero == 0,
+        r.metadata().time_zero == 0,
         "VCD export does not support time-zero offsets"
     );
     ensure!(
-        r.blackout().is_empty(),
+        r.blackouts().is_empty(),
         "VCD export does not support blackout intervals"
     );
-    let h = r.hierarchy();
+    let h = r.declarations();
     for signal in &h.signals {
         match signal {
             SignalKind::Bits { states: 9, .. } | SignalKind::VarLen => {
@@ -63,9 +67,9 @@ pub fn write_vcd(r: &Reader, mut w: impl Write) -> Result<u64> {
             _ => {}
         }
     }
-    for id in h.ids() {
-        if matches!(h.kind(id), vtr::NodeKind::Scope | vtr::NodeKind::Var) {
-            let name = r.name(id);
+    for node in &h.nodes {
+        if matches!(node.data, NodeData::Scope { .. } | NodeData::Signal { .. }) {
+            let name = r.string(node.name)?;
             let parts: Vec<_> = name.split_whitespace().collect();
             ensure!(
                 !name.contains("$end")
@@ -74,60 +78,63 @@ pub fn write_vcd(r: &Reader, mut w: impl Write) -> Result<u64> {
                         || (parts.len() == 2
                             && parts[1].starts_with('[')
                             && parts[1].ends_with(']')
-                            && h.kind(id) == vtr::NodeKind::Var)),
+                            && matches!(node.data, NodeData::Signal { .. }))),
                 "name {name:?} cannot be represented in VCD"
             );
         }
     }
     writeln!(w, "$version Volna vtr $end")?;
-    writeln!(w, "{}", timescale_line(r.meta().timescale)?)?;
-    fn walk(r: &Reader, n: NodeId, w: &mut impl Write) -> io::Result<()> {
-        let h = r.hierarchy();
-        match h.node(n).data {
+    writeln!(w, "{}", timescale_line(r.metadata().timescale)?)?;
+    let mut pending: Vec<_> = r.children(None).iter().rev().copied().map(Some).collect();
+    while let Some(entry) = pending.pop() {
+        let Some(id) = entry else {
+            writeln!(w, "$upscope $end")?;
+            continue;
+        };
+        let node = r.node(id)?;
+        let name = r.name(id)?;
+        match node.data {
             NodeData::Scope { scope_type, .. } => {
-                writeln!(w, "$scope {} {} $end", scope_keyword(scope_type), r.name(n))?;
-                for c in h.children(n) {
-                    walk(r, c, w)?;
-                }
-                writeln!(w, "$upscope $end")?;
+                writeln!(
+                    w,
+                    "$scope {} {name} $end",
+                    scope_keyword(ScopeType::from_code(scope_type))
+                )?;
+                pending.push(None);
+                pending.extend(r.children(Some(id)).iter().rev().copied().map(Some));
             }
-            NodeData::Var {
+            NodeData::Signal {
                 signal, var_type, ..
             } => {
-                let (kw, width) = match h.signal_kind(signal) {
-                    Some(SignalKind::Bits { width, .. }) => (
-                        if var_type == vtr::VarType::Event {
+                let (keyword, width) = match r.signal_kind(signal)? {
+                    SignalKind::Bits { width, .. } => (
+                        if var_type == VarType::Event.code() {
                             "event"
                         } else {
                             "wire"
                         },
                         width,
                     ),
-                    Some(SignalKind::Real) => ("real", 64),
-                    _ => ("string", 1),
+                    SignalKind::Real => ("real", 64),
+                    SignalKind::VarLen => unreachable!("validated VCD signal kinds"),
                 };
                 writeln!(
                     w,
-                    "$var {kw} {width} {} {} $end",
-                    id_code(signal.0 as usize),
-                    r.name(n)
+                    "$var {keyword} {width} {} {name} $end",
+                    id_code(signal.0 as usize)
                 )?;
             }
-            _ => {}
+            _ => (),
         }
-        Ok(())
-    }
-    for root in h.roots() {
-        walk(r, root, &mut w)?;
     }
     writeln!(w, "$enddefinitions $end")?;
     let ids: Vec<String> = (0..h.signals.len()).map(id_code).collect();
     let mut last = u64::MAX;
     let mut n = 0u64;
     let mut err = None;
-    r.for_each_change(0, u64::MAX, |t, s, v| {
+    r.ordered_changes(TimeWindow::default(), |t, s, v| {
         if err.is_some() {
-            return;
+            return false;
         }
         let res = (|| -> io::Result<()> {
             if t != last {
@@ -146,14 +153,15 @@ pub fn write_vcd(r: &Reader, mut w: impl Write) -> Result<u64> {
             err = Some(e);
         }
         n += 1;
+        true
     })?;
     if let Some(e) = err {
         return Err(e.into());
     }
-    if let Some((_, end)) = r.time_range()
-        && last != end
+    if let Some(window) = r.waveform_time_range()
+        && last != window.last
     {
-        writeln!(w, "#{end}")?;
+        writeln!(w, "#{}", window.last)?;
     }
     w.flush()?;
     Ok(n)

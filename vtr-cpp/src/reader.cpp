@@ -1,1241 +1,1033 @@
-#include "containers.hpp"
-#include "format.hpp"
-#include <fcntl.h>
-#include <filesystem>
+#include "bridge.h"
+#include "engine/activity.h"
+#include "vtr_reader.h"
+
+#include <charconv>
+#include <cmath>
 #include <format>
-#include <fstream>
-#include <iomanip>
-#include <mutex>
-#include <sstream>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <locale>
 
 namespace vtr {
-using namespace detail;
+namespace detail {
+
+struct PayloadStorage {
+    std::shared_ptr<const engine::Types> types;
+    wire::Bytes bytes;
+    std::size_t allocation_limit;
+};
+
+struct RecordStorage {
+    RecordingId origin;
+    RecordId id{0};
+    RecordKind kind = RecordKind::transaction;
+    std::optional<RecordId> parent;
+    std::optional<GeneratorId> generator;
+    Timestamp begin = 0;
+    Timestamp end = 0;
+    Status status = Status::unset;
+    SpanKind span_kind = SpanKind::unspecified;
+    TypeId type{0};
+    std::shared_ptr<const PayloadStorage> payload;
+    Attributes attributes;
+    std::vector<EmbeddedEvent> events;
+    std::vector<EmbeddedStage> stages;
+    std::vector<BlockId> child_blocks;
+    std::optional<StringId> name;
+    std::optional<StringId> lane;
+    std::optional<Timestamp> explicit_end;
+};
+
 namespace {
-struct Mapping {
-  const std::uint8_t *address = nullptr;
-  std::size_t size = 0;
-  explicit Mapping(const std::string &path) {
-    int fd = ::open(path.c_str(), O_RDONLY);
-    require(fd >= 0, "cannot open VTR file", 3);
-    struct stat st{};
-    if (fstat(fd, &st) != 0 || st.st_size < 32) {
-      ::close(fd);
-      throw Error("invalid VTR file size", 4);
+void check_window(TimeWindow time) {
+    if (time.first > time.last) {
+        throw Error(ErrorCode::invalid_argument, "Time window begins after its end");
     }
-    size = static_cast<std::size_t>(st.st_size);
-    auto p = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-    ::close(fd);
-    require(p != MAP_FAILED, "cannot map VTR file", 3);
-    address = static_cast<const std::uint8_t *>(p);
-  }
-  ~Mapping() {
-    if (address)
-      munmap(const_cast<std::uint8_t *>(address), size);
-  }
-  View slice(std::uint64_t offset, std::uint64_t len) const {
-    require(offset <= size && len <= size - offset, "section exceeds file");
-    return {address + offset, static_cast<std::size_t>(len)};
-  }
+}
+
+void skip(binary::Cursor& cursor, const engine::Types& types, std::uint32_t id) {
+    const auto& type = types[id];
+    if (type.fixed_size) {
+        cursor.take(*type.fixed_size);
+    } else if (type.kind == engine::TypeKind::structure) {
+        for (const auto& field : type.fields) {
+            skip(cursor, types, field.type);
+        }
+    } else if (type.kind == engine::TypeKind::array || type.kind == engine::TypeKind::sequence) {
+        auto count =
+            type.kind == engine::TypeKind::array ? type.count : cursor.fixed<std::uint32_t>();
+        const auto& element = types[type.element];
+        if (element.fixed_size) {
+            binary::require(!*element.fixed_size ||
+                                count <= cursor.data.size() / *element.fixed_size,
+                            "Truncated payload array");
+            cursor.take(count * *element.fixed_size);
+        } else {
+            for (std::uint32_t i = 0; i < count; ++i) {
+                skip(cursor, types, type.element);
+            }
+        }
+    } else if (type.primitive == engine::Primitive::text ||
+               type.primitive == engine::Primitive::bytes) {
+        cursor.take(cursor.fixed<std::uint32_t>());
+    } else {
+        auto width = cursor.fixed<std::uint64_t>();
+        auto per_byte = type.primitive == engine::Primitive::bits    ? 8u
+                        : type.primitive == engine::Primitive::logic ? 4u
+                                                                     : 2u;
+        cursor.take(width / per_byte + (width % per_byte != 0));
+    }
+}
+
+std::optional<RecordId> record_id(std::uint64_t id) {
+    return id ? std::optional(RecordId(id)) : std::nullopt;
+}
+
+std::shared_ptr<RecordStorage>
+base_storage(std::uint64_t id, std::uint64_t parent, std::optional<std::uint32_t> generator,
+             std::uint64_t begin, std::uint64_t end, engine::RecordKind kind,
+             wire::detail::View payload, std::span<const wire::Attribute> attributes,
+             std::shared_ptr<const engine::Types> types, const engine::ContainerReader& container,
+             std::size_t allocation_limit) {
+    auto result = std::make_shared<RecordStorage>();
+    result->origin = identity(container.waveform().trace_id());
+    result->id = RecordId(id);
+    result->kind = record_kind(kind);
+    result->parent = record_id(parent);
+    if (generator) {
+        result->generator = GeneratorId(*generator);
+        result->type = TypeId(container.generators()[*generator].payload_type);
+    }
+    result->begin = begin;
+    result->end = end;
+    result->payload = std::make_shared<PayloadStorage>(
+        std::move(types), wire::Bytes(payload.begin(), payload.end()), allocation_limit);
+    result->attributes = decode_attributes(attributes);
+    return result;
+}
+
+void owner_detail(RecordStorage& result, const engine::Transaction& owner) {
+    result.status = static_cast<Status>(owner.status);
+    result.span_kind = static_cast<SpanKind>(owner.span_kind);
+    for (const auto& event : owner.events) {
+        result.events.push_back({RecordId(event.id), event.time, StringId(event.name),
+                                 decode_attributes(event.attributes)});
+    }
+    for (const auto& stage : owner.stages) {
+        result.stages.push_back({RecordId(stage.id), StringId(stage.name), StringId(stage.lane),
+                                 stage.begin, stage.end, decode_attributes(stage.attributes)});
+    }
+    for (auto block : owner.child_blocks) {
+        result.child_blocks.push_back(BlockId(block));
+    }
+}
+
+std::shared_ptr<RecordStorage> record_storage(const engine::Transaction& tx,
+                                              std::shared_ptr<const engine::Types> types,
+                                              const engine::ContainerReader& container,
+                                              std::size_t allocation_limit) {
+    auto result = base_storage(tx.id, tx.parent, tx.generator, tx.begin, tx.end,
+                               container.generators()[tx.generator].kind, tx.payload, tx.attributes,
+                               std::move(types), container, allocation_limit);
+    owner_detail(*result, tx);
+    return result;
+}
+
+std::shared_ptr<RecordStorage> record_storage(const engine::LocatedRecord& record,
+                                              std::shared_ptr<const engine::Types> types,
+                                              const engine::ContainerReader& container,
+                                              std::size_t allocation_limit) {
+    return base_storage(record.id, record.parent, record.generator, record.begin, record.end,
+                        container.generators()[record.generator].kind, record.payload, {},
+                        std::move(types), container, allocation_limit);
+}
+
+std::shared_ptr<RecordStorage> record_storage(const engine::RecordRef& record,
+                                              std::shared_ptr<const engine::Types> types,
+                                              const engine::ContainerReader& container,
+                                              std::size_t allocation_limit) {
+    if (auto owner = record.transaction()) {
+        return record_storage(*owner, std::move(types), container, allocation_limit);
+    }
+    if (auto located = record.located()) {
+        return record_storage(*located, std::move(types), container, allocation_limit);
+    }
+    auto result = base_storage(record.id(), record.parent(), record.generator(), record.begin(),
+                               record.end(), record.kind(), record.payload(), record.attributes(),
+                               std::move(types), container, allocation_limit);
+    if (auto event = record.event()) {
+        result->name = StringId(event->name);
+    } else if (auto stage = record.stage()) {
+        result->name = StringId(stage->name);
+        result->lane = StringId(stage->lane);
+        result->explicit_end = stage->end;
+    }
+    return result;
+}
+
+} // namespace
+} // namespace detail
+
+PayloadView::PayloadView(std::shared_ptr<const detail::PayloadStorage> storage, std::size_t offset,
+                         TypeId type) noexcept
+    : storage_(std::move(storage)), offset_(offset), type_(type) {}
+
+TypeId PayloadView::type() const noexcept {
+    return type_;
+}
+
+PayloadView PayloadView::first_element() const {
+    return detail::translate([&] {
+        const auto& type = (*storage_->types)[type_.value];
+        auto offset = offset_ + (type.kind == detail::engine::TypeKind::sequence ? 4 : 0);
+        return PayloadView(storage_, offset, TypeId(type.element));
+    });
+}
+
+PayloadView PayloadView::next_element() const {
+    return detail::translate([&] {
+        auto data = detail::engine::View(storage_->bytes);
+        detail::binary::Cursor cursor(data.subspan(offset_));
+        detail::skip(cursor, *storage_->types, type_.value);
+        return PayloadView(storage_, data.size() - cursor.data.size(), type_);
+    });
+}
+
+bool PayloadView::matches(detail::PayloadKind kind, std::string_view name) const {
+    return detail::translate([&] {
+        const auto& type = (*storage_->types)[type_.value];
+        return static_cast<detail::PayloadKind>(type.kind) == kind &&
+               (name.empty() || type.name == name);
+    });
+}
+
+std::optional<ByteView> PayloadView::fixed_array(TypeId element, std::size_t count) const {
+    return detail::translate([&]() -> std::optional<ByteView> {
+        const auto& type = (*storage_->types)[type_.value];
+        if (type.kind != detail::engine::TypeKind::array || type.count != count ||
+            type.element != element.value || !type.fixed_size) {
+            return std::nullopt;
+        }
+        detail::binary::Cursor cursor(detail::engine::View(storage_->bytes).subspan(offset_));
+        return std::as_bytes(cursor.take(*type.fixed_size));
+    });
+}
+
+std::size_t PayloadView::allocation_limit() const noexcept {
+    return storage_->allocation_limit;
+}
+
+std::size_t PayloadView::size() const {
+    return detail::translate([&]() -> std::size_t {
+        const auto& type = (*storage_->types)[type_.value];
+        switch (type.kind) {
+        case detail::engine::TypeKind::structure:
+            return type.fields.size();
+        case detail::engine::TypeKind::array:
+            return type.count;
+        case detail::engine::TypeKind::sequence: {
+            detail::binary::Cursor cursor(detail::engine::View(storage_->bytes).subspan(offset_));
+            return cursor.fixed<std::uint32_t>();
+        }
+        default:
+            return 0;
+        }
+    });
+}
+
+PayloadView PayloadView::operator[](std::string_view field) const {
+    return detail::translate([&] {
+        const auto& type = (*storage_->types)[type_.value];
+        if (type.kind != detail::engine::TypeKind::structure) {
+            throw Error(ErrorCode::invalid_argument, "Named payload access requires a struct");
+        }
+        auto found = std::ranges::find(type.fields, field, &detail::engine::Field::name);
+        if (found == type.fields.end()) {
+            throw Error(ErrorCode::invalid_argument,
+                        "Unknown payload field: " + std::string(field));
+        }
+        return (*this)[static_cast<std::size_t>(found - type.fields.begin())];
+    });
+}
+
+PayloadView PayloadView::operator[](std::size_t index) const {
+    return detail::translate([&] {
+        const auto& type = (*storage_->types)[type_.value];
+        if (index >= size()) {
+            throw Error(ErrorCode::invalid_argument, "Payload element index is out of range");
+        }
+        auto data = detail::engine::View(storage_->bytes);
+        detail::binary::Cursor cursor(data.subspan(offset_));
+        std::uint32_t element;
+        if (type.kind == detail::engine::TypeKind::structure) {
+            for (std::size_t i = 0; i < index; ++i) {
+                detail::skip(cursor, *storage_->types, type.fields[i].type);
+            }
+            element = type.fields[index].type;
+        } else {
+            element = type.element;
+            if (type.kind == detail::engine::TypeKind::sequence) {
+                cursor.fixed<std::uint32_t>();
+            }
+            const auto& item = (*storage_->types)[element];
+            if (item.fixed_size) {
+                cursor.take(index * *item.fixed_size);
+            } else {
+                for (std::size_t i = 0; i < index; ++i) {
+                    detail::skip(cursor, *storage_->types, element);
+                }
+            }
+        }
+        return PayloadView(storage_, data.size() - cursor.data.size(), TypeId(element));
+    });
+}
+
+Value PayloadView::scalar() const {
+    return detail::translate([&]() -> Value {
+        const auto& type = (*storage_->types)[type_.value];
+        if (type.kind != detail::engine::TypeKind::scalar &&
+            type.kind != detail::engine::TypeKind::enumeration) {
+            throw Error(ErrorCode::invalid_argument, "Aggregate payload has no scalar value");
+        }
+        auto primitive = type.kind == detail::engine::TypeKind::enumeration
+                             ? (*storage_->types)[type.element].primitive
+                             : type.primitive;
+        detail::binary::Cursor cursor(detail::engine::View(storage_->bytes).subspan(offset_));
+        using Primitive = detail::engine::Primitive;
+        switch (primitive) {
+        case Primitive::unit:
+            return {};
+        case Primitive::boolean:
+            return Value(cursor.fixed<std::uint8_t>() != 0);
+        case Primitive::i8:
+            return Value(std::bit_cast<std::int8_t>(cursor.fixed<std::uint8_t>()));
+        case Primitive::i16:
+            return Value(std::bit_cast<std::int16_t>(cursor.fixed<std::uint16_t>()));
+        case Primitive::i32:
+            return Value(std::bit_cast<std::int32_t>(cursor.fixed<std::uint32_t>()));
+        case Primitive::i64:
+            return Value(std::bit_cast<std::int64_t>(cursor.fixed<std::uint64_t>()));
+        case Primitive::u8:
+            return Value(cursor.fixed<std::uint8_t>());
+        case Primitive::u16:
+            return Value(cursor.fixed<std::uint16_t>());
+        case Primitive::u32:
+            return Value(cursor.fixed<std::uint32_t>());
+        case Primitive::u64:
+            return Value(cursor.fixed<std::uint64_t>());
+        case Primitive::f32:
+            return Value(std::bit_cast<float>(cursor.fixed<std::uint32_t>()));
+        case Primitive::f64:
+            return Value(std::bit_cast<double>(cursor.fixed<std::uint64_t>()));
+        case Primitive::str:
+            return Value(StringId(cursor.fixed<std::uint32_t>()));
+        case Primitive::time:
+            return Value(TimeValue{cursor.fixed<std::uint64_t>()});
+        case Primitive::pointer:
+            return Value(Address{cursor.fixed<std::uint64_t>()});
+        case Primitive::text: {
+            auto text = cursor.take(cursor.fixed<std::uint32_t>());
+            return Value(std::string(reinterpret_cast<const char*>(text.data()), text.size()));
+        }
+        case Primitive::bytes:
+            return Value(detail::bytes(cursor.take(cursor.fixed<std::uint32_t>())));
+        case Primitive::bits:
+        case Primitive::logic:
+        case Primitive::logic9: {
+            auto width = cursor.fixed<std::uint64_t>();
+            auto per_byte = primitive == Primitive::bits    ? 8u
+                            : primitive == Primitive::logic ? 4u
+                                                            : 2u;
+            auto packed = detail::bytes(cursor.take(width / per_byte + (width % per_byte != 0)));
+            if (primitive == Primitive::bits) {
+                return Value(Bits{width, std::move(packed)});
+            }
+            if (primitive == Primitive::logic) {
+                return Value(Logic{width, std::move(packed)});
+            }
+            return Value(Logic9{width, std::move(packed)});
+        }
+        case Primitive::fixed: {
+            auto raw = std::bit_cast<std::int64_t>(cursor.fixed<std::uint64_t>());
+            return Value(Fixed{raw, std::bit_cast<std::int64_t>(cursor.fixed<std::uint64_t>())});
+        }
+        case Primitive::ufixed: {
+            auto raw = cursor.fixed<std::uint64_t>();
+            return Value(UFixed{raw, std::bit_cast<std::int64_t>(cursor.fixed<std::uint64_t>())});
+        }
+        default:
+            throw Error(ErrorCode::corrupt_data, "Invalid primitive payload type");
+        }
+    });
+}
+
+Record::Record(std::shared_ptr<const detail::RecordStorage> storage)
+    : storage_(std::move(storage)) {}
+
+RecordId Record::id() const noexcept {
+    return storage_->id;
+}
+
+RecordKind Record::kind() const noexcept {
+    return storage_->kind;
+}
+
+std::optional<RecordId> Record::parent() const noexcept {
+    return storage_->parent;
+}
+
+std::optional<GeneratorId> Record::generator() const noexcept {
+    return storage_->generator;
+}
+
+Timestamp Record::begin() const noexcept {
+    return storage_->begin;
+}
+
+Timestamp Record::end() const noexcept {
+    return storage_->end;
+}
+
+vtr::Status Record::status() const noexcept {
+    return storage_->status;
+}
+
+vtr::SpanKind Record::span_kind() const noexcept {
+    return storage_->span_kind;
+}
+
+PayloadView Record::payload() const {
+    return PayloadView(storage_->payload, 0, storage_->type);
+}
+
+AttributeView Record::attributes() const noexcept {
+    return storage_->attributes;
+}
+
+std::span<const EmbeddedEvent> Record::events() const noexcept {
+    return storage_->events;
+}
+
+std::span<const EmbeddedStage> Record::stages() const noexcept {
+    return storage_->stages;
+}
+
+std::span<const BlockId> Record::child_blocks() const noexcept {
+    return storage_->child_blocks;
+}
+
+std::optional<StringId> Record::name() const noexcept {
+    return storage_->name;
+}
+
+std::optional<StringId> Record::lane() const noexcept {
+    return storage_->lane;
+}
+
+std::optional<Timestamp> Record::explicit_end() const noexcept {
+    return storage_->explicit_end;
+}
+
+struct Reader::Impl {
+    detail::engine::Reader backend;
+    std::shared_ptr<const detail::engine::Types> schema;
+    std::size_t allocation_limit;
+    vtr::Metadata metadata;
+    std::vector<Node> nodes;
+    std::vector<Generator> generators;
+    std::vector<DataType> types;
+    std::vector<SignalKind> signals;
+    Provenance ending;
+
+    Impl(const std::filesystem::path& path, ReaderOptions options)
+        : backend(path.string(), {options.verify_checksums, options.owner_cache_entries,
+                                  options.owner_cache_bytes, options.max_payload_bytes}),
+          schema(std::make_shared<detail::engine::Types>(backend.types())),
+          allocation_limit(options.max_payload_bytes),
+          metadata(detail::decode_metadata(backend.metadata())) {
+        auto fingerprint = backend.fingerprint();
+        auto dropped = backend.container().waveform().stats().recovered_dropped;
+        ending = {fingerprint
+                      ? (backend.incomplete() ? Completion::incomplete : Completion::complete)
+                      : Completion::unfinished,
+                  dropped};
+        types.reserve(schema->size());
+        for (std::uint32_t i = 0; i < schema->size(); ++i) {
+            if (i == static_cast<std::uint32_t>(Primitive::enumeration)) {
+                types.push_back({TypeId(i), {}, Primitive::enumeration});
+            } else {
+                types.push_back(detail::decode_type(i, (*schema)[i]));
+            }
+        }
+        signals.reserve(backend.signals().size());
+        for (auto kind : backend.signals()) {
+            signals.push_back(detail::signal_kind(kind));
+        }
+        auto declarations = backend.nodes();
+        nodes.reserve(declarations.size());
+        generators.reserve(backend.container().generators().size());
+        for (std::uint32_t i = 0; i < declarations.size(); ++i) {
+            const auto& node = declarations[i];
+            auto kind = node.kind == detail::wire::Node::scope        ? NodeKind::scope
+                        : node.kind == detail::wire::Node::generator  ? NodeKind::generator
+                        : node.kind == detail::wire::Node::enum_table ? NodeKind::enum_table
+                                                                      : NodeKind::signal;
+            nodes.push_back(
+                {NodeId(i),
+                 kind,
+                 StringId(node.name),
+                 node.parent == detail::wire::none ? std::nullopt
+                                                   : std::optional(ScopeId(node.parent)),
+                 node.signal == detail::wire::none ? std::nullopt
+                                                   : std::optional(SignalId(node.signal)),
+                 node.alias,
+                 detail::decode_attributes(node.attrs),
+                 {},
+                 {},
+                 {},
+                 {}});
+            auto& declared = nodes.back();
+            if (node.kind == detail::wire::Node::scope) {
+                declared.scope_kind = static_cast<ScopeKind>(node.type);
+                declared.component = StringId(node.aux);
+            } else if (node.kind == detail::wire::Node::variable) {
+                declared.variable =
+                    VariableDeclaration{static_cast<VariableType>(node.type),
+                                        static_cast<VariableDirection>(node.direction)};
+            } else if (node.kind == detail::wire::Node::enum_table) {
+                for (const auto& [name, value] : node.entries)
+                    declared.enum_entries.push_back({StringId(name), StringId(value)});
+            }
+            if (node.kind == detail::wire::Node::generator) {
+                auto id = GeneratorId(i);
+                auto record_kind = detail::record_kind(backend.container().generators()[i].kind);
+                auto clock = backend.clock_for(i);
+                generators.push_back({id, record_kind, StringId(node.aux),
+                                      TypeId(node.payload_type),
+                                      clock ? std::optional(GeneratorId(*clock)) : std::nullopt});
+            }
+        }
+    }
+
+    template <class T> Record retain(const T& ref) const {
+        return Record(detail::record_storage(ref, schema, backend.container(), allocation_limit));
+    }
 };
-struct SignalBlock {
-  Section section;
-  Time begin, end;
-  std::uint32_t n_times, n_signals, group_size, n_dirty, n_groups, tt_len;
-};
-struct RecordBlock {
-  Section section;
-  std::uint64_t count, relations, min_id, max_id, begin, end;
-  std::vector<Id> generators;
-  std::size_t blob_offset, blob_len;
-};
-struct Group {
-  std::size_t first = 0, count = 0;
-  std::vector<Id> aliases;
-  Id alias(Id local) const { return aliases.empty() ? none : aliases[local]; }
-  Bytes frame;
-  struct Run {
-    std::size_t first, count;
-    unsigned transform;
-    View bytes;
-  };
-  std::vector<Run> runs;
-};
-std::vector<Value> list_values(const Value &v) {
-  require(v.tag == Tag::list, "expected list value");
-  Cursor r(v.payload);
-  auto count = r.var();
-  require(count <= r.data.size(), "invalid list count");
-  std::vector<Value> result;
-  for (std::uint64_t i = 0; i < count; ++i)
-    result.push_back(decode_value(r));
-  r.done();
-  return result;
+
+Reader::Reader(const std::filesystem::path& path, ReaderOptions options)
+    : impl_(detail::translate([&] { return std::make_unique<Impl>(path, options); })) {}
+
+Reader::~Reader() = default;
+Reader::Reader(Reader&&) noexcept = default;
+Reader& Reader::operator=(Reader&&) noexcept = default;
+
+RecordingId Reader::identity() const noexcept {
+    return detail::identity(impl_->backend.trace_id());
+}
+
+std::optional<vtr::Fingerprint> Reader::fingerprint() const noexcept {
+    auto value = impl_->backend.fingerprint();
+    return value ? std::optional(detail::fingerprint(*value)) : std::nullopt;
+}
+
+Provenance Reader::ending() const noexcept {
+    return impl_->ending;
+}
+
+const vtr::Metadata& Reader::metadata() const noexcept {
+    return impl_->metadata;
+}
+
+std::span<const Node> Reader::nodes() const noexcept {
+    return impl_->nodes;
+}
+
+std::span<const Generator> Reader::generators() const noexcept {
+    return impl_->generators;
+}
+
+std::span<const DataType> Reader::types() const noexcept {
+    return impl_->types;
+}
+
+std::span<const SignalKind> Reader::signals() const noexcept {
+    return impl_->signals;
+}
+
+std::string_view Reader::string(StringId id) const {
+    return detail::translate([&] { return impl_->backend.string(id.value); });
+}
+
+std::optional<NodeId> Reader::find(std::string_view path) const {
+    return detail::translate([&]() -> std::optional<NodeId> {
+        auto id = impl_->backend.find_node(path);
+        return id == detail::wire::none ? std::nullopt : std::optional(NodeId(id));
+    });
+}
+
+std::optional<SignalId> Reader::find_signal(std::string_view path) const {
+    return detail::translate([&]() -> std::optional<SignalId> {
+        auto id = impl_->backend.find_signal(path);
+        return id == detail::wire::none ? std::nullopt : std::optional(SignalId(id));
+    });
+}
+
+std::optional<GeneratorId> Reader::find_generator(std::string_view path) const {
+    return detail::translate([&]() -> std::optional<GeneratorId> {
+        auto id = impl_->backend.find_generator(path);
+        return id == detail::wire::none ? std::nullopt : std::optional(GeneratorId(id));
+    });
+}
+
+std::optional<Record> Reader::lookup(RecordId id) const {
+    return detail::translate([&]() -> std::optional<Record> {
+        auto ref = impl_->backend.lookup(id.value);
+        return ref ? std::optional(impl_->retain(*ref)) : std::nullopt;
+    });
+}
+
+void Reader::transactions(TransactionQuery query,
+                          const std::function<Flow(const Record&)>& visit) const {
+    detail::check_window(query.time);
+    detail::translate([&] {
+        detail::engine::TransactionQuery selected;
+        if (query.generator) {
+            selected.generator = query.generator->value;
+        }
+        if (query.parent) {
+            selected.parent = query.parent->value;
+        }
+        selected.begin = query.time.first;
+        selected.end = query.time.last;
+        impl_->backend.transactions(
+            selected, [&](const auto& tx) { return visit(impl_->retain(tx)) == Flow::next; });
+    });
+}
+
+void Reader::records(RecordQuery query, const std::function<Flow(const Record&)>& visit) const {
+    detail::check_window(query.time);
+    detail::translate([&] {
+        detail::engine::RecordQuery selected;
+        if (query.generator) {
+            selected.generator = query.generator->value;
+        }
+        if (query.parent) {
+            selected.parent = query.parent->value;
+        }
+        if (query.kind) {
+            switch (*query.kind) {
+            case RecordKind::stage:
+                selected.kind = detail::engine::RecordKind::stage;
+                break;
+            case RecordKind::event:
+                selected.kind = detail::engine::RecordKind::event;
+                break;
+            case RecordKind::log:
+                selected.kind = detail::engine::RecordKind::log;
+                break;
+            default:
+                return;
+            }
+        }
+        selected.begin = query.time.first;
+        selected.end = query.time.last;
+        impl_->backend.records(selected, [&](const auto& record) {
+            return visit(impl_->retain(record)) == Flow::next;
+        });
+    });
+}
+
+void Reader::relations(RecordId endpoint, Direction direction,
+                       const std::function<Flow(const Relation&)>& visit) const {
+    detail::translate([&] {
+        impl_->backend.relations(
+            endpoint.value, direction == Direction::incoming, [&](const auto& relation) {
+                return visit({StringId(relation.kind), detail::record_id(relation.source),
+                              detail::record_id(relation.destination),
+                              detail::decode_attributes(relation.attributes)}) == Flow::next;
+            });
+    });
+}
+
+Expansion Reader::expand(RecordId owner) const {
+    return detail::translate([&] {
+        auto expanded = impl_->backend.expand(owner.value);
+        if (!expanded.owner) {
+            throw Error(ErrorCode::invalid_argument, "Expansion owner does not exist");
+        }
+        Expansion result{impl_->retain(*expanded.owner), {}, {}, expanded.complete};
+        for (const auto& record : expanded.located) {
+            result.located.push_back(impl_->retain(record));
+        }
+        for (auto block : expanded.missing_blocks) {
+            result.missing_blocks.push_back(BlockId(block));
+        }
+        return result;
+    });
+}
+
+void Reader::children(RecordId parent, const std::function<Flow(const Record&)>& visit) const {
+    transactions({.parent = parent}, [&](const auto& record) {
+        return record.kind() == RecordKind::transaction ? visit(record) : Flow::next;
+    });
+}
+
+void Reader::logs(RecordId parent, TimeWindow time,
+                  const std::function<Flow(const Record&)>& visit) const {
+    records({.parent = parent, .kind = RecordKind::log, .time = time}, visit);
+}
+
+std::optional<std::uint64_t> Reader::cycle_at(GeneratorId clock, Timestamp time) const {
+    return detail::translate([&] { return impl_->backend.cycle_at(clock.value, time); });
+}
+
+void Reader::changes(std::optional<SignalId> signal, TimeWindow time,
+                     const std::function<Flow(const SignalChange&)>& visit) const {
+    detail::check_window(time);
+    detail::translate([&] {
+        SignalChange change{0, SignalId(UINT32_MAX), {SignalKind{}, {}}};
+        auto callback = [&](auto timestamp, auto id, const auto& value) {
+            change.time = timestamp;
+            if (change.signal.value != id) {
+                change.signal = SignalId(id);
+                // Avoid per-sample declaration writes before dependent value accessors.
+                change.value.kind = impl_->signals[id];
+            }
+            change.value.packed = std::as_bytes(value.data);
+            return visit(change) == Flow::next;
+        };
+        if (signal) {
+            impl_->backend.changes(signal->value, time.first, time.last, callback);
+        } else {
+            impl_->backend.changes(time.first, time.last, callback);
+        }
+    });
+}
+
+SignalSample Reader::value_at(SignalId signal, Timestamp time) const {
+    return detail::translate([&] {
+        if (signal.value >= impl_->signals.size()) {
+            throw Error(ErrorCode::invalid_argument, "Unknown signal");
+        }
+        return SignalSample{impl_->signals[signal.value],
+                            detail::bytes(impl_->backend.value_at(signal.value, time))};
+    });
+}
+
+std::uint64_t SignalSample::as_u64() const {
+    return SignalView{kind, packed}.as_u64();
+}
+
+std::uint64_t SignalView::checked_u64() const {
+    return detail::translate([&] {
+        return detail::wire::SignalValue{detail::signal_kind(kind), detail::view(packed)}.as_u64();
+    });
+}
+
+std::optional<TimeWindow> Reader::waveform_time_range() const noexcept {
+    const auto& range = impl_->backend.container().waveform().stats().time_range;
+    return range ? std::optional(TimeWindow{range->first, range->second}) : std::nullopt;
+}
+
+std::optional<TimeWindow> Reader::time_range() const {
+    return detail::translate([&] {
+        auto range = waveform_time_range();
+        const auto& file = impl_->backend.container();
+        for (const auto& section : file.sections()) {
+            std::optional<std::pair<Timestamp, Timestamp>> next;
+            if (section.kind == 5) {
+                file.section_data(section);
+                next = file.transaction_block(section.block_number)->time_range();
+            } else if (section.kind == 9) {
+                next = {section.aux0, section.aux1};
+            }
+            if (next) {
+                range = range ? TimeWindow{std::min(range->first, next->first),
+                                           std::max(range->last, next->second)}
+                              : TimeWindow{next->first, next->second};
+            }
+        }
+        return range;
+    });
+}
+
+double SignalSample::as_real() const {
+    return SignalView{kind, packed}.as_real();
+}
+
+double SignalView::as_real() const {
+    return detail::translate([&] {
+        return detail::wire::SignalValue{detail::signal_kind(kind), detail::view(packed)}.as_real();
+    });
+}
+
+std::string SignalSample::as_text() const {
+    return SignalView{kind, packed}.as_text();
+}
+
+std::string SignalView::as_text() const {
+    return detail::translate([&] {
+        return detail::wire::SignalValue{detail::signal_kind(kind), detail::view(packed)}.ascii();
+    });
+}
+
+ValidationReport Reader::validate() const {
+    return detail::translate([&] {
+        auto backend = impl_->backend.validate();
+        ValidationReport result{impl_->ending, backend.records, backend.relations, {}};
+        for (const auto& missing : backend.missing) {
+            auto kind = static_cast<MissingKind>(missing.kind);
+            std::variant<RecordId, BlockId, GeneratorId> target = RecordId(missing.target);
+            if (kind == MissingKind::child_block) {
+                target = BlockId(missing.target);
+            } else if (kind == MissingKind::clock) {
+                target = GeneratorId(static_cast<std::uint32_t>(missing.target));
+            }
+            result.missing.push_back({kind, detail::record_id(missing.referrer), target});
+        }
+        return result;
+    });
+}
+
+vtr::CacheStats Reader::cache_stats() const noexcept {
+    auto stats = impl_->backend.cache_stats();
+    return {stats.owner_entries, stats.accounted_bytes};
+}
+
+void Reader::clear_cache() const {
+    impl_->backend.clear_cache();
+}
+
+Provenance recover(const std::filesystem::path& source, const std::filesystem::path& destination) {
+    return detail::translate([&] {
+        if (source == destination || (std::filesystem::exists(destination) &&
+                                      std::filesystem::equivalent(source, destination))) {
+            throw Error(ErrorCode::invalid_argument, "Recovery source and destination must differ");
+        }
+        detail::engine::recover_container(source.string(), destination.string());
+        return Reader(destination).ending();
+    });
+}
+
+namespace {
+template <std::floating_point T>
+std::optional<std::string> alternate_fixed_zero(T value, std::string_view spec) {
+    const auto dot = spec.rfind('.');
+    const auto hash = spec.rfind('#');
+    if (!std::isfinite(value) || dot == spec.npos || hash == spec.npos || hash > dot ||
+        (spec.back() != 'f' && spec.back() != 'F'))
+        return {};
+    const bool localized = spec.size() > 1 && spec[spec.size() - 2] == 'L';
+    const auto precision = spec.substr(dot + 1, spec.size() - dot - (localized ? 3 : 2));
+    if (precision.empty() || precision.find_first_not_of('0') != precision.npos)
+        return {};
+    const auto prefix = spec.substr(0, hash);
+    const auto alignment = spec.substr(0, dot).find_last_of("<^>");
+    if (alignment != spec.npos && hash < alignment)
+        return {};
+
+    std::formatter<T> validator;
+    std::format_parse_context context(spec);
+    if (validator.parse(context) != context.end())
+        throw std::format_error("Invalid numeric format");
+
+    // libstdc++ PR120967 corrupts large alternate fixed values at zero precision.
+    // Format the rounded integer without alternate form, then add its radix point.
+    std::string sign;
+    if (!prefix.empty() && (prefix.back() == '+' || prefix.back() == '-' || prefix.back() == ' '))
+        sign = prefix.back();
+    const auto locale = std::locale();
+    auto body = std::vformat(locale, "{:" + sign + std::string(spec.substr(dot)) + "}",
+                             std::make_format_args(value));
+    body += localized ? std::use_facet<std::numpunct<char>>(locale).decimal_point() : '.';
+    const auto width_text = spec.substr(hash + 1, dot - hash - 1);
+    std::size_t width = 0;
+    if (!width_text.empty())
+        std::from_chars(width_text.data(), width_text.data() + width_text.size(), width);
+    const auto padding = width > body.size() ? width - body.size() : 0;
+    if (alignment == prefix.npos && !width_text.empty() && width_text.front() == '0') {
+        const auto sign_size =
+            !body.empty() && (body.front() == '+' || body.front() == '-' || body.front() == ' ');
+        body.insert(sign_size, padding, '0');
+        return body;
+    }
+    const char align = alignment == prefix.npos ? '>' : prefix[alignment];
+    const auto fill = alignment == prefix.npos || alignment == 0 ? std::string_view(" ")
+                                                                 : prefix.substr(0, alignment);
+    const auto left = align == '<' ? 0 : align == '^' ? padding / 2 : padding;
+    std::string result;
+    for (std::size_t i = 0; i < left; ++i)
+        result += fill;
+    result += body;
+    for (std::size_t i = left; i < padding; ++i)
+        result += fill;
+    return result;
+}
+
+template <class T> std::string format_scalar(T value, std::string_view spec) {
+    // Specifications come from recordings; bound expansion before invoking std::format.
+    unsigned digits = 0;
+    for (unsigned char character : spec) {
+        digits = character >= '0' && character <= '9' ? digits * 10 + character - '0' : 0;
+        if (digits > 65536)
+            return "{?}";
+    }
+    std::string format = "{:";
+    format += spec;
+    format += '}';
+    try {
+        if constexpr (std::floating_point<T>) {
+            if (auto fixed = alternate_fixed_zero(value, spec))
+                return *fixed;
+        }
+        return std::vformat(format, std::make_format_args(value));
+    } catch (const std::format_error&) {
+        return "{?}";
+    }
+}
+
+std::string render_payload(const PayloadView& payload, const Reader& reader,
+                           std::string_view spec) {
+    const auto& type = reader.types()[payload.type().value];
+    if (!std::holds_alternative<Primitive>(type.definition) &&
+        !std::holds_alternative<EnumDefinition>(type.definition)) {
+        return "{?}";
+    }
+    auto scalar = payload.scalar();
+    return std::visit(
+        [&]<class T>(const T& item) -> std::string {
+            if constexpr (std::same_as<T, std::monostate>) {
+                return format_scalar(std::string_view("null"), spec);
+            } else if constexpr (std::integral<T> || std::floating_point<T> ||
+                                 std::same_as<T, std::string>) {
+                return format_scalar(item, spec);
+            } else if constexpr (std::same_as<T, StringId>) {
+                return format_scalar(reader.string(item), spec);
+            } else if constexpr (std::same_as<T, TimeValue> || std::same_as<T, Address>) {
+                return format_scalar(item.value, spec);
+            } else if constexpr (std::same_as<T, Fixed> || std::same_as<T, UFixed>) {
+                return format_scalar(std::to_string(item.raw) + "e" + std::to_string(item.scale),
+                                     spec);
+            } else if constexpr (std::same_as<T, Bytes>) {
+                std::string text;
+                for (auto byte : item) {
+                    text += std::format("{:02x}", std::to_integer<unsigned>(byte));
+                }
+                return format_scalar(text, spec);
+            } else if constexpr (std::same_as<T, Bits> || std::same_as<T, Logic> ||
+                                 std::same_as<T, Logic9>) {
+                if (item.width > UINT32_MAX) {
+                    return "{?}";
+                }
+                SignalSample sample{
+                    {SignalEncoding::bits, static_cast<std::uint32_t>(item.width), T::alphabet},
+                    item.packed};
+                return format_scalar(sample.as_text(), spec);
+            } else {
+                return "{?}";
+            }
+        },
+        scalar.data);
 }
 } // namespace
-struct Reader::Impl {
-  Mapping file;
-  bool verify_crc;
-  Meta meta;
-  ReaderStats stats;
-  std::vector<Section> sections;
-  std::vector<std::string> strings;
-  std::vector<Node> nodes;
-  std::vector<SignalKind> signals;
-  std::vector<Id> signal_nodes;
-  std::vector<SignalBlock> waves;
-  std::vector<RecordBlock> tx_blocks, log_blocks;
-  std::vector<std::pair<Time, bool>> blackout;
-  std::vector<LogSite> sites;
-  HashMap<Id, Id> site_by_node;
-  mutable std::mutex cache_mutex;
-  mutable HashMap<Id, std::shared_ptr<const SignalData>> history_cache;
-  mutable std::vector<Time> all_times;
-  mutable bool times_loaded = false;
-  explicit Impl(const std::string &path, ReaderOptions options)
-      : file(path), verify_crc(options.verify_crc) {
-    require(std::equal(magic.begin(), magic.end(), file.address),
-            "invalid VTR magic");
-    Cursor header(file.slice(8, 24));
-    require(header.fixed<std::uint16_t>() == 2 &&
-                header.fixed<std::uint16_t>() == 0,
-            "unsupported VTR version", 5);
-    for (auto b : header.data)
-      require(b == 0, "unsupported VTR header flags");
-    bool directory = false;
-    if (file.size >= 56 && std::equal(trailer.begin(), trailer.end(),
-                                      file.address + file.size - 8)) {
-      auto off = load<std::uint64_t>(file.slice(file.size - 24, 8));
-      auto len = load<std::uint64_t>(file.slice(file.size - 16, 8));
-      if (len == file.size && off >= 32 && off <= file.size - 48) {
-        auto d = section_at(off);
-        require(d.kind == 7 && d.length == file.size - off - 48,
-                "invalid directory bounds");
-        Cursor r(payload(d, true));
-        auto n = r.fixed<std::uint64_t>();
-        require(n <= r.data.size() / 40, "invalid directory entry count");
-        std::uint64_t previous = 32;
-        for (std::uint64_t i = 0; i < n; ++i) {
-          Section s;
-          s.kind = r.fixed<std::uint32_t>();
-          s.flags = r.fixed<std::uint32_t>();
-          s.offset = r.fixed<std::uint64_t>();
-          s.length = r.fixed<std::uint64_t>();
-          s.aux0 = r.fixed<std::uint64_t>();
-          s.aux1 = r.fixed<std::uint64_t>();
-          require(s.offset == previous && s.offset < off &&
-                      off - s.offset >= 24 && s.length <= off - s.offset - 24,
-                  "invalid directory entry");
-          auto actual = section_at(s.offset);
-          require(s.kind == actual.kind && s.flags == actual.flags &&
-                      s.length == actual.length,
-                  "directory/header mismatch");
-          previous = s.offset + 24 + s.length;
-          sections.push_back(s);
-        }
-        r.done();
-        require(previous == off, "directory omits sections");
-        directory = true;
-      }
+
+std::string Reader::format_log(const Record& log) const {
+    if (log.kind() != RecordKind::log || !log.generator()) {
+        throw Error(ErrorCode::invalid_argument, "Log formatting requires a LOG record");
     }
-    if (!directory) {
-      stats.recovered = true;
-      std::uint64_t off = 32;
-      while (off <= file.size && file.size - off >= 24) {
-        try {
-          auto s = section_at(off);
-          if (!s.kind || s.kind == 7)
-            break;
-          payload(s, true);
-          sections.push_back(s);
-          off += 24 + s.length;
-        } catch (const Error &) {
-          break;
-        }
-      }
-      stats.recovered_dropped = file.size - off;
+    if (log.storage_->origin != identity()) {
+        throw Error(ErrorCode::wrong_recording, "Log belongs to another recording");
     }
-    bool have_meta = false;
-    for (auto &s : sections) {
-      switch (s.kind) {
-      case 1: {
-        require(!have_meta, "duplicate META section");
-        Cursor r(payload(s));
-        require(r.var() == 1, "unknown META layout");
-        auto exp = r.signed_var();
-        require(exp >= -128 && exp <= 127, "invalid timescale");
-        meta.timescale = static_cast<std::int8_t>(exp);
-        meta.time_zero = r.signed_var();
-        meta.file_type = r.byte();
-        meta.writer = r.string();
-        meta.date = r.string();
-        meta.comment = r.string();
-        meta.group_size = r.id();
-        require(meta.group_size && std::has_single_bit(meta.group_size) &&
-                    meta.group_size <= (1u << 20),
-                "invalid signal group size");
-        meta.attrs = decode_attrs(r);
-        r.done();
-        have_meta = true;
-        break;
-      }
-      case 2: {
-        auto raw = decompress(payload(s));
-        Cursor r(raw);
-        require(r.id() == strings.size(), "noncontiguous string identifiers");
-        auto n = r.var();
-        require(n <= r.data.size(), "invalid string count");
-        if (strings.size() + n > strings.capacity())
-          strings.reserve(std::max(strings.size() + n, strings.capacity() * 2));
-        for (std::uint64_t i = 0; i < n; ++i) {
-          auto text = r.blob();
-          validate_utf8(text);
-          strings.emplace_back(reinterpret_cast<const char *>(text.data()),
-                               text.size());
-        }
-        r.done();
-        require(!strings.empty() && strings[0].empty(),
-                "string zero is not empty");
-        break;
-      }
-      case 3:
-        require(have_meta, "hierarchy precedes metadata");
-        read_nodes(s);
-        break;
-      case 4: {
-        require(have_meta, "signal block precedes metadata");
-        Cursor r(unchecked_payload(s));
-        SignalBlock b{s,
-                      r.fixed<std::uint64_t>(),
-                      r.fixed<std::uint64_t>(),
-                      r.fixed<std::uint32_t>(),
-                      r.fixed<std::uint32_t>(),
-                      r.fixed<std::uint32_t>(),
-                      r.fixed<std::uint32_t>(),
-                      r.fixed<std::uint32_t>(),
-                      r.fixed<std::uint32_t>()};
-        require(b.begin <= b.end && b.n_times > 0 &&
-                    b.n_signals <= signals.size() &&
-                    b.group_size == meta.group_size &&
-                    b.n_groups ==
-                        (std::uint64_t(b.n_signals) + b.group_size - 1) /
-                            b.group_size &&
-                    b.n_dirty <= b.n_groups,
-                "invalid signal block header");
-        require(waves.empty() || waves.back().end <= b.begin,
-                "overlapping signal blocks");
-        require(b.tt_len <= r.data.size(), "invalid time table length");
-        waves.push_back(b);
-        range(b.begin, b.end);
-        break;
-      }
-      case 5:
-      case 8: {
-        require(have_meta, "record block precedes metadata");
-        auto b = record_block(s);
-        range(b.begin, b.end);
-        if (s.kind == 5) {
-          stats.transactions += b.count;
-          stats.relations += b.relations;
-          tx_blocks.push_back(std::move(b));
+    auto generator = log.generator()->value;
+    if (generator >= nodes().size() || nodes()[generator].kind != NodeKind::generator) {
+        throw Error(ErrorCode::wrong_recording, "Log generator is absent from this recording");
+    }
+    auto format = string(nodes()[generator].name);
+    auto payload = log.payload();
+    const auto& type = types()[payload.type().value];
+    bool structure = std::holds_alternative<StructDefinition>(type.definition);
+    auto count = structure ? payload.size() : payload.type().value == 0 ? 0u : 1u;
+    std::string result;
+    std::size_t automatic = 0;
+    for (std::size_t i = 0; i < format.size();) {
+        char current = format[i++];
+        if (i < format.size() && (current == '{' || current == '}') && format[i] == current) {
+            result += current;
+            ++i;
+        } else if (current != '{') {
+            result += current;
         } else {
-          stats.logs += b.count;
-          log_blocks.push_back(std::move(b));
+            auto end = format.find('}', i);
+            if (end == std::string_view::npos) {
+                result += format.substr(i - 1);
+                break;
+            }
+            auto field = format.substr(i, end - i);
+            auto colon = field.find(':');
+            auto index_text = field.substr(0, colon);
+            auto spec =
+                colon == std::string_view::npos ? std::string_view{} : field.substr(colon + 1);
+            std::size_t index = 0;
+            bool valid = true;
+            if (index_text.empty()) {
+                index = automatic++;
+            } else {
+                auto parsed = std::from_chars(index_text.data(),
+                                              index_text.data() + index_text.size(), index);
+                valid =
+                    parsed.ec == std::errc{} && parsed.ptr == index_text.data() + index_text.size();
+            }
+            result += valid && index < count
+                          ? render_payload(structure ? payload[index] : payload, *this, spec)
+                          : "{?}";
+            i = end + 1;
         }
-        break;
-      }
-      case 6: {
-        Cursor r(payload(s));
-        auto n = r.var();
-        require(n <= r.data.size() / 2, "invalid blackout count");
-        Time t = 0;
-        for (std::uint64_t i = 0; i < n; ++i) {
-          auto active = r.byte();
-          require(active <= 1, "invalid blackout state");
-          auto dt = r.var();
-          require(dt <= forever - t, "blackout time overflow");
-          t += dt;
-          blackout.emplace_back(t, active != 0);
-        }
-        r.done();
-        break;
-      }
-      default:
-        require(s.flags & 1, "unknown required section");
-        break;
-      }
     }
-    require(have_meta && !strings.empty(), "missing metadata or strings");
-    stats.signal_blocks = static_cast<std::uint32_t>(waves.size());
-    stats.tx_blocks = static_cast<std::uint32_t>(tx_blocks.size());
-    stats.log_blocks = static_cast<std::uint32_t>(log_blocks.size());
-    read_sites();
-  }
-  Section section_at(std::uint64_t offset) const {
-    Cursor r(file.slice(offset, 24));
-    Section s;
-    s.offset = offset;
-    s.kind = r.fixed<std::uint32_t>();
-    s.flags = r.fixed<std::uint32_t>();
-    s.length = r.fixed<std::uint64_t>();
-    r.fixed<std::uint32_t>();
-    require(r.fixed<std::uint32_t>() == 0, "nonzero section reserved field");
-    file.slice(offset + 24, s.length);
-    return s;
-  }
-  View unchecked_payload(const Section &s) const {
-    return file.slice(s.offset + 24, s.length);
-  }
-  View payload(const Section &s, bool force_crc = false) const {
-    auto p = unchecked_payload(s);
-    auto crc = load<std::uint32_t>(file.slice(s.offset + 16, 4));
-    require(!(verify_crc || force_crc) || !crc || checksum(p) == crc,
-            "section checksum mismatch", 7);
-    return p;
-  }
-  void range(Time begin, Time end) {
-    if (!stats.time_range)
-      stats.time_range = {{begin, end}};
-    else {
-      stats.time_range->first = std::min(stats.time_range->first, begin);
-      stats.time_range->second = std::max(stats.time_range->second, end);
-    }
-  }
-  void string_id(Id id) const {
-    require(id < strings.size(), "unknown string identifier");
-  }
-  void attrs_valid(std::span<const Attribute> attrs) const {
-    for (auto &a : attrs) {
-      string_id(a.key);
-      validate_value(a.value, strings.size());
-    }
-  }
-  void read_nodes(const Section &section) {
-    auto raw = decompress(payload(section));
-    Cursor r(raw);
-    require(r.id() == nodes.size(), "noncontiguous node identifiers");
-    auto count = r.var();
-    require(count <= r.data.size() / 4, "invalid node count");
-    if (nodes.size() + count > nodes.capacity())
-      nodes.reserve(std::max(nodes.size() + count, nodes.capacity() * 2));
-    for (std::uint64_t i = 0; i < count; ++i) {
-      Node n;
-      n.kind = static_cast<Node::Kind>(r.byte());
-      auto parent = r.id();
-      require(parent <= nodes.size(), "invalid parent distance");
-      n.parent = parent ? static_cast<Id>(nodes.size() - parent) : none;
-      require(n.parent == none || nodes[n.parent].kind == Node::scope,
-              "parent is not a scope");
-      n.name = r.id();
-      string_id(n.name);
-      switch (n.kind) {
-      case Node::scope:
-        n.type = static_cast<std::uint16_t>(r.id());
-        n.aux = r.id();
-        string_id(n.aux);
-        break;
-      case Node::generator:
-        n.aux = r.id();
-        string_id(n.aux);
-        break;
-      case Node::variable: {
-        n.type = static_cast<std::uint16_t>(r.id());
-        n.direction = r.byte();
-        auto back = r.id();
-        auto declares = r.byte();
-        require(declares <= 1 && back <= signals.size(),
-                "invalid signal declaration");
-        n.alias = !declares;
-        n.signal = static_cast<Id>(signals.size() - back);
-        if (declares) {
-          require(!back, "new signal has nonzero back reference");
-          auto code = r.byte();
-          require(code <= 4, "unknown signal kind");
-          SignalKind k;
-          if (code <= 2) {
-            k.type = SignalKind::bits;
-            k.states = code == 0 ? 2 : code == 1 ? 4 : 9;
-            k.width = r.id();
-          } else {
-            k.type = code == 3 ? SignalKind::real : SignalKind::varlen;
-            k.width = 0;
-            k.states = 0;
-          }
-          validate_kind(k);
-          signals.push_back(k);
-          signal_nodes.push_back(static_cast<Id>(nodes.size()));
-        } else {
-          require(back > 0, "alias points to undeclared signal");
-          require((nodes[signal_nodes[n.signal]].type == 0) == (n.type == 0),
-                  "conflicting event alias");
-        }
-        break;
-      }
-      case Node::enum_table: {
-        auto n_entries = r.var();
-        require(n_entries <= r.data.size() / 2, "invalid enumeration count");
-        for (std::uint64_t j = 0; j < n_entries; ++j) {
-          auto a = r.id(), b = r.id();
-          string_id(a);
-          string_id(b);
-          n.entries.emplace_back(a, b);
-        }
-        break;
-      }
-      default:
-        throw Error("unknown node kind", 4);
-      }
-      n.attrs = decode_attrs(r);
-      attrs_valid(n.attrs);
-      nodes.push_back(std::move(n));
-    }
-    r.done();
-  }
-  RecordBlock record_block(const Section &s) const {
-    Cursor r(unchecked_payload(s));
-    RecordBlock b{};
-    b.section = s;
-    b.count = r.fixed<std::uint64_t>();
-    if (s.kind == 5)
-      b.relations = r.fixed<std::uint64_t>();
-    b.min_id = r.fixed<std::uint64_t>();
-    b.max_id = r.fixed<std::uint64_t>();
-    b.begin = r.fixed<std::uint64_t>();
-    b.end = r.fixed<std::uint64_t>();
-    if (s.kind == 5)
-      r.take(32);
-    auto n = r.fixed<std::uint32_t>();
-    b.blob_len = r.fixed<std::uint32_t>();
-    require(n <= r.data.size() / 4, "invalid generator count");
-    for (Id i = 0; i < n; ++i) {
-      auto g = r.fixed<Id>();
-      require(g < nodes.size() && nodes[g].kind == Node::generator,
-              "unknown block generator");
-      b.generators.push_back(g);
-    }
-    require(b.blob_len == r.data.size() && b.begin <= b.end,
-            "invalid record block bounds");
-    b.blob_offset = s.length - r.data.size();
-    return b;
-  }
-  void read_sites() {
-    for (Id id = 0; id < nodes.size(); ++id) {
-      auto &n = nodes[id];
-      if (n.kind != Node::generator || strings[n.aux] != "LOG")
-        continue;
-      LogSite s;
-      s.node = id;
-      s.scope = n.parent;
-      s.format = n.name;
-      bool args = false;
-      for (auto &a : n.attrs) {
-        auto &key = strings[a.key];
-        auto &v = a.value;
-        if (key == "log.args") {
-          args = true;
-          for (auto &x : list_values(v)) {
-            require(x.tag == Tag::u64, "invalid log argument type");
-            auto tag = static_cast<Tag>(x.number);
-            require(tag == Tag::boolean || tag == Tag::i64 || tag == Tag::u64 ||
-                        tag == Tag::f64 || tag == Tag::str ||
-                        tag == Tag::bytes || tag == Tag::time ||
-                        tag == Tag::pointer || tag == Tag::text,
-                    "unsupported log argument type");
-            s.types.push_back(tag);
-          }
-        } else if (key == "log.names") {
-          for (auto &x : list_values(v)) {
-            require(x.tag == Tag::str, "invalid log argument name");
-            string_id(x.literal);
-            s.names.push_back(x.literal);
-          }
-        } else if (key == "log.severity") {
-          require(v.tag == Tag::u64 && v.number <= 255, "invalid log severity");
-          s.severity = static_cast<std::uint8_t>(v.number);
-        } else if (key == "log.file" || key == "log.func") {
-          require(v.tag == Tag::str, "invalid log source string");
-          (key == "log.file" ? s.file : s.function) = v.literal;
-        } else if (key == "log.line") {
-          require(v.tag == Tag::u64 && v.number <= UINT32_MAX,
-                  "invalid source line");
-          s.line = static_cast<Id>(v.number);
-        }
-      }
-      if (!args)
-        continue;
-      require(s.names.size() == s.types.size(), "log argument names mismatch");
-      site_by_node[id] = static_cast<Id>(sites.size());
-      sites.push_back(std::move(s));
-    }
-    for (auto &b : log_blocks)
-      for (auto g : b.generators)
-        require(site_by_node.contains(g), "log block references invalid site");
-  }
-  bool in_scope(Id node, Id scope) const {
-    if (scope == none)
-      return true;
-    while (node != none) {
-      require(node < nodes.size(), "unknown node", 1);
-      if (node == scope)
-        return true;
-      node = nodes[node].parent;
-    }
-    return false;
-  }
-  bool selected(Id node, const Query &q) const {
-    return (q.generator == none || q.generator == node) &&
-           in_scope(node, q.scope);
-  }
-  bool selected(const RecordBlock &b, const Query &q) const {
-    return b.begin <= q.end && b.end >= q.begin &&
-           std::any_of(b.generators.begin(), b.generators.end(),
-                       [&](auto g) { return selected(g, q); });
-  }
-  std::vector<Time> block_times(const SignalBlock &b) const {
-    auto raw = decompress(unchecked_payload(b.section).subspan(40, b.tt_len));
-    Cursor r(raw);
-    require(b.n_times <= raw.size(), "invalid time table count");
-    std::vector<Time> result;
-    result.reserve(b.n_times);
-    Time t = 0;
-    for (Id i = 0; i < b.n_times; ++i) {
-      auto delta = r.var();
-      require(delta <= forever - t && (i == 0 || delta > 0),
-              "invalid time table ordering");
-      t += delta;
-      result.push_back(t);
-    }
-    r.done();
-    require(result.front() == b.begin && result.back() == b.end,
-            "time table bounds mismatch");
     return result;
-  }
-  std::optional<Group> group(const SignalBlock &b, Id group_id) const {
-    auto data = unchecked_payload(b.section);
-    Cursor r(data.subspan(40 + b.tt_len));
-    std::uint32_t length = 0;
-    std::uint64_t offset = 0;
-    bool found = false;
-    Id prev = none;
-    for (Id i = 0; i < b.n_dirty; ++i) {
-      auto g = r.fixed<Id>(), len = r.fixed<std::uint32_t>();
-      auto off = r.fixed<std::uint64_t>();
-      require(g < b.n_groups && (i == 0 || g > prev),
-              "invalid dirty group index");
-      prev = g;
-      if (g == group_id) {
-        found = true;
-        length = len;
-        offset = off;
-      }
-    }
-    r.take(std::size_t(b.n_groups) * 4);
-    if (!found)
-      return {};
-    require(offset <= r.data.size() && length <= r.data.size() - offset,
-            "invalid group range");
-    Cursor c(r.data.subspan(offset, length));
-    Group result;
-    result.first = std::size_t(group_id) * b.group_size;
-    result.count = c.var();
-    require(result.count ==
-                std::min<std::size_t>(b.group_size, b.n_signals - result.first),
-            "invalid group signal count");
-    auto aliases = c.var();
-    require(aliases <= result.count, "invalid alias count");
-    if (aliases)
-      result.aliases.resize(result.count, none);
-    for (std::uint64_t i = 0; i < aliases; ++i) {
-      auto local = c.id(), target = c.id();
-      require(local < result.count && target < b.n_signals &&
-                  target < result.first + local &&
-                  signals[target] == signals[result.first + local],
-              "invalid dynamic alias");
-      require(result.alias(local) == none, "duplicate alias");
-      result.aliases[local] = target;
-    }
-    result.frame = decompress(c.blob());
-    auto n = c.var();
-    require(n <= result.count, "invalid run count");
-    struct Descriptor {
-      std::size_t count;
-      unsigned transform;
-      std::size_t size;
-    };
-    std::vector<Descriptor> descriptors;
-    std::size_t total = 0;
-    for (std::uint64_t i = 0; i < n; ++i) {
-      auto count = c.var(), x = c.var(), size = c.var();
-      require(count > 0 && count <= result.count - total && x <= 4,
-              "invalid run descriptor");
-      descriptors.push_back({static_cast<std::size_t>(count),
-                             static_cast<unsigned>(x),
-                             static_cast<std::size_t>(size)});
-      total += count;
-    }
-    require(total == result.count, "runs do not cover group");
-    total = result.first;
-    for (auto d : descriptors) {
-      result.runs.push_back({total, d.count, d.transform, c.take(d.size)});
-      total += d.count;
-    }
-    c.done();
-    return result;
-  }
-  Bytes frame_value(const Group &g, Id signal) const {
-    Cursor r(g.frame);
-    Bytes result;
-    for (std::size_t s = g.first; s < g.first + g.count; ++s) {
-      auto k = signals[s];
-      auto value =
-          k.type == SignalKind::varlen ? r.blob() : r.take(k.packed_size());
-      if (s == signal)
-        result.assign(value.begin(), value.end());
-    }
-    r.done();
-    return result;
-  }
-  bool column(
-      Id signal, View column, unsigned x, const std::vector<Time> &tt,
-      Time begin, Time end,
-      const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-    if (column.empty())
-      return true;
-    auto kind = signals[signal];
-    Cursor r(column);
-    std::uint64_t index = 0;
-    if (kind.type == SignalKind::bits && kind.width == 1) {
-      std::uint8_t code = 255;
-      while (!r.empty()) {
-        auto entry = r.var();
-        auto delta = entry >> (entry & 1 ? 5 : 1);
-        require(delta <= forever - index, "signal time overflow");
-        index += delta;
-        if (entry & 1)
-          code = (entry >> 1) & 15;
-        else {
-          require(code < 2, "invalid bit toggle");
-          code ^= 1;
-        }
-        require(index < tt.size() && code < kind.states, "invalid bit column");
-        auto time = tt[index];
-        if (time > end)
-          break;
-        if (time >= begin && !visit(time, signal, {kind, View(&code, 1)}))
-          return false;
-      }
-      return true;
-    }
-    auto word = r.var();
-    auto header_len = word >> 2;
-    Cursor headers(r.take(header_len));
-    auto values = r.data;
-    bool eligible = word & 2, full = word & 1;
-    Bytes transformed;
-    if (eligible) {
-      require(kind.type != SignalKind::varlen,
-              "variable length column cannot be transformed");
-      auto width = kind.type == SignalKind::real ? 8
-                   : full                        ? kind.packed_size()
-                          : (std::size_t(kind.width) + 7) / 8;
-      std::size_t count = 0;
-      Cursor h = headers;
-      while (!h.empty()) {
-        h.var();
-        ++count;
-      }
-      require(width && count < (1u << 30) / width,
-              "column exceeds format limit");
-      if (x == 4) {
-        Cursor dict(values);
-        auto n = dict.var();
-        require(n <= 256, "invalid dictionary size");
-        if (!n)
-          transformed =
-              Bytes(dict.take(count * width).begin(), dict.data.end());
-        else {
-          auto entries = dict.take(n * width);
-          transformed.reserve(count * width);
-          for (std::size_t i = 0; i < count; ++i) {
-            auto code = dict.byte();
-            require(code < n, "invalid dictionary code");
-            append(transformed, entries.subspan(code * width, width));
-          }
-        }
-        dict.done();
-        values = transformed;
-      } else if (x) {
-        transformed = transform(values, width, x, true);
-        values = transformed;
-      }
-      require(values.size() == count * width,
-              "fixed column value length mismatch");
-    }
-    Cursor v(values);
-    Bytes expanded;
-    while (!headers.empty()) {
-      auto h = headers.var();
-      auto delta = kind.type == SignalKind::bits ? h >> 1 : h;
-      require(delta <= forever - index, "signal time overflow");
-      index += delta;
-      require(index < tt.size(), "signal time index exceeds table");
-      View value;
-      if (kind.type == SignalKind::varlen)
-        value = v.blob();
-      else if (kind.type == SignalKind::real)
-        value = v.take(8);
-      else {
-        bool compact = h & 1;
-        require(kind.states != 2 || compact, "noncompact two-state value");
-        value = v.take(compact ? (std::size_t(kind.width) + 7) / 8
-                               : kind.packed_size());
-        if (compact && kind.states != 2) {
-          expanded = repack(value, kind.width, 2, kind.states);
-          value = expanded;
-        }
-      }
-      auto time = tt[index];
-      if (time > end)
-        break;
-      if (time >= begin && !visit(time, signal, {kind, value}))
-        return false;
-    }
-    if (headers.empty())
-      v.done();
-    return true;
-  }
-  bool one_signal(
-      const SignalBlock &b, const Group &g, Id signal,
-      const std::vector<Time> &times, Time begin, Time end,
-      const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-    auto target = g.alias(static_cast<Id>(signal - g.first));
-    if (target != none) {
-      auto target_group = group(b, target / b.group_size);
-      require(target_group.has_value() &&
-                  target_group->alias(
-                      static_cast<Id>(target - target_group->first)) == none,
-              "alias target is absent or aliased");
-      return one_signal(
-          b, *target_group, target, times, begin, end,
-          [&](Time t, Id, SignalValue v) { return visit(t, signal, v); });
-    }
-    for (auto &run : g.runs)
-      if (signal >= run.first && signal < run.first + run.count) {
-        auto raw = decompress(run.bytes);
-        Cursor r(raw);
-        std::vector<std::size_t> sizes;
-        for (std::size_t i = 0; i < run.count; ++i)
-          sizes.push_back(r.var());
-        for (std::size_t i = 0; i < run.count; ++i) {
-          auto col = r.take(sizes[i]);
-          if (run.first + i == signal)
-            return column(signal, col, run.transform, times, begin, end, visit);
-        }
-      }
-    throw Error("missing signal run", 4);
-  }
-  bool signal_changes(
-      Id signal, Time begin, Time end,
-      const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-    require(signal < signals.size(), "unknown signal", 1);
-    for (auto &b : waves) {
-      if (b.begin > end)
-        break;
-      if (b.end < begin || signal >= b.n_signals)
-        continue;
-      payload(b.section);
-      auto g = group(b, signal / b.group_size);
-      if (!g)
-        continue;
-      auto tt = block_times(b);
-      if (!one_signal(b, *g, signal, tt, begin, end, visit))
-        return false;
-    }
-    return true;
-  }
-  bool
-  tx_block(const RecordBlock &b,
-           const std::function<bool(const Transaction &)> &visit,
-           const std::function<bool(const Relation &)> &relation = {}) const {
-    auto raw =
-        decompress(payload(b.section).subspan(b.blob_offset, b.blob_len));
-    auto c = unpack_columns<24>(raw);
-    std::uint64_t id = 0;
-    Time begin = 0;
-    for (std::uint64_t i = 0; i < b.count; ++i) {
-      auto t = decode_transaction(c, id, begin);
-      require(t.generator < nodes.size() &&
-                  nodes[t.generator].kind == Node::generator,
-              "invalid transaction generator");
-      require(t.id >= b.min_id && t.id <= b.max_id && t.begin >= b.begin &&
-                  t.end <= b.end,
-              "transaction exceeds block bounds");
-      if (!visit(t))
-        return false;
-    }
-    std::uint64_t from = 0;
-    for (std::uint64_t i = 0; i < b.relations; ++i) {
-      auto kind = c[21].id();
-      from += c[22].signed_bits();
-      auto to = from + c[23].signed_bits();
-      Relation rel{kind, from, to, read_column_attrs(c)};
-      if (relation && !relation(rel))
-        return false;
-    }
-    for (auto &stream : c)
-      stream.done();
-    return true;
-  }
-  bool log_block(const RecordBlock &b,
-                 const std::function<bool(const LogRecord &)> &visit) const {
-    auto raw =
-        decompress(payload(b.section).subspan(b.blob_offset, b.blob_len));
-    auto c = unpack_columns<9>(raw);
-    auto n = c[7].var();
-    require(n <= c[7].data.size(), "invalid log dictionary count");
-    std::vector<std::string> dict;
-    for (std::uint64_t i = 0; i < n; ++i)
-      dict.push_back(c[7].string());
-    c[7].done();
-    std::uint64_t id = 0;
-    Time time = 0;
-    for (std::uint64_t i = 0; i < b.count; ++i) {
-      auto g = c[0].var();
-      require(g < b.generators.size(), "invalid log generator index");
-      auto site = site_by_node.at(b.generators[g]);
-      time += c[1].signed_bits();
-      id += c[2].signed_bits();
-      auto parent = c[3].var();
-      LogRecord record{
-          id, parent ? id - unzig(parent >> 1) : 0, time, site, {}};
-      require(id >= b.min_id && id <= b.max_id && time >= b.begin &&
-                  time <= b.end,
-              "log exceeds block bounds");
-      record.args.reserve(sites[site].types.size());
-      for (auto tag : sites[site].types) {
-        if (tag == Tag::text) {
-          auto index = c[6].var();
-          require(index < dict.size(), "invalid log text index");
-          record.args.push_back(Value::text(dict[index]));
-        } else
-          record.args.push_back(
-              decode_value(c[tag == Tag::f64                          ? 5
-                             : (tag == Tag::str || tag == Tag::bytes) ? 8
-                                                                      : 4],
-                           tag));
-      }
-      if (!visit(record))
-        return false;
-    }
-    for (auto &stream : c)
-      stream.done();
-    return true;
-  }
-  Transaction log_tx(const LogRecord &r) const {
-    auto &site = sites[r.site];
-    Transaction t;
-    t.id = r.id;
-    t.parent = r.parent;
-    t.generator = site.node;
-    t.begin = t.end = r.time;
-    for (std::size_t i = 0; i < r.args.size(); ++i)
-      t.attrs.push_back({site.names[i], r.args[i]});
-    return t;
-  }
+}
+
+struct ActivityIndex::Impl {
+    detail::engine::ActivityIndex backend;
+    Bytes encoded;
 };
-Reader::Reader(const std::string &path, ReaderOptions options)
-    : impl_(std::make_unique<Impl>(path, options)) {}
-Reader::~Reader() = default;
-const Meta &Reader::metadata() const { return impl_->meta; }
-const ReaderStats &Reader::stats() const { return impl_->stats; }
-std::span<const std::string> Reader::strings() const { return impl_->strings; }
-std::string_view Reader::string(Id id) const {
-  impl_->string_id(id);
-  return impl_->strings[id];
-}
-std::span<const Node> Reader::nodes() const { return impl_->nodes; }
-std::span<const SignalKind> Reader::signals() const { return impl_->signals; }
-Id Reader::signal_var(Id id) const {
-  require(id < impl_->signal_nodes.size(), "unknown signal", 9);
-  return impl_->signal_nodes[id];
-}
-Id Reader::find_node(std::string_view path, char separator) const {
-  auto &p = *impl_;
-  Id parent = none;
-  std::size_t start = 0;
-  while (start <= path.size()) {
-    auto end = path.find(separator, start);
-    auto part =
-        path.substr(start, end == std::string_view::npos ? path.size() - start
-                                                         : end - start);
-    Id found = none;
-    for (Id i = 0; i < p.nodes.size(); ++i)
-      if (p.nodes[i].parent == parent && p.strings[p.nodes[i].name] == part) {
-        found = i;
-        break;
-      }
-    if (found == none)
-      return none;
-    parent = found;
-    if (end == std::string_view::npos)
-      return parent;
-    start = end + 1;
-  }
-  return none;
-}
-Id Reader::find_signal(std::string_view path, char separator) const {
-  auto node = find_node(path, separator);
-  return node == none || impl_->nodes[node].kind != Node::variable
-             ? none
-             : impl_->nodes[node].signal;
-}
-bool Reader::in_scope(Id node, Id scope) const {
-  return impl_->in_scope(node, scope);
-}
-void Reader::changes(
-    Id signal, Time begin, Time end,
-    const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-  require(bool(visit), "missing change callback", 1);
-  impl_->signal_changes(signal, begin, end, visit);
-}
-void Reader::changes(
-    Time begin, Time end,
-    const std::function<bool(Time, Id, const SignalValue &)> &visit) const {
-  auto &p = *impl_;
-  require(bool(visit), "missing change callback", 1);
-  for (auto &b : p.waves) {
-    if (b.begin > end)
-      break;
-    if (b.end < begin)
-      continue;
-    p.payload(b.section);
-    auto times = p.block_times(b);
-    std::vector<std::optional<Group>> groups;
-    groups.reserve(b.n_groups);
-    std::vector<Id> alias_heads, next_alias;
-    for (Id g = 0; g < b.n_groups; ++g) {
-      groups.push_back(p.group(b, g));
-      if (groups.back() && !groups.back()->aliases.empty()) {
-        if (alias_heads.empty()) {
-          alias_heads.resize(b.n_signals, none);
-          next_alias.resize(b.n_signals, none);
-        }
-        auto &group = *groups.back();
-        for (Id local = 0; local < group.count; ++local) {
-          auto target = group.alias(local);
-          if (target != none) {
-            auto id = static_cast<Id>(group.first + local);
-            next_alias[id] = alias_heads[target];
-            alias_heads[target] = id;
-          }
-        }
-      }
-    }
-    for (Id target = 0; target < alias_heads.size(); ++target) {
-      if (alias_heads[target] == none)
-        continue;
-      auto &owner = groups[target / b.group_size];
-      require(owner &&
-                  owner->alias(static_cast<Id>(target - owner->first)) == none,
-              "alias target is absent or aliased");
-    }
-    for (auto &group : groups) {
-      if (!group)
-        continue;
-      for (auto &run : group->runs) {
-        auto raw = decompress(run.bytes);
-        Cursor r(raw);
-        std::vector<std::size_t> sizes;
-        for (std::size_t i = 0; i < run.count; ++i)
-          sizes.push_back(r.var());
-        for (std::size_t i = 0; i < run.count; ++i) {
-          auto col = r.take(sizes[i]);
-          auto id = static_cast<Id>(run.first + i);
-          if (group->alias(static_cast<Id>(id - group->first)) != none)
-            continue;
-          auto copies = alias_heads.empty() ? none : alias_heads[id];
-          if (copies == none) {
-            if (!p.column(id, col, run.transform, times, begin, end, visit))
-              return;
-          } else if (!p.column(
-                         id, col, run.transform, times, begin, end,
-                         [&](Time t, Id signal, const SignalValue &value) {
-                           if (!visit(t, signal, value))
-                             return false;
-                           for (auto alias = copies; alias != none;
-                                alias = next_alias[alias])
-                             if (!visit(t, alias, value))
-                               return false;
-                           return true;
-                         }))
-            return;
-        }
-        r.done();
-      }
-    }
-  }
-}
-Bytes Reader::value_at(Id signal, Time time) const {
-  auto &p = *impl_;
-  require(signal < p.signals.size(), "unknown signal", 1);
-  Bytes result = default_value(p.signals[signal]);
-  auto it = std::upper_bound(p.waves.begin(), p.waves.end(), time,
-                             [](Time t, const auto &b) { return t < b.begin; });
-  while (it != p.waves.begin()) {
-    --it;
-    auto &b = *it;
-    if (signal >= b.n_signals)
-      return result;
-    p.payload(b.section);
-    auto g = p.group(b, signal / b.group_size);
-    if (!g)
-      continue;
-    result = p.frame_value(*g, signal);
-    auto times = p.block_times(b);
-    p.one_signal(b, *g, signal, times, 0, time, [&](Time, Id, SignalValue v) {
-      result.assign(v.data.begin(), v.data.end());
-      return true;
+
+ActivityIndex::ActivityIndex(std::shared_ptr<const Impl> storage) noexcept
+    : impl_(std::move(storage)) {}
+
+ActivityIndex ActivityIndex::build(const Reader& trace, std::size_t memory_bytes) {
+    return detail::translate([&] {
+        const auto& container = trace.impl_->backend.container();
+        auto backend = detail::engine::ActivityIndex::build(container, memory_bytes);
+        auto encoded = detail::bytes(backend.encode(container));
+        return ActivityIndex(std::make_shared<Impl>(std::move(backend), std::move(encoded)));
     });
-    break;
-  }
-  return result;
 }
-std::shared_ptr<const SignalData> Reader::load_signal(Id signal) const {
-  auto &p = *impl_;
-  {
-    std::lock_guard lock(p.cache_mutex);
-    auto found = p.history_cache.find(signal);
-    if (found != p.history_cache.end())
-      return found->second;
-  }
-  require(signal < p.signals.size(), "unknown signal", 1);
-  auto data = std::make_shared<SignalData>();
-  data->kind = p.signals[signal];
-  data->initial = default_value(data->kind);
-  data->offsets.push_back(0);
-  p.signal_changes(signal, 0, forever, [&](Time time, Id, SignalValue value) {
-    data->times.push_back(time);
-    append(data->values, value.data);
-    data->offsets.push_back(data->values.size());
-    return true;
-  });
-  std::lock_guard lock(p.cache_mutex);
-  return p.history_cache.emplace(signal, data).first->second;
+
+ActivityIndex ActivityIndex::load(const Reader& trace, ByteView sidecar, std::size_t memory_bytes) {
+    return detail::translate([&] {
+        auto backend = detail::engine::ActivityIndex::decode(trace.impl_->backend.container(),
+                                                             detail::view(sidecar), memory_bytes);
+        return ActivityIndex(
+            std::make_shared<Impl>(std::move(backend), Bytes(sidecar.begin(), sidecar.end())));
+    });
 }
-const std::vector<Time> &Reader::time_table() const {
-  auto &p = *impl_;
-  std::lock_guard lock(p.cache_mutex);
-  if (!p.times_loaded) {
-    for (auto &b : p.waves) {
-      p.payload(b.section);
-      for (auto time : p.block_times(b))
-        if (p.all_times.empty() || p.all_times.back() != time)
-          p.all_times.push_back(time);
-    }
-    p.times_loaded = true;
-  }
-  return p.all_times;
+
+Bytes ActivityIndex::encode() const {
+    return impl_->encoded;
 }
-std::span<const std::pair<Time, bool>> Reader::blackouts() const {
-  return impl_->blackout;
+
+vtr::Fingerprint ActivityIndex::fingerprint() const noexcept {
+    return detail::fingerprint(impl_->backend.fingerprint());
 }
-void Reader::transactions(
-    Query q, const std::function<bool(const Transaction &)> &visit) const {
-  auto &p = *impl_;
-  require(bool(visit), "missing transaction callback", 1);
-  for (auto &b : p.tx_blocks)
-    if (p.selected(b, q))
-      if (!p.tx_block(b, [&](auto &t) {
-            return !p.selected(t.generator, q) || t.begin > q.end ||
-                   t.end < q.begin || visit(t);
-          }))
-        return;
-  for (auto &b : p.log_blocks)
-    if (p.selected(b, q))
-      if (!p.log_block(b, [&](auto &r) {
-            return !p.selected(p.sites[r.site].node, q) || r.time < q.begin ||
-                   r.time > q.end || visit(p.log_tx(r));
-          }))
-        return;
+
+std::vector<SignalId> ActivityIndex::active(TimeWindow time) const {
+    detail::check_window(time);
+    return detail::translate([&] {
+        std::vector<SignalId> result;
+        for (auto id : impl_->backend.active(time.first, time.last)) {
+            result.push_back(SignalId(id));
+        }
+        return result;
+    });
 }
-bool Reader::transaction(
-    std::uint64_t id,
-    const std::function<void(const Transaction &)> &visit) const {
-  auto &p = *impl_;
-  bool found = false;
-  for (auto &b : p.tx_blocks)
-    if (id >= b.min_id && id <= b.max_id) {
-      p.tx_block(b, [&](auto &t) {
-        if (t.id != id)
-          return true;
-        visit(t);
-        found = true;
-        return false;
-      });
-      if (found)
-        return true;
-    }
-  for (auto &b : p.log_blocks)
-    if (id >= b.min_id && id <= b.max_id) {
-      p.log_block(b, [&](auto &r) {
-        if (r.id != id)
-          return true;
-        visit(p.log_tx(r));
-        found = true;
-        return false;
-      });
-      if (found)
-        return true;
-    }
-  return false;
-}
-void Reader::relations(
-    std::uint64_t id, bool incoming,
-    const std::function<bool(const Relation &)> &visit) const {
-  auto &p = *impl_;
-  for (auto &b : p.tx_blocks)
-    if (b.relations)
-      if (!p.tx_block(
-              b, [](auto &) { return true; },
-              [&](auto &r) {
-                return (incoming ? r.to : r.from) != id || visit(r);
-              }))
-        return;
-}
-std::span<const LogSite> Reader::log_sites() const { return impl_->sites; }
-void Reader::logs(Query q, std::uint8_t severity,
-                  const std::function<bool(const LogRecord &)> &visit) const {
-  auto &p = *impl_;
-  for (auto &b : p.log_blocks)
-    if (p.selected(b, q))
-      if (!p.log_block(b, [&](auto &r) {
-            auto &s = p.sites[r.site];
-            return s.severity < severity || !p.selected(s.node, q) ||
-                   r.time < q.begin || r.time > q.end || visit(r);
-          }))
-        return;
-}
-std::string Reader::format_log(const LogRecord &record) const {
-  auto &p = *impl_;
-  require(record.site < p.sites.size(), "unknown log site", 1);
-  auto format = string(p.sites[record.site].format);
-  std::string out;
-  std::size_t arg = 0;
-  for (std::size_t i = 0; i < format.size(); ++i) {
-    if (i + 1 < format.size() && ((format[i] == '{' && format[i + 1] == '{') ||
-                                  (format[i] == '}' && format[i + 1] == '}'))) {
-      out += format[i++];
-      continue;
-    }
-    if (format[i] != '{') {
-      out += format[i];
-      continue;
-    }
-    auto end = format.find('}', i + 1);
-    require(end != std::string_view::npos && arg < record.args.size(),
-            "invalid log format", 1);
-    auto spec = format.substr(i + 1, end - i - 1);
-    auto &v = record.args[arg++];
-    const std::string pattern = "{" + std::string(spec) + "}";
-    auto format_value = [&](auto &value) {
-      return std::vformat(pattern, std::make_format_args(value));
-    };
-    if (v.tag == Tag::text) {
-      Cursor payload(v.payload);
-      auto text = payload.string();
-      out += format_value(text);
-    } else if (v.tag == Tag::str) {
-      auto text = string(v.literal);
-      out += format_value(text);
-    } else if (v.tag == Tag::boolean) {
-      auto value = v.number != 0;
-      out += format_value(value);
-    } else if (v.tag == Tag::i64) {
-      auto value = std::bit_cast<std::int64_t>(v.number);
-      out += format_value(value);
-    } else if (v.tag == Tag::f64) {
-      auto value = std::bit_cast<double>(v.number);
-      out += format_value(value);
-    } else if (v.tag == Tag::pointer) {
-      auto value = reinterpret_cast<const void *>(v.number);
-      out += format_value(value);
-    } else if (v.tag == Tag::bytes) {
-      Cursor payload(v.payload);
-      std::ostringstream hex;
-      for (auto byte : payload.blob())
-        hex << std::hex << std::setw(2) << std::setfill('0') << unsigned(byte);
-      auto text = hex.str();
-      out += format_value(text);
-    } else
-      out += format_value(v.number);
-    i = end;
-  }
-  return out;
-}
-Ending Reader::ending() const {
-  Ending ending;
-  if (stats().recovered) {
-    ending.kind = Ending::recovered;
-    ending.dropped = stats().recovered_dropped;
-  }
-  logs({}, 0, [&](const LogRecord &r) {
-    auto &s = impl_->sites[r.site];
-    if (s.scope == none || string(impl_->nodes[s.scope].name) != "vtr.run" ||
-        impl_->nodes[s.scope].parent != none)
-      return true;
-    auto fmt = string(s.format);
-    auto &a = r.args;
-    Ending e;
-    e.time = r.time;
-    if (fmt == "run stopped by signal {}" && a.size() == 1) {
-      e.kind = Ending::stopped;
-      e.signal = static_cast<std::int32_t>(a[0].number);
-    } else if (fmt == "run exited with status {}" && a.size() == 1) {
-      e.kind = Ending::exited;
-      e.status = static_cast<std::int32_t>(a[0].number);
-    } else if (fmt == "run crashed by signal {} (code {}, address {}, thread "
-                      "{}, sealed {})" &&
-               a.size() == 5) {
-      e.kind = Ending::crashed;
-      e.signal = static_cast<std::int32_t>(a[0].number);
-      e.code = static_cast<std::int32_t>(a[1].number);
-      e.address = a[2].number;
-      e.thread = a[3].number;
-      e.sealed = a[4].number != 0;
-    } else if (fmt == "run recovered by scanning, {} bytes dropped" &&
-               a.size() == 1) {
-      e.kind = Ending::recovered;
-      e.dropped = a[0].number;
-    } else if (fmt == "run sealed after a panic in the writer" && a.empty())
-      e.kind = Ending::poisoned;
-    else
-      return true;
-    ending = e;
-    return true;
-  });
-  return ending;
-}
-void Reader::clear_cache() const {
-  std::lock_guard lock(impl_->cache_mutex);
-  impl_->history_cache.clear();
-  impl_->all_times.clear();
-  impl_->times_loaded = false;
-}
-void recover(const std::string &input, const std::string &output) {
-  require(input != output, "recovery input and output must differ", 1);
-  std::error_code error;
-  require(!std::filesystem::equivalent(input, output, error),
-          "recovery paths refer to the same file", 1);
-  Reader reader(input);
-  Ending ending;
-  ending.kind = Ending::recovered;
-  ending.dropped = reader.stats().recovered_dropped;
-  require(std::filesystem::copy_file(
-              input, output, std::filesystem::copy_options::overwrite_existing,
-              error),
-          "cannot copy recovery input", 3);
-  seal_file(output, ending);
-}
+
 } // namespace vtr

@@ -1,314 +1,186 @@
-//! Declared clocks: writer calls, the dedicated clock block, `ClockTimeline` queries and
-//! recovery.
-
-use rand::{Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use vtr::*;
 
-fn tmp(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("vtr-clock-test-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join(name)
-}
-
-#[derive(Clone, Copy, Debug)]
-enum Call {
-    Run(u64, u64),
-    Stop(u64),
-}
-
-fn brute_edges(calls: &[Call], close: u64) -> Vec<u64> {
-    let mut edges = Vec::new();
-    let mut running: Option<(u64, u64)> = None;
-    let finish = |run: Option<(u64, u64)>, t: u64, edges: &mut Vec<u64>| {
-        if let Some((first, period)) = run {
-            let mut e = first;
-            edges.push(e);
-            while e + period <= t {
-                e += period;
-                edges.push(e);
-            }
-        }
-    };
-    for c in calls {
-        match *c {
-            Call::Run(first, period) => running = Some((first, period)),
-            Call::Stop(t) => finish(running.take(), t, &mut edges),
-        }
-    }
-    finish(running, close, &mut edges);
-    edges
-}
-
-fn timeline_edges(tl: &ClockTimeline) -> Vec<u64> {
-    (0..tl.edge_count()).map(|c| tl.edge(c).unwrap()).collect()
-}
-
-fn write(path: &std::path::Path, calls: &[Call], close: u64) {
-    let mut w = Writer::create(path).unwrap();
-    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
-    let clk = w.add_clock(Some(top), "clk").unwrap();
-    for c in calls {
-        match *c {
-            Call::Run(first, period) => w.clock_run(clk, first, period).unwrap(),
-            Call::Stop(t) => w.clock_stop(clk, t).unwrap(),
-        }
-    }
-    w.set_time(close).unwrap();
-    w.close().unwrap();
-}
-
 #[test]
-fn fixed_changing_gated_and_single_edge_clocks() {
-    type Case = (&'static str, Vec<Call>, u64, Vec<(u64, u64, u64)>, bool);
-    let cases: Vec<Case> = vec![
-        ("fixed", vec![Call::Run(1, 2)], 100, vec![(1, 99, 2)], true),
-        (
-            "dvfs",
-            vec![
-                Call::Run(400, 334),
-                Call::Stop(20000),
-                Call::Run(20272, 500),
-                Call::Stop(50000),
-                Call::Run(50772, 1000),
-                Call::Stop(100_000),
-            ],
-            120_000,
-            vec![(400, 19772, 334), (20272, 49772, 500), (50772, 99772, 1000)],
-            false,
-        ),
-        (
-            "gated",
-            vec![Call::Run(0, 10), Call::Stop(55), Call::Run(300, 10)],
-            330,
-            vec![(0, 50, 10), (300, 330, 10)],
-            true,
-        ),
-        (
-            "single",
-            vec![Call::Run(7, 10), Call::Stop(12), Call::Stop(40)],
-            50,
-            vec![(7, 7, 0)],
-            false,
-        ),
-        (
-            "late close",
-            vec![Call::Run(90, 10)],
-            20,
-            vec![(90, 90, 0)],
-            true,
-        ),
-    ];
-    for (name, calls, close, want, open) in cases {
-        let path = tmp(&format!("{}.vtr", name.replace(' ', "_")));
-        write(&path, &calls, close);
-        let rd = Reader::open(&path).unwrap();
-        assert_eq!(rd.clocks().len(), 1, "{name}");
-        let info = &rd.clocks()[0];
-        assert_eq!(info.path, "top.clk");
-        assert_eq!(rd.find_clock("top.clk"), Some(info.id));
-        let tl = rd.clock(info.id).unwrap();
-        let got: Vec<_> = tl
-            .stretches()
-            .iter()
-            .map(|s| (s.begin, s.end, s.period))
-            .collect();
-        assert_eq!(got, want, "{name}");
-        assert_eq!(tl.is_open(), open, "{name}");
-        assert_eq!(
-            timeline_edges(&tl),
-            brute_edges(&calls, close.max(want.last().unwrap().0)),
-            "{name}"
-        );
-        assert!(
-            std::sync::Arc::ptr_eq(&tl, &rd.clock(info.id).unwrap()),
-            "timelines are loaded once"
-        );
-    }
-}
-
-#[test]
-fn misuse_is_an_error_and_adds_nothing() {
-    let path = tmp("misuse.vtr");
-    let mut w = Writer::create(&path).unwrap();
-    let clk = w.add_clock(None, "clk").unwrap();
-    assert!(w.clock_run(clk, 0, 0).is_err(), "zero period");
-    assert!(w.clock_run(ClockId(7), 0, 1).is_err(), "unknown clock");
-    w.clock_stop(clk, 5).unwrap();
-    w.clock_run(clk, 10, 4).unwrap();
-    assert!(
-        matches!(w.clock_run(clk, 20, 4), Err(Error::State(_))),
-        "run on a running clock"
-    );
-    assert!(w.clock_stop(clk, 9).is_err(), "stop before the first edge");
-    w.clock_stop(clk, 29).unwrap();
-    assert!(
-        w.clock_run(clk, 26, 4).is_err(),
-        "first edge not after the previous last edge"
-    );
-    w.clock_run(clk, 27, 4).unwrap();
-    w.clock_stop(clk, 27).unwrap();
-    w.close().unwrap();
-    let rd = Reader::open(&path).unwrap();
-    let tl = rd.clock(ClockId(0)).unwrap();
-    assert_eq!(timeline_edges(&tl), vec![10, 14, 18, 22, 26, 27]);
-}
-
-#[test]
-fn random_calls_reproduce_brute_force_edges() {
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0xc10c);
-    for round in 0..200 {
-        let mut calls = Vec::new();
-        let mut last_edge: Option<u64> = None;
-        let mut t = 0u64;
-        for _ in 0..rng.gen_range(1..8) {
-            let first = last_edge.map_or(rng.gen_range(0..20), |e| e + rng.gen_range(1..40));
-            let period = rng.gen_range(1..25);
-            calls.push(Call::Run(first, period));
-            let stop = first.max(t) + rng.gen_range(0..300);
-            calls.push(Call::Stop(stop));
-            last_edge = Some(first + (stop - first) / period * period);
-            t = stop;
-        }
-        let close = if rng.gen_bool(0.5) {
-            calls.pop();
-            t + rng.gen_range(0..100)
-        } else {
-            t
-        };
-        let path = tmp(&format!("random{round}.vtr"));
-        write(&path, &calls, close);
-        let rd = Reader::open(&path).unwrap();
-        let tl = rd.clock(ClockId(0)).unwrap();
-        let want = brute_edges(&calls, close);
-        assert_eq!(
-            timeline_edges(&tl),
-            want,
-            "round {round}: {calls:?} close {close}"
-        );
-        let end = want.last().copied().unwrap_or(0) + 5;
-        for t in 0..=end {
-            let last = want.iter().rposition(|&e| e <= t);
-            let c = tl.cycle_at(t);
+fn named_lookups_distinguish_waveforms_clocks_and_grouping_scopes() {
+    let directory = tempfile::tempdir().unwrap();
+    for mode in [ExecutionMode::Inline, ExecutionMode::Threaded] {
+        for clock_first in [false, true] {
+            let path = directory.path().join(format!("{mode:?}-{clock_first}.vtr"));
+            let mut writer = Writer::create_with(
+                &path,
+                WriterOptions {
+                    mode,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let root = writer.scope("top", None).unwrap();
+            let options = || SourceOptions::new("clk", Some(root));
+            let (signal, clock) = if clock_first {
+                let clock = writer.clock(options()).unwrap();
+                let signal = writer
+                    .signal(
+                        options(),
+                        SignalKind::Bits {
+                            width: 1,
+                            states: 2,
+                        },
+                        VarType::Wire,
+                        Direction::Input,
+                    )
+                    .unwrap();
+                (signal, clock)
+            } else {
+                let signal = writer
+                    .signal(
+                        options(),
+                        SignalKind::Bits {
+                            width: 1,
+                            states: 2,
+                        },
+                        VarType::Wire,
+                        Direction::Input,
+                    )
+                    .unwrap();
+                let clock = writer.clock(options()).unwrap();
+                (signal, clock)
+            };
+            let grouped_signal = writer
+                .signal(
+                    SourceOptions::new("group", Some(root)),
+                    SignalKind::Real,
+                    VarType::Real,
+                    Direction::Implicit,
+                )
+                .unwrap();
+            let group = writer.scope("group", Some(root)).unwrap();
+            let source = writer
+                .transactions::<u64>(SourceOptions::new("requests", Some(group)), "REQUEST")
+                .unwrap();
+            writer.associate_clock(source, clock).unwrap();
+            writer.clock_run(clock, 0, 2).unwrap();
+            writer.emit_u64(signal, 1).unwrap();
+            writer.emit_real(grouped_signal, 3.5).unwrap();
+            let owner = writer.begin(source, &42, None).unwrap();
+            writer.advance_time(8).unwrap();
+            writer.end(owner, Status::Ok).unwrap();
+            writer.close().unwrap();
+            let reader = Reader::open(path).unwrap();
+            assert_eq!(reader.find_generator("top.clk"), Some(clock.id()));
+            assert_eq!(reader.find_signal("top.clk"), Some(signal));
+            assert_eq!(reader.find_signal("top.group"), Some(grouped_signal));
             assert_eq!(
-                c.map(|c| (c.cycle, c.edge, c.next_edge)),
-                last.map(|l| (l as u64, want[l], want.get(l + 1).copied())),
-                "round {round} t {t}"
+                reader.find_generator("top.group.requests"),
+                Some(source.id())
             );
-            assert_eq!(tl.next_edge(t), want.iter().copied().find(|&e| e > t));
-            assert_eq!(tl.prev_edge(t), want.iter().copied().rfind(|&e| e < t));
+            assert_eq!(reader.find_generator("top.group"), None);
+            assert_eq!(reader.find_signal("top.group.requests"), None);
+            assert_eq!(
+                reader.value_at(signal, 8).unwrap().borrow().as_u64(),
+                Some(1)
+            );
+            assert_eq!(
+                reader
+                    .lookup(owner.id())
+                    .unwrap()
+                    .unwrap()
+                    .payload()
+                    .decode::<u64>()
+                    .unwrap(),
+                42
+            );
+            assert_eq!(reader.cycle_at(clock.id(), 8).unwrap(), Some(4));
+            reader.validate().unwrap();
         }
     }
 }
 
 #[test]
-fn stretches_live_in_their_own_blocks_and_survive_recovery() {
-    let path = tmp("recovery.vtr");
-    let opts = WriterOptions {
-        background: false,
-        ..Default::default()
-    };
-    let mut w = Writer::create_with(&path, opts).unwrap();
-    let top = w.add_scope(None, "top", ScopeType::Module, "top").unwrap();
-    let clk = w.add_clock(Some(top), "clk").unwrap();
-    let pipe = w
-        .add_scope(Some(top), "pipeline", vtr::ScopeType::Generic, "")
-        .unwrap();
-    let r#gen = w.add_generator(Some(pipe), "insn", "PIPELINE").unwrap();
-    let (_, sig) = w
-        .add_var(
-            Some(top),
-            "x",
-            VarType::Wire,
-            Direction::Implicit,
-            SignalKind::Bits {
-                width: 8,
-                states: 2,
-            },
-        )
-        .unwrap();
-    w.clock_run(clk, 0, 2).unwrap();
-    for t in 0..100u64 {
-        w.set_time(t).unwrap();
-        w.emit_u64(sig, t).unwrap();
-        let tx = w.begin_tx(r#gen, t).unwrap();
-        w.end_tx(tx, t + 1, TxStatus::Ok).unwrap();
-        if t == 40 {
-            w.clock_stop(clk, t).unwrap();
-            w.clock_run(clk, 41, 3).unwrap();
-        }
-        if t == 50 {
-            w.flush().unwrap();
+fn random_gated_clock_runs_match_brute_force_cycles() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut rng = StdRng::seed_from_u64(19);
+    for mode in [ExecutionMode::Inline, ExecutionMode::Threaded] {
+        for round in 0..12 {
+            let path = directory.path().join(format!("{mode:?}-{round}.vtr"));
+            let mut options = WriterOptions {
+                mode,
+                ..WriterOptions::default()
+            };
+            options.encoding.block_bytes = 128;
+            let mut writer = Writer::create_with(&path, options).unwrap();
+            let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
+            let transactions = writer
+                .transactions::<()>(SourceOptions::new("requests", None), "REQUEST")
+                .unwrap();
+            writer.associate_clock(transactions, clock).unwrap();
+            let mut time = 0;
+            let mut edges = Vec::new();
+            let mut ids = Vec::new();
+            for run in 0..12 {
+                let first = time + rng.gen_range(1..=9);
+                let period = rng.gen_range(1..=7);
+                let stop = first + rng.gen_range(0..=13);
+                let id = writer.clock_run(clock, first, period).unwrap();
+                ids.push(id);
+                if run == 11 {
+                    time = stop;
+                    writer.advance_time(time).unwrap();
+                } else {
+                    writer.clock_stop(clock, stop).unwrap();
+                    time = stop;
+                }
+                let mut edge = first;
+                while edge <= stop {
+                    edges.push(edge);
+                    edge += period;
+                }
+            }
+            writer.close().unwrap();
+            let reader = Reader::open(path).unwrap();
+            assert_eq!(
+                reader.clock_for(transactions.id()).unwrap(),
+                Some(clock.id())
+            );
+            for query in 0..=time + 5 {
+                let count = edges.partition_point(|edge| *edge <= query);
+                assert_eq!(
+                    reader.cycle_at(clock.id(), query).unwrap(),
+                    count.checked_sub(1).map(|index| index as u64)
+                );
+            }
+            for id in ids {
+                let run = reader.lookup(id).unwrap().unwrap();
+                assert_eq!(run.kind(), RecordKind::Clock);
+                assert!(edges.contains(&run.begin()));
+                assert!(edges.contains(&run.end()));
+            }
+            reader.validate().unwrap();
         }
     }
-    w.close().unwrap();
-    let full = std::fs::read(&path).unwrap();
-    let rd = Reader::from_bytes(full.clone()).unwrap();
-    let info = rd.clocks()[0].clone();
-    let mut clock_blocks = 0;
-    for e in rd.sections().iter().filter(|e| e.kind == 5) {
-        let bytes = &full[e.payload_offset() as usize..(e.payload_offset() + e.len) as usize];
-        let h = vtr::txblock::TxBlockHeader::parse(bytes).unwrap();
-        let gens: Vec<u32> = vtr::txblock::block_generators(bytes, &h).collect();
-        if gens.contains(&info.generator.0) {
-            assert_eq!(gens, vec![info.generator.0]);
-            clock_blocks += 1;
-        }
-    }
-    assert_eq!(
-        clock_blocks, 2,
-        "one block at the explicit flush, one at close"
-    );
-    let tl = rd.clock(info.id).unwrap();
-    assert_eq!(
-        tl.stretches()
-            .iter()
-            .map(|s| (s.begin, s.end, s.period))
-            .collect::<Vec<_>>(),
-        vec![(0, 40, 2), (41, 98, 3)]
-    );
-    let first_clock_block = rd
-        .sections()
-        .iter()
-        .filter(|e| e.kind == 5)
-        .map(|e| e.payload_offset() + e.len)
-        .find(|&end| {
-            let bytes = &full[..end as usize];
-            Reader::from_bytes(bytes.to_vec()).is_ok_and(|r| {
-                r.clocks().len() == 1
-                    && r.clock(ClockId(0)).is_ok_and(|t| !t.stretches().is_empty())
-            })
-        });
-    let cut = first_clock_block.expect("a clock block before close") as usize + 10;
-    let rd = Reader::from_bytes(full[..cut].to_vec()).unwrap();
-    assert!(rd.recovered().is_some());
-    let tl = rd.clock(ClockId(0)).unwrap();
-    assert_eq!(
-        tl.stretches()
-            .iter()
-            .map(|s| (s.begin, s.end, s.period))
-            .collect::<Vec<_>>(),
-        vec![(0, 40, 2)]
-    );
-    assert!(!tl.is_open());
 }
 
 #[test]
-fn streams_name_their_clock() {
-    let path = tmp("link.vtr");
-    let mut w = Writer::create(&path).unwrap();
-    let cpu = w.add_scope(None, "cpu", ScopeType::Core, "").unwrap();
-    let clk = w.add_clock(Some(cpu), "cycle").unwrap();
-    let path_id = w.intern("cpu.cycle");
-    let pipe = w.add_generator(Some(cpu), "thread0", "PIPELINE").unwrap();
-    w.node_attr(pipe, "vtr.clock", Value::Str(path_id)).unwrap();
-    let other = w.add_generator(Some(cpu), "thread1", "PIPELINE").unwrap();
-    let w_stream = w.clock_generator(clk).unwrap();
-    w.clock_run(clk, 0, 1).unwrap();
-    w.set_time(10).unwrap();
-    w.close().unwrap();
-    let rd = Reader::open(&path).unwrap();
-    assert_eq!(rd.generator_clock(pipe), Some(ClockId(0)));
-    assert_eq!(rd.generator_clock(other), None);
-    assert_eq!(rd.clock(ClockId(0)).unwrap().edge_count(), 11);
-    assert_eq!(w_stream, rd.clocks()[0].generator);
+fn changing_an_active_period_closes_the_previous_run_without_duplicate_edges() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("change.vtr");
+    let mut writer = Writer::create(&path).unwrap();
+    let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
+    let first = writer.clock_run(clock, 1, 3).unwrap();
+    let second = writer.clock_run(clock, 9, 4).unwrap();
+    writer.advance_time(21).unwrap();
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    assert_eq!(reader.lookup(first).unwrap().unwrap().end(), 7);
+    assert_eq!(reader.lookup(second).unwrap().unwrap().end(), 21);
+    for (time, cycle) in [
+        (0, None),
+        (1, Some(0)),
+        (8, Some(2)),
+        (9, Some(3)),
+        (21, Some(6)),
+        (25, Some(6)),
+    ] {
+        assert_eq!(reader.cycle_at(clock.id(), time).unwrap(), cycle);
+    }
 }

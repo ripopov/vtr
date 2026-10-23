@@ -56,7 +56,7 @@ pub use linux::{
 #[cfg(not(target_os = "linux"))]
 mod other {
     use super::*;
-    use vtr::{Ending, Writer};
+    use vtr::recording::{Ending, Writer};
     pub fn install(_: &Options) -> Result<bool, Error> {
         Err(Error::Unsupported)
     }

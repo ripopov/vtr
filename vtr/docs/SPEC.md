@@ -1,308 +1,226 @@
 # VTR file format specification
 
-Version 2.0 of the VTR (Versatile Trace Record) container and encodings.
-This document is normative: an independent implementation written from it
-must read every file produced by the reference implementation and produce
-files the reference reader accepts.
+This document and [TRANSACTIONS.md](TRANSACTIONS.md) specify the current VTR
+wire format, **3.2**, including scalar-page and shared-text encodings.
+The C++ package version is independently 4.0. Activity
+sidecars use VTI 3.0. File versions describe bytes, not API or package revisions.
+Readers and recovery tools reject other VTR header versions. Regenerate older
+recordings; there is no compatibility reader.
 
-The Rust implementation lives in this [`vtr` crate](../). An independent
-[native C++20 implementation](../../vtr-cpp/README.md) reads and writes the same
-format; cross-language tests verify both directions.
-Design-source semantics and presentation metadata belong to a separate VDB
-layer. Viewer layouts, selected signals, cursors, markers, and remote query
-protocols are outside this specification and this crate.
+The independent [Rust library](../README.md) and [C++20 SDK](../../vtr-cpp/README.md)
+implement this format. [RATIONALE.md](RATIONALE.md) explains its design choices.
+API lifetimes, capture queues, and default buffer sizes are implementation
+contracts described in those libraries, rather than additional wire fields.
 
-Notation: `u8/u16/u32/u64` are unsigned little-endian fixed-width integers;
-`i8`/`i64` signed likewise. `varint` is an unsigned LEB128 integer
-(7 payload bits per byte, least-significant group first, high bit set on
-all but the last byte, at most 10 bytes). `svarint` is a `varint` holding a
-zig-zag mapped signed integer (`(v << 1) ^ (v >> 63)`). `blob` is
-`varint length` followed by that many bytes. Bit `i` of a byte is
-`(byte >> i) & 1`.
+Notation: `u8/u16/u32/u64` are unsigned little-endian integers; signed fixed-width
+integers use two's complement. `varint` is canonical unsigned LEB128, at most ten
+bytes for `u64`; its final group must be nonzero unless the value is zero, and
+its tenth byte is at most 1. `svarint` applies ZigZag to a signed 64-bit value,
+then varint. `blob` is a varint byte length followed by bytes. Text is UTF-8.
+Lengths and offsets must be checked before allocation, addition, or slicing.
 
 ## 1. Data model
 
-A VTR file holds five things:
+A recording contains metadata, an ordered design hierarchy, typed runtime
+records, signal histories, and optional blackout markers. Scope parentage
+identifies design structure. Record parentage identifies runtime ownership.
+They are separate relationships. Names connect recorded objects to external
+VDB design information; VTR does not prescribe viewer layouts or remote APIs.
 
-1. **Metadata**: time unit, time-zero offset, producer, date, comment, file
-   type and free-form typed attributes.
-2. **Hierarchy**: an ordered forest of nodes. A node is a *scope*, a *var*
-   (variable), a *generator* or an *enum table*, has a name,
-   an optional parent and an ordered list of typed attributes. Vars refer to
-   *signals*; several vars may alias one signal.
-3. **Signal value changes**: for every signal, its value at every time step
-   it changed. Time is a non-decreasing `u64` in the file's time unit.
-4. **Transactions**: timed intervals belonging to a generator, with typed
-   attributes (tagged begin/record/end), point *events*, sub-interval
-   *stages* on lanes, an optional parent, a status and a kind; and
-   *relations* — typed, attributed, directed edges between transactions.
-5. **Log records**: timestamped messages of a *log site* (a generator that
-   declares a format string and argument types), stored as the argument
-   values only (section 8). A log record is a zero-duration transaction.
+Node, signal, string, and datatype IDs are separate zero-based `u32` namespaces.
+Record IDs are nonzero file-wide `u64` values, including embedded children.
+Transaction and located-record blocks share a separate nonzero `u64` block-number
+namespace. IDs never wrap or get reused. A recording has its own nonzero
+128-bit identity; an ID alone does not identify an object across recordings.
 
-Nothing in the file describes presentation. Stable identity for external
-databases (VDB) comes from names: full hierarchical paths of nodes, generator
-names, attribute keys, event names, stage names, lane names
-and relation kinds are all strings chosen by the producer.
-
-Reader result ownership is an API concern, not an on-disk encoding. The
-reference reader exposes immutable loaded histories and shares their storage
-for repeated requests for one signal ID. This does not change declared alias
-identity or the per-block dynamic alias rules in section 6.6.
+Timestamps are `u64` in the metadata time unit. Waveform producer time is
+nondecreasing. Transaction, stage, event, and log timestamps may be out of
+order and need not match producer time. Their encodings and query boundaries
+are defined in [TRANSACTIONS.md](TRANSACTIONS.md).
 
 ## 2. Container
 
-```
-+----------------------------+  offset 0
-| file header (32 bytes)     |
-+----------------------------+
-| section                    |  24-byte header + payload, repeated
-| ...                        |
-+----------------------------+
-| DIRECTORY section          |  written last by the writer
-+----------------------------+
-| trailer (24 bytes)         |
-+----------------------------+  end of file
-```
+File order is a 32-byte header, complete append-only sections, a final DIRECTORY
+section, and a 24-byte trailer. Sections have no alignment padding. The directory
+and trailer are absent while a file is being written or after an interruption.
 
 ### 2.1 File header (32 bytes)
 
-| offset | size | field |
-|---:|---:|---|
-| 0 | 8 | magic `89 56 54 52 0D 0A 1A 0A` (`\x89VTR\r\n\x1a\n`) |
-| 8 | 2 | `u16` major version = 2 |
-| 10 | 2 | `u16` minor version = 0 |
-| 12 | 4 | `u32` flags, must be 0 |
-| 16 | 16 | reserved, must be 0 |
-
-A reader may reject an encoding it does not implement. The version fields
-identify the current encoding but do not constrain how the format may change
-while it is under definition; section 9 defines the current policy.
-A reader that encounters an unknown value tag must report the file as
-unreadable rather than guess. The current format defines value tag 17 (text)
-and the optional LOG_BLOCK section.
+| Offset | Bytes | Field |
+| ---: | ---: | --- |
+| 0 | 8 | Magic `89 56 54 52 0d 0a 1a 0a` |
+| 8 | 2 | Major version = 3 |
+| 10 | 2 | Minor version = 2 |
+| 12 | 4 | Flags = 0 |
+| 16 | 16 | Nonzero recording identity, opaque bytes |
 
 ### 2.2 Section header (24 bytes)
 
-| offset | size | field |
-|---:|---:|---|
-| 0 | 4 | `u32` kind (table below) |
-| 4 | 4 | `u32` flags: bit 0 = *optional* (a reader that does not know `kind` may skip the section) |
-| 8 | 8 | `u64` payload length |
-| 16 | 4 | `u32` CRC-32 (IEEE 802.3 polynomial, as produced by zlib's `crc32`) of the payload, or 0 if not computed |
-| 20 | 4 | reserved, 0 |
+| Offset | Bytes | Field |
+| ---: | ---: | --- |
+| 0 | 4 | Kind |
+| 4 | 4 | Flags |
+| 8 | 8 | Payload byte length |
+| 16 | 4 | IEEE CRC-32 of the payload; zero disables the section check |
+| 20 | 4 | Reserved = 0 |
 
-The payload follows immediately. Kinds:
+Flag bit 0 marks an optional section. An unknown required kind is an error;
+an unknown optional kind may be skipped. DIRECTORY alone uses bit 1 to mark
+an incomplete recording. Other reserved flags are zero.
 
-| kind | name | payload |
-|---:|---|---|
-| 1 | META | section 3 |
-| 2 | STRINGS | section 4 (compressed) |
-| 3 | HIERARCHY | section 5 (compressed) |
-| 4 | SIGNAL_BLOCK | section 6 |
-| 5 | TX_BLOCK | section 7 |
-| 6 | BLACKOUT | section 3.3 |
-| 7 | DIRECTORY | section 2.3 |
-| 8 | LOG_BLOCK | section 8 (written with the optional flag) |
+| Kind | Payload | DIRECTORY aux0 / aux1 |
+| ---: | --- | --- |
+| 1 | META | 0 / 0 |
+| 2 | STRINGS | First string ID / count |
+| 3 | HIERARCHY | First node ID / count |
+| 4 | SIGNAL_BLOCK | First time / last time |
+| 5 | TX_BLOCK | Minimum begin / maximum end, or 0 / 0 without transactions |
+| 6 | BLACKOUT | 0 / 0 |
+| 7 | DIRECTORY | Not indexed in itself |
+| 9 | RECORD_BLOCK | Minimum begin / maximum end |
+| 10 | DATATYPES | First datatype ID / count |
 
-Kinds below 0x1000 are reserved for this specification; a producer may
-write private sections with kind >= 0x1000 and the optional flag set.
-A reader must fail on an unknown kind without the optional flag.
+TX_BLOCK and RECORD_BLOCK entries carry their block number. Every other kind
+has block number zero. A block's directory bounds and number must agree with
+its payload header. Declaration chunk ranges must agree with their payloads.
 
 ### 2.3 Directory and trailer
 
-DIRECTORY payload: `u64 count` then `count` entries of 40 bytes:
+DIRECTORY payload:
 
-| offset | size | field |
-|---:|---:|---|
-| 0 | 4 | `u32` kind |
-| 4 | 4 | `u32` flags |
-| 8 | 8 | `u64` offset of the section header from the start of the file |
-| 16 | 8 | `u64` payload length |
-| 24 | 8 | `u64` aux0 |
-| 32 | 8 | `u64` aux1 |
+```text
+u64 entry_count
+u64 dropped_bytes
+entry_count * {
+    u32 kind, flags
+    u64 section_header_offset, payload_length
+    u64 aux0, aux1
+    u64 block_number
+}
+```
 
-`aux0/aux1` are kind specific: STRINGS and HIERARCHY store the first id and
-the count of the chunk; SIGNAL_BLOCK stores the block's start and end time;
-TX_BLOCK stores the minimum begin time and maximum end time of its
-transactions; LOG_BLOCK the minimum and maximum time of its records; other
-kinds store 0. Entries appear in file order.
+Each entry is 48 bytes. Entries are in physical file order and partition all
+bytes between the file header and DIRECTORY, including section headers, with
+no gaps or overlaps. Entries exclude DIRECTORY. Its payload CRC is always
+verified. The section's incomplete flag distinguishes a normal complete trace
+from a sealed or recovered trace. `dropped_bytes` is zero for a complete trace.
+It records discarded input bytes after recovery; an incomplete trace may also
+have zero dropped bytes.
 
-Trailer (last 24 bytes of the file):
+Trailer: `u64 directory_section_offset`, `u64 total_file_length`, then eight
+bytes `56 54 52 5f 45 4e 44 00` (`VTR_END\0`). Both the recorded length and
+directory extent must match the physical file exactly.
 
-| offset | size | field |
-|---:|---:|---|
-| 0 | 8 | `u64` offset of the DIRECTORY section header |
-| 8 | 8 | `u64` total file length |
-| 16 | 8 | magic `VTR_END\0` |
+A finalized fingerprint is `(recording identity, total length, directory CRC)`.
+The CRC covers the directory payload, not the section header. Identity prevents
+two different recordings of equal length and directory CRC from sharing caches.
 
-**Recovery.** A file without a valid trailer (the writer crashed) is still
-readable: the reader walks section headers from offset 32, stopping at the
-first header that does not fit in the file, whose kind is 0, or whose CRC
-(when not 0) does not match its payload, and recomputes `aux0/aux1` from the
-payloads. Everything up to the last complete, verified section is
-recovered; the rest of the file is dropped. Readers must expose whether a
-file was recovered. A producer should pass each finished section to the
-operating system as soon as it is complete, so that a process that dies
-leaves every finished section in the file.
+### 2.4 Publication and recovery
 
-### 2.4 Section ordering rules
+There is exactly one META. Strings used by metadata must precede it. HIERARCHY,
+DATATYPES, and recording sections follow META. Incremental declaration chunks
+may appear later, but every string, datatype, node, and signal must be declared
+before the section that uses it. Later declarations cannot repair a forward
+reference in an earlier record block. Runtime record references may point to
+records or blocks written later.
 
-Sections are append-only. Producers must obey these ordering constraints so
-that recovery and streaming readers work:
+Without a valid final directory/trailer, recovery scans from byte 32 and stops
+at the first incomplete, invalid, or checksum-failing section, or at DIRECTORY.
+Only the verified contiguous section prefix is retained. It does not salvage
+individual pages from a partial section. Recovery reconstructs declaration
+ranges, time bounds, and block numbers from surviving payloads and preserves
+the recording identity. It writes a new incomplete directory and fingerprint.
+The source and destination must be different files, including hard links.
 
-* Every string id used by a section is defined by a STRINGS section that
-  precedes it in the file.
-* Every node id / signal id used by a section is defined by a HIERARCHY
-  section that precedes it.
-* HIERARCHY sections may appear anywhere after META, interleaved with all
-  other sections, so the hierarchy can grow while a run is recorded. A node
-  exists from the chunk that declares it to the end of the file; it is never
-  removed, renamed or re-parented.
-* META precedes the first HIERARCHY, SIGNAL_BLOCK and TX_BLOCK section.
-* SIGNAL_BLOCK sections appear in non-decreasing time order and their time
-  ranges do not overlap except that the last time of block *k* may equal the
-  first time of block *k+1*.
-* Group sizes and the meaning of signal ids never change within a file.
-* TX_BLOCK and LOG_BLOCK sections carry their own id and time ranges and
-  may appear in any order relative to each other and to SIGNAL_BLOCKs.
+Complete files must resolve every nonzero runtime reference. Incomplete and
+unfinished files may contain missing parents, relation endpoints, or child
+blocks. Readers expose that missing information rather than inventing records.
+`Unfinished` means no accepted final directory; `Incomplete` means an explicitly
+sealed or recovered directory. Neither proves the recording contains every
+simulation operation.
 
 ## 3. Small sections
 
 ### 3.1 Compressed blob
 
-Several payloads contain a *compressed blob*:
-
-```
-u8      codec      0 = stored, 1 = LZ4 block format, 2 = Zstandard frame
-varint  raw_len    length of the decompressed data
-bytes   payload    the remaining bytes of the blob
+```text
+u8 codec                  0 stored, 1 raw LZ4 block, 2 Zstandard frame
+varint decompressed_bytes
+bytes encoded_payload
 ```
 
-For codec 0 the payload is `raw_len` bytes verbatim. Codec 1 is a single
-raw LZ4 block (no frame, no length prefix). Codec 2 is a Zstandard frame
-(RFC 8878); the frame may omit the content size and checksum. Writers must
-fall back to codec 0 when compression does not reduce the size. A blob is
-always the last thing in its enclosing byte string, or is preceded by its
-total length, so a reader can delimit it.
+Stored payload length equals the declared decompressed length. Other codecs
+must produce exactly that length and consume their entire bounded blob. Blobs
+are delimited by their enclosing length or container. The Zstandard frame may
+omit content size and checksum. Writers store plain bytes when compression
+would not reduce size. Compressed raw blocks are smaller than `2^30` bytes.
 
 ### 3.2 META (kind 1)
 
-```
-varint  layout   = 1
-svarint timescale   exponent e: one time unit is 10^e seconds (-9 = ns, -12 = ps)
-svarint time_zero   offset to add when displaying absolute time (FST "timezero")
-u8      file_type   0 Verilog, 1 VHDL, 2 Verilog+VHDL, 3 SystemC, 4 architectural simulator,
-                    5 software tracing, 255 other
-blob    writer      producing tool and version (UTF-8)
-blob    date        free form (UTF-8)
-blob    comment     free form (UTF-8)
-varint  group_size  signals per value-change group; a power of two, constant for the file
-attrs               file-level attributes (section 5.3)
+```text
+varint layout = 1
+svarint timescale          signed i8 exponent; one tick is 10^timescale seconds
+svarint time_zero          i64 display offset
+u8 file_type              0 Verilog, 1 VHDL, 2 mixed, 3 SystemC,
+                          4 architectural, 5 software, 255 other
+blob writer, date, comment UTF-8
+varint group_size         power of two, 1 through 2^20
+attributes                section 5.3
 ```
 
-Exactly one META section is present.
+The default unit is picoseconds (`-12`). Group size is constant throughout one
+recording. It partitions signal IDs for waveform storage, not hierarchy nodes.
 
 ### 3.3 BLACKOUT (kind 6)
 
-Dump-off/dump-on intervals (VCD `$dumpoff`/`$dumpon`):
-
-```
-varint n
-n x { u8 active (1 = recording resumed, 0 = recording stopped), varint time_delta }
-```
-
-Times are absolute after cumulative addition of the deltas. Value changes
-inside a blackout region are simply absent; the frame mechanism of
-section 6 still gives every signal a value at every time.
+`varint count`, then `count` pairs of `u8 active` and `varint time_delta`.
+Active is 0 for recording stopped, 1 for resumed. Cumulative times are
+nondecreasing and must not overflow. Missing samples during a blackout do not
+change waveform frame/default rules.
 
 ## 4. STRINGS (kind 2)
 
-The payload is a compressed blob (3.1) containing:
-
-```
-varint first_id
-varint count
-count x blob   UTF-8 string
-```
-
-Chunks are appended in id order: the first chunk has `first_id = 0` and its
-first string must be the empty string (id 0 is always ""). String ids are
-`u32`. Strings are compared byte-wise; producers should intern each
-distinct string once but readers must not assume uniqueness.
+A compressed blob containing `varint first_id`, `varint count`, then `count`
+UTF-8 blobs. Chunks extend the dense string table in order. ID zero is the empty
+string. Producers intern strings; readers must still accept duplicate text at
+different IDs. String equality is bytewise. IDs and counts must fit `u32`.
 
 ## 5. HIERARCHY (kind 3)
 
-The payload is a compressed blob containing:
+A compressed blob containing `varint first_node`, `varint count`, then nodes.
+Chunks extend the dense node table in order. Each node begins with `u8 kind`,
+`varint parent_distance`, and `varint name_string_id`, followed by the
+kind-specific fields below and an attribute list (5.3).
 
-```
-varint first_node
-varint count
-count x node
-```
+A zero parent distance means root; otherwise parent ID is `node_id - distance`.
+Every parent is an earlier scope. Later chunks may add children anywhere in the
+existing forest. Parentage is immutable.
 
-Node ids are dense `u32` in file order (`first_node` of a chunk equals the
-number of nodes in all earlier chunks). A node:
+| Kind | Fields |
+| ---: | --- |
+| 1 scope | `varint scope_type`, `varint component_string_id` |
+| 2 variable | `varint var_type`, `u8 direction`, `varint signal_back`, `u8 declares`, then a signal kind when declaring |
+| 3 generator | `varint kind_string_id`, `varint payload_datatype_id` |
+| 4 enum table | `varint count`, pairs of `varint literal_string_id`, `varint value_string_id` |
 
-```
-u8      kind        1 scope, 2 var, 3 generator, 4 enum table
-varint  parent      0 = top level; otherwise `this id - parent id` (the parent precedes the node)
-varint  name        string id
-...kind specific fields...
-attrs               section 5.3
-```
+Direction codes are 0 implicit, 1 input, 2 output, 3 inout, 4 buffer, 5 linkage.
+For a variable, `signal_id = next_signal_id - signal_back`. A declaring variable
+has `declares=1`, back distance zero, and allocates the next signal ID. An alias
+has `declares=0`, a positive valid back distance, and no signal-kind payload.
+Aliases share signal identity; they do not allocate another history.
 
-**Parents.** Every node is a root (`parent = 0`) or the child of a scope.
-Generators may sit directly in a module or any other scope. Writers reject
-other parents and readers treat them as corrupt. Chunks may declare children of
-nodes from earlier chunks, so the hierarchy can grow anywhere at any time.
+Generator kinds `CLOCK`, `EVENT`, `STAGE`, and `LOG` are reserved; other strings
+identify ordinary transaction sources. Each source has one immutable payload
+datatype, detailed in [TRANSACTIONS.md](TRANSACTIONS.md). Scope grouping does not
+inherit record kind or metadata.
 
-Ids inside a node are stored relative to the node's own position so that
-they stay small: the parent as a backward distance, the signal of a var
-(below) as a backward distance from the next unassigned signal id.
-
-Kind specific fields:
-
-| kind | fields |
-|---|---|
-| scope | `varint scope_type` (5.1), `varint component` string id (module/entity type; 0 = unknown) |
-| var | `varint var_type` (5.2), `u8 direction` (0 implicit, 1 input, 2 output, 3 inout, 4 buffer, 5 linkage), `varint signal_back` = `next_signal - signal` where `next_signal` is the number of signals declared before this node (0 for a var that declares the next signal, `>= 1` for an alias of an earlier one), `u8 declares` then, if `declares = 1`, a signal kind: `u8 code` (0 bits/2-state, 1 bits/4-state, 2 bits/9-state, 3 real, 4 variable-length) followed by `varint width` for codes 0..2 |
-| generator | `varint kind` string id (free form, e.g. "PIPELINE", "TRANSACTION", "LOG", "CLOCK") |
-| enum table | `varint n`, `n x { varint literal string id, varint value string id }` |
-
-**Generators.** The kind classifies the records produced by that generator.
-`LOG` and `CLOCK` have the semantics below; other kinds are producer-defined.
-Generator attributes describe the source and are stored once in its declaration.
-Ordinary scopes provide optional grouping; grouping does not imply a record kind
-or inherit generator attributes. The transaction's status/kind byte in section 7
-is a separate per-record classification.
-
-**Signals.** Signal ids are dense `u32`. The var with `declares = 1` for
-signal *s* is the *s*-th declaring var in file order (so `signal_back`
-must be 0 for it); a var with `declares = 0` is an *alias* of an earlier
-signal and `signal_back` must be at least 1 and at most `next_signal`. The
-signal kind gives the value encoding used everywhere else:
-
-| code | kind | value representation |
-|---:|---|---|
-| 0 | bits, 2 states | `width` bits, 1 bit per bit |
-| 1 | bits, 4 states | `width` bits, 2 bits per bit, codes 0,1,X,Z |
-| 2 | bits, 9 states | `width` bits, 4 bits per bit, codes 0,1,X,Z,U,W,L,H,- |
-| 3 | real | IEEE 754 binary64, little-endian |
-| 4 | variable length | byte string |
-
-Bit packing (all states): bit *i* of the vector (bit 0 is the least
-significant bit, i.e. the rightmost character of the VCD spelling) is
-stored in byte `i / 8` (2-state), `i / 4` (4-state) or `i / 2` (9-state),
-at bit position `(i % 8)`, `2 * (i % 4)` or `4 * (i % 2)`. Unused high bits
-of the last byte are zero. Logic codes:
-
-| code | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
-|---|---|---|---|---|---|---|---|---|---|
-| meaning | 0 | 1 | X | Z | U | W | L | H | - |
-
-A value packed with fewer states than the signal declares (a *compact*
-value) is only used where the enclosing encoding says so (section 6.4).
+A declaring signal stores `u8 encoding`: 0 bits/2-state, 1 bits/4-state,
+2 bits/9-state, 3 binary64 real, 4 opaque variable-length bytes. Codes 0–2 append
+`varint width`, with `0 < width < 2^31`. Packed signal bit i occupies the low-to-high
+positions in byte `i/8`, `i/4`, or `i/2`, respectively. State codes in order are
+`0, 1, X, Z, U, W, L, H, -`; two-state uses codes 0–1, four-state 0–3.
+Unused high padding bits are zero. A compact waveform value uses two-state
+packing only when its column header says so.
 
 ### 5.1 Scope types
 
@@ -337,61 +255,50 @@ blob). The var type is informational; the signal kind decides the encoding.
 
 ### 5.3 Attributes and values
 
-An attribute list is `varint n` followed by `n x { varint key string id,
-value }`. A value is a tag byte followed by a tag-specific payload:
+An attribute list is `varint count`, then pairs of `varint key_string_id` and a
+tagged value. Keys are unique within each list, including nested maps. Each
+value starts with one tag byte and the payload below. Unlike canonical typed
+payloads, tagged integers use varints. All fixed-width integer ranges are
+validated without narrowing or wrapping.
 
-| tag | name | payload |
-|---:|---|---|
-| 0 | null | none |
-| 1 | bool | `u8` 0/1 |
-| 2 | i64 | `svarint` |
-| 3 | u64 | `varint` |
-| 4 | f64 | 8 bytes IEEE binary64 LE |
-| 5 | str | `varint` string id |
-| 6 | bytes | `blob` |
-| 7 | bits | `varint width`, then `ceil(width/8)` bytes 2-state packed |
-| 8 | logic | `varint width`, then `ceil(width/4)` bytes 4-state packed |
-| 9 | logic9 | `varint width`, then `ceil(width/2)` bytes 9-state packed |
-| 10 | time | `varint` in file time units |
-| 11 | enum | `svarint value`, `varint` literal string id |
-| 12 | pointer | `varint` |
-| 13 | fixed | `svarint raw`, `svarint scale` (value = raw * 2^-scale) |
-| 14 | ufixed | `varint raw`, `svarint scale` |
-| 15 | list | `varint n`, `n x value` |
-| 16 | map | `varint n`, `n x { varint key string id, value }` |
-| 17 | text | `blob`, UTF-8; inline text that is not interned (one-off strings such as log arguments) |
+| Tag | Value | Payload after tag |
+|---|---|---|
+| 0 | null | None |
+| 1 | bool | Byte 0 or 1 |
+| 2 | i8 | Signed varint |
+| 3 | i16 | Signed varint |
+| 4 | i32 | Signed varint |
+| 5 | i64 | Signed varint |
+| 6 | u8 | Unsigned varint |
+| 7 | u16 | Unsigned varint |
+| 8 | u32 | Unsigned varint |
+| 9 | u64 | Unsigned varint |
+| 10 | f32 | 4 bytes, little-endian IEEE binary32 |
+| 11 | f64 | 8 bytes, little-endian IEEE binary64 |
+| 12 | str | Varint string ID |
+| 13 | text | Length-prefixed UTF-8 bytes |
+| 14 | bytes | Length-prefixed bytes |
+| 15 | bits | Varint width, then `ceil(width/8)` packed bytes |
+| 16 | logic | Varint width, then `ceil(width/4)` packed bytes |
+| 17 | logic9 | Varint width, then `ceil(width/2)` packed bytes |
+| 18 | time | Unsigned varint |
+| 19 | enum | Signed varint value, varint literal string ID |
+| 20 | pointer | Unsigned varint |
+| 21 | fixed | Signed varint raw, signed varint scale; value is `raw * 2^-scale` |
+| 22 | ufixed | Unsigned varint raw, signed varint scale |
+| 23 | list | Varint count, then tagged values |
+| 24 | map | Varint count, then string-ID keys and tagged values |
 
-Attribute keys are free form. Keys beginning with `vtr.` and `log.` are
-reserved for this specification (`log.*` is defined in section 8.1,
-`vtr.label` below, `vtr.period` and `vtr.clock` in section 7.4); converters use tool prefixes (`fst.`, `otel.`,
-`kanata.`, `ftr.`) for source-specific data. Readers must preserve unknown
-attributes. Producers that copy attributes from another format must not
-strip or add a reserved prefix, so a foreign key never acquires reserved
-meaning by accident.
 
-Attribute keys are unique within each item: a transaction, event, stage,
-relation or hierarchy node cannot contain the same key twice. A writer must
-reject a duplicate rather than silently replace or discard either value. Lists
-(tag 15) and maps (tag 16) are available when one key needs multiple or
-structured values.
+A length-prefixed byte sequence in this table is a `blob`. Packed widths are
+`u64`, with the same state codes and zero-padding rules as signals. A map uses
+attribute-list framing; a list stores tagged values. Nesting is limited to 64.
+Floating values preserve their exact IEEE bits, including signed zero and NaNs.
+Every referenced string must already exist.
 
-The reserved key `vtr.label` carries a human-readable name for the *single*
-item that holds it — a transaction, an event, a stage, a relation or a
-hierarchy node. Its value is a *str* or *text* (tag 5 or 17) and it follows
-the same uniqueness rule as every other key. A viewer displays it
-wherever it names that item — the caption of a transaction bar in a Gantt or
-pipeline row, its entry in a transaction list, the title of a tooltip or
-detail panel — and falls back to the generator's name (section 5) when the
-key is absent.
-
-`vtr.label` names an instance, not a type, which is why it is not called a
-name: the stable name of a transaction *kind* is its generator's name, and
-that is what a VDB binds to and what survives across runs. A producer with
-no per-instance name omits the key rather than repeating the generator name.
-The value is text only: it carries no colour, ordering, grouping or layout,
-and a VDB may override or ignore it. A producer-chosen name for one recorded
-item is identity data, permitted by the README's VTR/VDB boundary on the same
-footing as node, event, stage and relation names; presentation stays in VDB.
+Keys starting with `vtr.` or `log.` are reserved. `vtr.label`, when present, is
+`str` or `text`. `vtr.clock` is a `u32` generator ID referring to a CLOCK source.
+Log source metadata is specified in [LOGGING.md](LOGGING.md).
 
 ## 6. SIGNAL_BLOCK (kind 4)
 
@@ -412,7 +319,7 @@ u32  group_size
 u32  n_dirty         number of dirty groups
 u32  n_groups        ceil(n_signals / group_size)
 u32  tt_len          byte length of the time table blob
-blob time_table      compressed blob (3.1) of n_times varints: first absolute time, then deltas
+bytes[tt_len] time_table   compressed blob (3.1) of n_times varints: first absolute time, then deltas
 n_dirty x { u32 group, u32 clen, u64 offset }   dirty index, ascending by group;
                                                 offset is relative to the start of the group area
 n_groups x u32       prev-dirty table: for every group, the index of the previous
@@ -432,7 +339,7 @@ varint n_alias                    dynamic aliases (6.6)
 n_alias x { varint local_sig, varint target_sig }
 blob   frame                      compressed blob: the *frame* (6.3)
 varint n_runs
-n_runs x { varint n_in_run, varint xform, varint clen }   runs cover the n_sigs signals in order
+n_runs x { varint n_in_run, u8 xform, varint clen }   runs cover the n_sigs signals in order
 run blobs                         n_runs compressed blobs of `clen` bytes each
 ```
 
@@ -560,409 +467,109 @@ holds it.
 The global list of time steps is the concatenation of all block time
 tables with the duplicated boundary time removed.
 
-## 7. TX_BLOCK (kind 5)
+## 7. Typed records
 
-Transactions are appended to a block when they end (or when the file is
-closed, with status *open*). The reference writer preserves `end_tx` call
-order, not timestamp order: both begin and end times may go backwards
-between transactions, including across block boundaries. Block time ranges
-may overlap. Relations are appended when they are recorded.
+[TRANSACTIONS.md](TRANSACTIONS.md) defines DATATYPES, canonical payloads,
+TX_BLOCK, RECORD_BLOCK, ownership, embedded children, relations, clocks, and
+query semantics. Logs use ordinary typed LOG generators and RECORD_BLOCK pages;
+there is no separate log-block encoding.
 
-### 7.1 Layout
+## 8. Conformance and limits
 
-```
-u64 n_tx, u64 n_rel
-u64 min_id, u64 max_id            transaction ids present (0 if n_tx = 0)
-u64 t_min, u64 t_max              smallest begin / largest end time
-u64 rel_min_from, u64 rel_max_from, u64 rel_min_to, u64 rel_max_to
-u32 n_gens                        number of distinct generators present
-u32 blob_len
-n_gens x u32                      sorted generator node ids present
-blob                              compressed blob (3.1) of the column set, blob_len bytes
-```
+All decoders validate discriminators, flags, ranges, UTF-8, declared counts,
+column consumption, and type availability. Unknown attribute tags, codec IDs,
+node kinds, or datatype kinds are errors. A reader may enforce tighter resource
+budgets than the wire permits, but must report rejection rather than truncate
+values or silently drop records. Public payloads and encoded page fields that
+use `u32` lengths must fit that domain.
 
-Decompressed column set: `varint n_cols` (= 24), `n_cols x varint len`,
-then the columns concatenated. Every column is a byte stream read
-sequentially; a reader decodes transaction by transaction pulling one item
-from each relevant column. Columns, in order:
+Lazy queries check the pages they load. Full validation additionally checks
+all waveform samples and records, exact block/page bounds, global record and
+block identity, ownership, references, locators, and clock associations.
+Checksums cover bytes; semantic validation checks their meaning. Disabling
+checksums does not disable structural validation.
 
-| # | name | item per | encoding |
-|---:|---|---|---|
-| 0 | id | transaction | `svarint` delta from the previous transaction's id in the block (first relative to 0) |
-| 1 | generator | transaction | `varint` node id |
-| 2 | begin | transaction | `svarint` delta from the previous transaction's begin time (first relative to 0) |
-| 3 | duration | transaction | `varint end - begin` |
-| 4 | status/kind | transaction | `u8`: `kind << 4 \| status` (7.2) |
-| 5 | parent | transaction | `varint`: 0 = none, else `(zigzag(id - parent) << 1) \| 1` |
-| 6 | attr count | attribute list | `varint n` — one item per attribute list, in this order: the transaction's attributes, then each event's, then each stage's; after all transactions, each relation's |
-| 7 | attr key | attribute | `varint` string id |
-| 8 | attr tag | attribute | `u8`: bare value tag; upper three bits are reserved and written zero |
-| 9 | attr numeric | attribute | `u8` for bool; `svarint` for i64 and enum value; `varint` for u64/time/pointer/ufixed raw; `svarint raw, svarint scale` for fixed; `varint raw, svarint scale` for ufixed |
-| 10 | attr f64 | attribute | 8 bytes binary64 LE |
-| 11 | attr string | attribute | `varint` string id for str and for the enum literal |
-| 12 | attr misc | attribute | payload of tags 6..9 and 15..17 exactly as in 5.3 (without the tag byte) |
-| 13 | event count | transaction | `varint` |
-| 14 | event time | event | `svarint time - begin` |
-| 15 | event name | event | `varint` string id |
-| 16 | stage count | transaction | `varint` |
-| 17 | stage name | stage | `varint` string id |
-| 18 | stage lane | stage | `varint` string id |
-| 19 | stage begin | stage | `svarint stage.begin - begin` |
-| 20 | stage end | stage | `varint`: 0 = open, else `stage.end - stage.begin + 1` |
-| 21 | relation kind | relation | `varint` string id |
-| 22 | relation from | relation | `svarint` delta from the previous relation's `from` (first relative to 0) |
-| 23 | relation to | relation | `svarint to - from` |
+The independent Rust/C++ tests cover both writer/reader directions, codecs,
+producer and encoding modes, retained schemas, waveform aliases and states,
+recovery, and VTI identity. Exact-byte fixtures cover low-level schema and page
+encodings. These checks complement the full application and benchmark suites.
 
-Attribute items are consumed from columns 7..12 in list order; for each
-attribute, exactly the columns implied by its tag are read.
+## 9. Activity index sidecar (VTI 3.0)
 
-### 7.2 Semantics
+An activity index records exact signal-change times after the first waveform
+time `t_min`. Multiple values at the same timestamp count once for activity;
+event occurrences remain distinct in the trace itself. Consecutive integer
+timestamps coalesce into a stretch `[first,last]`. Its gap is 0 for one timestamp,
+1 otherwise. A signal is active in a closed query window exactly when one of
+its stretches intersects it; there is no approximate or undecided result.
 
-* Transaction ids are `u64` >= 1, unique within the file; the reference
-  writer assigns them in `begin_tx` call order, not begin-timestamp order.
-  Log records and clock stretches share this id space.
-  Id 0 as a relation endpoint means
-  "outside this file".
-* `status`: 0 unset, 1 ok, 2 error, 3 aborted (squashed / flushed),
-  4 open (never ended before close; the reference writer uses its current
-  waveform time for `end`, clamped to `begin`). `kind`: 0 unspecified,
-  1 internal, 2 server, 3 client,
-  4 producer, 5 consumer (OpenTelemetry span kinds).
-* `end >= begin`; stage `end >= stage.begin`; an open stage is closed at the
-  transaction's end when read.
-* Transaction timestamps need not be monotonic and are independent of the
-  reference writer's waveform time (`set_time`). This permits temporally
-  decoupled TLM producers to record effective simulation times (kernel time
-  plus local offset) in production order. The reference writer clamps
-  transaction and stage ends to their respective begins. At file close,
-  unfinished transactions use the current `set_time` value, clamped to
-  their begin, rather than the largest transaction timestamp recorded.
-* Events and stages belong to one transaction and may lie outside its
-  `[begin, end]` interval only if the producer chose so.
-* Relations are directed `from -> to` with a free-form kind string and
-  attributes. Structural parent/child nesting uses the `parent` field;
-  producers may additionally record a `parent_of` relation.
-* A transaction has no name of its own: its name is its generator's. The
-  reserved attribute key `vtr.label` (5.3) overrides that for one
-  transaction, and viewers show its *str*/*text* value wherever they name
-  the transaction. The same key labels a single event, stage or relation.
-  The Kanata converter writes it from `L 0` (transaction) and `L 2`
-  (stage).
-* Log sites are generators of kind `LOG`; their records are zero-duration
-  transactions stored in LOG_BLOCKs (section 8), not in TX_BLOCKs.
-* Clocks are generators of kind `CLOCK` whose transactions are steady stretches
-  of edges (section 7.4).
+A source must have a finalized fingerprint. Sidecar identity includes its format,
+recording ID, total trace length, and trace directory CRC. Matching source
+metadata additionally checks signal count, t_min, every waveform block's bounds,
+and its section-header-plus-payload size. A sidecar for another recording is
+rejected, even when its length and CRC match. Cached sidecars are derived data
+and can be rebuilt.
 
-### 7.3 Reading
+### 9.1 Container and header
 
-*Transaction by id*: scan the blocks whose `[min_id, max_id]` contains the
-id. *Transactions in a time window*: blocks with `t_min <= window end` and
-`t_max >= window start`. *Relations from/to an id*: blocks whose
-`rel_min/max` range contains it. *Transactions of a generator*: blocks
-whose generator list contains it.
+VTI has magic `89 56 54 49 0d 0a 1a 0a`, major 3, minor 0, and twenty zero bytes
+after the version fields in its 32-byte file header. Its 24-byte section and
+trailer framing follow section 2, but the DIRECTORY payload is `u64 entry_count`
+followed by **40-byte** entries: kind/flags, offset/length, aux0/aux1. It has no
+dropped-byte field or block-number column. `VTR_END\0` remains the trailer magic.
+Every VTI payload and the final directory have a CRC. A sidecar requires its
+complete directory and trailer; prefix recovery is not supported.
 
-The reference reader's `visit_transactions` visits transactions in file
-order, preserving their order within each block; it does not sort by
-timestamp. Time-window queries test each candidate block's bounds and each
-transaction's interval, so they also support out-of-order timestamps.
-Consumers requiring chronological iteration must sort the results.
+Sections are one HEADER (kind 1), one BLOCK (kind 2) per source waveform block
+in order, one TAIL (kind 3), DIRECTORY (kind 7), and trailer. Only BLOCK has
+nonzero aux fields, equal to start/end. Header payload is exactly 56 bytes:
 
-### 7.4 Clocks
+| Offset | Bytes | Field |
+| ---: | ---: | --- |
+| 0 | 8 | Source trace length |
+| 8 | 4 | Source directory payload CRC |
+| 12 | 1 | Source format = 1 (VTR) |
+| 13 | 3 | Reserved zero |
+| 16 | 4 | Signal count |
+| 20 | 12 | Reserved zero |
+| 32 | 8 | t_min |
+| 40 | 16 | Source recording identity |
 
-A clock records when a clock ticked as a list of steady *stretches*, not as
-edges. It uses the transaction encoding and adds no section, value tag or
-node kind.
+### 9.2 Block and tail payloads
 
-* A clock is a generator of kind `CLOCK`. It is normally named after the
-  clock net and placed in the net's scope, so a reader pairs it with the
-  net's waveform by path when that was dumped. A producer may place it
-  elsewhere; pairing by path is then lost. A clock's path is its generator's
-  hierarchical path joined with `.`.
-* A *stretch* is one transaction of the clock generator: `begin` is its first rising
-  edge, `end` its last, and the attribute `vtr.period` (tag 10, *time*) the
-  spacing between them, in file units. `end - begin` is a whole multiple of
-  the period. A stretch of a single edge (`begin = end`) has no `vtr.period`.
-  Status is *unset*, or *open* for a stretch still running when the file was
-  closed; kind is *unspecified*; there is no parent, event or stage.
-* Stretches of one clock never share an edge: each begins after the previous
-  one's last edge. Periods are whole file units; producers do not round.
-* The edges of stretch `s` are `s.begin + k * s.period` for
-  `k = 0 .. n(s) - 1`, with `n(s) = (s.end - s.begin) / s.period + 1`
-  (1 without a period). The first recorded edge is cycle 0, and numbering
-  continues across stretches in time order: the first edge of `s` is cycle
-  `sum n` over the earlier stretches. The cycle at time `t` is the number of
-  the last edge at or before `t`; the interval from the last edge of one
-  stretch to the first edge of the next is one cycle. Edge counts and cycle
-  numbers are computed, never stored.
-* The attribute `vtr.clock` (tag 5, *str*) on any generator names, by path, the
-  clock that the generator's stages and transactions are counted in. A generator
-  without it has no declared clock.
+BLOCK's 40-byte prefix is `u64 start, end, source_section_bytes`,
+`u32 row_count, closed_stretch_count`, `u8 exponent=0`, and seven reserved zero
+bytes. It is followed by a compressed blob containing six varint byte lengths
+and the six streams below. Unlike transaction column sets, VTI omits the column
+count. All stream values are canonical unsigned varints.
 
-Writers should store stretches in TX_BLOCKs that hold no other generator, so
-that a reader loads a clock without decoding other transactions. The
-reference writer writes the stretches ended so far into one such block at
-each explicit flush and at close; it ends a stretch still running at close at
-its last edge at or before the writer's current time.
+1. Signal-ID delta per row, first relative to zero; rows strictly increase.
+2. Head per row: `(closed_count << 1) | first_change_flag`; not zero.
+3. First-change offset from source block start, only for a row with its flag set.
+4. Length `last-first` per closed stretch.
+5. Silence `next_first-last` following each closed stretch; greater than 1.
+6. Gap per closed stretch: 0 when length is zero, otherwise 1.
 
-## 8. LOG_BLOCK (kind 8)
+A signal's initial stretch opens at its flagged first change, strictly after
+t_min. Later stretches open after the preceding kept silence. A stretch can
+cross source block boundaries; its start is retained by the decoder until it
+closes. Declared closed counts and all column contents must be consumed exactly.
 
-A log record is a message of a *log site*: one call site of a logging
-macro in the producer (`LOG_INFO("addr={:#x} len={}", a, n)`). The site's
-static facts (format string, severity, source location, argument types)
-are declared once on a generator of kind `LOG`; a record stores the
-time and the argument values only. This borrows the static/dynamic split of
-NanoLog and binlog and the dictionary of repeated string variables of CLP
-(see [the rationale](RATIONALE.md)).
+TAIL is `u32 row_count`, four reserved zero bytes, then a compressed blob of
+three varint-length streams: signal deltas, final stretch lengths, final gaps.
+It closes the remaining stretch for every signal that changed. The tail leaves
+no open stretch. All decoded times must fit the source waveform bounds.
 
-### 8.1 Log sites
+### 9.3 Building, loading, and caching
 
-A log site is a generator node of kind `LOG` whose attributes include
-`log.args`. Its name is the format string. The
-attributes are:
+Builders write a temporary file and publish it by rename after finishing the
+container. Cancellation or failure does not publish a partial sidecar. Parallel
+scans are stitched in source order. Scanner admission uses conservative workspace
+estimates; configured memory is not a process-wide allocator cap. Decoders admit
+input, decompression workspace, and retained range storage before allocating,
+and support cooperative yielding/cancellation.
 
-| key | value | meaning |
-|---|---|---|
-| `log.args` | list of u64 | argument types in placeholder order; each is a value tag from the set 1 bool, 2 i64, 3 u64, 4 f64, 5 str (interned id), 6 bytes, 10 time, 12 pointer, 17 text |
-| `log.names` | list of str | one name per argument (attribute keys when a record is read as a transaction); producers that have no names write `"0"`, `"1"`, ... |
-| `log.severity` | u64 | 0 trace, 1 debug, 2 info, 3 warn, 4 error, 5 fatal; other values rank by number (default 2) |
-| `log.file`, `log.line`, `log.func` | str, u64, str | producer log-site source location, optional |
-
-These source-location attributes identify where a runtime message originated.
-They are permitted log-site provenance under the README's VTR/VDB boundary;
-design source mappings, specialized types and driver/load relationships remain
-in VDB.
-
-Format strings use `{}` placeholders with an optional index and
-specification, `{2}`, `{:#010x}`, `{:>8.3}`, and `{{`/`}}` for literal
-braces (the common subset of Rust `std::fmt` and C++ `std::format`; the
-reference reader's `logfmt` module documents the accepted specification).
-The number of placeholders should equal the number of arguments; a reader
-renders a placeholder without an argument as `{?}`. Other `log.*` keys are
-reserved.
-
-### 8.2 Layout
-
-```
-u64 n_rec
-u64 min_id, u64 max_id            record (transaction) ids present (0 if n_rec = 0)
-u64 t_min, u64 t_max              smallest / largest record time
-u32 n_gens
-u32 blob_len
-n_gens x u32                      generator node ids present, in order of first occurrence
-blob                              compressed blob (3.1) of the column set, blob_len bytes
-```
-
-Decompressed column set: `varint n_cols` (= 9), `n_cols x varint len`,
-then the columns concatenated. A reader decodes record by record, pulling
-one item from each relevant column; the argument columns are consumed in
-the site's declared order.
-
-| # | name | item per | encoding |
-|---:|---|---|---|
-| 0 | gen | record | `varint` index into the block's generator list |
-| 1 | time | record | `svarint` delta from the previous record's time (first relative to 0) |
-| 2 | id | record | `svarint` delta from the previous record's id (first relative to 0) |
-| 3 | parent | record | `varint`: 0 = none, else `(zigzag(id - parent) << 1) \| 1` |
-| 4 | num | argument | bool: `u8`; i64: `svarint`; u64, time, pointer: `varint` |
-| 5 | f64 | argument | 8 bytes binary64 LE |
-| 6 | text | argument | `varint` index into the block dictionary (column 7) |
-| 7 | dict | block | `varint n`, then `n x blob`: the distinct text arguments of the block in order of first occurrence |
-| 8 | misc | argument | str: `varint` string id; bytes: `blob` |
-
-### 8.3 Semantics
-
-* Record ids share the transaction id space (section 7.2): a log record is
-  a zero-duration transaction (`begin = end = time`, status *unset*, kind
-  *unspecified*) whose attributes are its arguments keyed by `log.names`.
-  Relations may reference record ids.
-* `parent`, when present, is the transaction during which the message was
-  produced (for example the bus transfer a driver was handling).
-* Records within a block are stored in production order; times need not
-  be monotonic. Blocks may appear in any order (section 2.4); the reference
-  writer keeps production order even when it encodes on several threads, and
-  the reference reader visits blocks by their first time.
-* Text arguments are deduplicated per block; identical strings share one
-  dictionary entry. Producers should declare repetitive strings (names,
-  states, responses) as text and use `str` only when they intern
-  themselves; `bytes` is for payloads that must not be interpreted.
-
-### 8.4 Reading
-
-*Records of a time window*: blocks with `t_min <= window end` and
-`t_max >= window start`. *Records by severity, scope or site*: the
-generator list in the header names every site present, so a block whose
-sites are all below the wanted severity or outside the wanted scope subtree is
-skipped without decompression. *Record by id*: blocks whose
-`[min_id, max_id]` contains the id, after the TX_BLOCKs.
-
-### 8.5 Run ending
-
-A file records how its run ended when the run did not simply close. The
-root scope named `vtr.run` is reserved for this: producers
-must not declare it for anything else. A producer that ends a run in any
-other way than a normal close writes one record of one of these FATAL `LOG` generators
-under it, at its current time, as the last log record of the file:
-
-| format | arguments (`log.names`: types) | ending |
-|---|---|---|
-| `run stopped by signal {}` | `signal`: i64 | a stop request (SIGTERM, SIGINT, ...), then a normal close |
-| `run exited with status {}` | `status`: i64 | the program called `exit()` without closing |
-| `run crashed by signal {} (code {}, address {}, thread {}, sealed {})` | `signal`, `code`: i64; `address`: pointer; `thread`: u64; `sealed`: bool | a fatal signal with its `si_code`, fault address and kernel thread id; `sealed` when the writer was interrupted mid-call and only what had reached its encoder was kept |
-| `run recovered by scanning, {} bytes dropped` | `dropped`: u64 | the file was recovered (2.3) and rewritten whole |
-| `run sealed after a panic in the writer` | none | the producer's writer failed mid-call and finished only what had reached its encoder |
-
-Signal numbers are those of the producing platform (Linux numbering in the
-reference writer). A reader reports the last record of `vtr.run`; a file
-without one ended with a normal close when it has a directory, and was
-recovered otherwise. This is a convention over sections 8.1 to 8.3, not a
-format change: every log reader shows the record.
-
-## 9. Extensibility and versioning
-
-The format is under definition and may change freely. The major and minor
-fields are `2.0`. Readers in this checkout reject other versions. Producers and readers
-in one checkout implement the specification in that checkout; compatibility
-with files produced by an earlier definition is not required.
-
-Unknown optional sections can be skipped. Readers reject unknown value tags and
-node kinds because their payload size or structure cannot be inferred.
-* Unknown scope/var type codes, status/kind codes and file types are
-  preserved and passed through.
-* Producers should keep `group_size` between 64 and 1024; readers must
-  accept any power of two up to 2^20.
-
-## 10. Limits
-
-Signal, node and string ids are `u32`; transaction ids `u64`; times `u64`;
-vector widths up to 2^31 - 1 bits (packed values must fit a run); a
-time table has at most 2^31 - 1 entries per block; column runs are below
-2^30 raw bytes.
-
-## 11. Conformance checklist for producers
-
-1. Header, META, at least one STRINGS chunk with id 0 = "", HIERARCHY
-   chunks before the blocks that use their ids, DIRECTORY, trailer.
-2. Non-decreasing time in SIGNAL_BLOCKs; block time tables sorted and
-   distinct except for the boundary duplicate.
-3. Every dirty group has a frame for all its signals.
-4. Column runs and blobs individually decodable; CRC-32 either correct
-   or 0.
-5. Transaction blocks: `n_tx`/`n_rel` match the columns; attribute
-   lists consumed in the specified order.
-6. Log blocks: written with the optional flag; every generator in the
-   header is a log site (8.1) declared in an earlier HIERARCHY chunk; the
-   argument columns hold exactly the declared values per record.
-
-## Reference-reader cache lifetime (non-normative)
-
-The Rust reader supports decoded-cache eviction through `Reader::clear_cache`.
-This changes in-memory ownership only, with no file-format or version change.
-See its rustdoc for exclusive-access requirements and result lifetimes.
-
-## Activity index sidecar, version 2
-
-An activity index answers which signals change in a time window, for every
-signal at once. It is derived data in a
-file of its own: `<trace>.index` beside the trace (`run.vtr.index`), or, when
-that directory is read-only, `<format>-<length>-<crc>.index` in a user cache
-directory (`$XDG_CACHE_HOME/vtr/index`, `~/.cache/vtr/index`). The trace
-format and its writer are unchanged. A reader uses a sidecar only when the
-identity it records matches the trace; any other sidecar is ignored and
-rebuilt. The reference implementation is `vtr::activity`.
-
-**Definitions.** A *change* of a signal is a time step after the trace's
-first time step `t_min` at which a value of the signal is recorded; several
-values in one time step are one change. A *silence* `(a, b)` is the time
-between two consecutive changes; its length is `b − a` and its *interior* is
-`[a + 1, b − 1]`. The trace's blocks, in time order, have first and last time
-steps `start_k` and `end_k`. Block `k`'s *cell* is `(end_{k−1}, end_k]`; the
-first cell extends down and the last cell up without bound, so the cells
-partition time. Each block has a threshold `Δ_k = 2^j_k`. A signal's
-changes form *stretches*, maximal runs of changes separated by *kept*
-silences; a stretch records its first change, its last change and its
-largest *gap*, the longest silence inside it (0 for a single change).
-
-**Invariant.** Every silence inside a stretch is at most the smallest `Δ`
-of the cells its interior touches. A consumer relies on nothing else: a
-window `[t0, t1]` inside a silence inside a stretch touches only cells that
-the silence's interior touches, so it cannot fit in one when `t1 − t0 + 1`
-reaches the smallest `Δ` of the cells the window touches.
-
-**Query (informative).** For a window `[t0, t1]`, find a signal's first
-stretch that ends at or after `t0`. The signal is quiet when there is none or
-it starts after `t1`. It is active when that stretch starts at or after `t0`,
-ends at or before `t1`, or has a gap of at most `t1 − t0 + 1`, or when
-`t1 − t0 + 1` reaches the smallest `Δ` of the cells the window touches.
-Otherwise it is undecided, and its answer is read from the trace's blocks
-that overlap the window, at most two when every `Δ` is at most a quarter of
-its cell's span.
-
-**Reference thresholds.** For block `k` with `bytes_k` compressed bytes, the
-reference builder takes the smallest `j` for which the silences ending in the
-block that are longer than `2^j`, including the silence from each signal's
-change before the block, number at most `floor(memory × bytes_k / 20)`, then
-raises `j` while the block's compressed section body exceeds
-`disk × bytes_k`. `j` never exceeds `floor(log2(max(1, span_k / 4)))`, where
-`span_k = end_k − end_{k−1}` and `span_0 = end_0 − start_0 + 1`. It keeps a
-silence `(a, b)` that ends in block `k` when `b − a` exceeds the smallest `Δ`
-of the blocks from the cell holding `a + 1` through `k`.
-
-**Container.** The file uses the VTR container (section 2) with its own
-magic `89 56 54 49 0D 0A 1A 0A` (`\x89VTI\r\n\x1a\n`), major version 2 and
-minor version 0; a reader rejects any other major version. Every section
-carries its CRC-32. The directory and trailer are required: a sidecar is
-written under a temporary name and renamed into place when complete, and is
-never recovered by scanning. The sections are one HEADER (kind 1), one BLOCK
-(kind 2) per trace block in time order, one TAIL (kind 3), the DIRECTORY
-(kind 7) and the trailer. A BLOCK's directory `aux0/aux1` are its `start` and
-`end`; the other sections store 0.
-
-HEADER payload (40 bytes):
-
-| offset | size | field |
-|---:|---:|---|
-| 0 | 8 | `u64` trace length in bytes |
-| 8 | 4 | `u32` CRC-32 of the trace's table of contents: the DIRECTORY payload of the VTR file |
-| 12 | 1 | `u8` source format: 1 VTR |
-| 13 | 3 | reserved, 0 |
-| 16 | 4 | `u32` signal count |
-| 20 | 4 | `u32` disk budget, parts per million of each block's bytes |
-| 24 | 4 | `u32` memory budget, parts per million |
-| 28 | 4 | reserved, 0 |
-| 32 | 8 | `u64` `t_min` |
-
-BLOCK payload:
-
-| offset | size | field |
-|---:|---:|---|
-| 0 | 8 | `u64` `start` |
-| 8 | 8 | `u64` `end` |
-| 16 | 8 | `u64` compressed bytes of the trace block |
-| 24 | 4 | `u32` rows |
-| 28 | 4 | `u32` stretches closed |
-| 32 | 1 | `u8` `j` (`Δ = 2^j`) |
-| 33 | 7 | reserved, 0 |
-| 40 | | compressed blob (3.1): six columns |
-
-The blob holds `varint` byte lengths of its six columns, then the columns, all
-of `varint`s. A *row* is a signal with an entry in the block, rows ascending
-by signal:
-
-1. signal: the row's signal minus the previous row's signal (the first row
-   stores its signal);
-2. head: `closed << 1 | first` per row;
-3. first: for each row with `first` set, the signal's first change minus
-   `start`;
-4. length, 5. silence, 6. gap: for each stretch a row closes, in row order and
-   time order: the stretch's last change minus its first change, the length
-   of the kept silence that follows it, and its gap.
-
-The first stretch a row closes starts at the signal's first change or where
-the silence that closed its previous stretch ends; each later one starts
-where the previous silence ends. `first` is set once per signal, in the
-block holding its first change. TAIL payload: `u32` rows, 4 reserved bytes,
-then a compressed blob of three columns with one row per signal that changes,
-ascending: the signal delta as above, the length of the signal's final
-stretch and its gap. A signal's stretches are the ones its BLOCK rows close,
-in block order, followed by its final stretch; a signal that never changes
-has none. Signals are VTR signal ids.
+The adjacent name is `<trace>.index`. Cache fallback names contain the source
+format, recording ID, length, and directory CRC. The default cache directory is
+`$XDG_CACHE_HOME/vtr/index`, or `~/.cache/vtr/index`. An identity mismatch causes
+rebuilding rather than reuse. See `vtr::activity` for build and cache APIs.

@@ -1,7 +1,7 @@
 //! The parallel build: a front end's blocks scanned by worker threads and stitched in time
 //! order.
 
-use super::{Block, BlockScan, Budget, BuildOptions, Builder, Identity, Summary};
+use super::{Block, BlockScan, BuildOptions, Builder, Identity, Summary};
 use crate::error::{Error, Result};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -18,7 +18,7 @@ pub trait Source: Sync {
 
     fn blocks(&self) -> &[Block];
 
-    fn cost(&self, i: usize, budget: Budget) -> Result<u64>;
+    fn cost(&self, i: usize) -> Result<u64>;
 
     fn worker(&self) -> Self::Worker;
 
@@ -31,11 +31,17 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
     if let Some(control) = &opts.control {
         control.begin(n)?;
     }
-    let (t_min, budget) = (source.t_min(), opts.budget);
+    let t_min = source.t_min();
+    let base = Builder::<std::io::Sink>::base_bytes(source.signal_count())
+        .checked_add((n as u64).saturating_mul(std::mem::size_of::<u64>() as u64))
+        .ok_or(Error::invalid("activity base memory overflow"))?;
+    let memory = opts.memory.checked_sub(base).ok_or(Error::invalid(
+        "activity signal tables exceed the memory limit",
+    ))?;
     let mut cost = Vec::with_capacity(n);
     for (i, b) in blocks.iter().enumerate() {
-        let c = source.cost(i, budget)?;
-        if c > opts.memory {
+        let c = source.cost(i)?;
+        if c > memory {
             return Err(Error::invalid(format!(
                 "block {i} ({}..{}) needs about {} MiB to scan, more than the memory limit of {} MiB",
                 b.start,
@@ -46,7 +52,7 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
         }
         cost.push(c);
     }
-    let mut builder = Builder::new(out, source.identity(), source.signal_count(), t_min, budget)?;
+    let mut builder = Builder::new(out, source.identity(), source.signal_count(), t_min)?;
     let threads = opts.worker_threads().clamp(1, n.max(1));
     let depth = 2 * threads;
 
@@ -78,7 +84,7 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
                         while !g.stop
                             && g.next < n
                             && (g.next >= g.stitched + depth
-                                || (g.held > 0 && g.held + cost[g.next] > opts.memory))
+                                || (g.held > 0 && g.held.saturating_add(cost[g.next]) > memory))
                         {
                             g = moved.wait(g).unwrap();
                         }
@@ -92,12 +98,8 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
                         g.next += 1;
                         g.next - 1
                     };
-                    let mut scan = BlockScan::new(
-                        blocks[i],
-                        i.checked_sub(1).map(|p| blocks[p].end),
-                        t_min,
-                        budget,
-                    );
+                    let mut scan =
+                        BlockScan::new(blocks[i], i.checked_sub(1).map(|p| blocks[p].end), t_min);
                     let scanned = source.scan(&mut worker, i, &mut scan).map(|()| scan);
                     if tx.send((i, scanned)).is_err() {
                         return;

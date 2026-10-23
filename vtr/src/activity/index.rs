@@ -1,16 +1,11 @@
-//! A loaded sidecar: every signal's busy stretches in one flat table.
+//! Source-bound exact activity ranges with bounded sidecar decoding.
 
-use super::format::{
-    self, BLOCK_COLUMNS, BLOCK_HEAD_LEN, BlockHead, Header, KIND_BLOCK, KIND_HEADER, KIND_TAIL,
-    TAIL_COLUMNS, TAIL_HEAD_LEN,
+use super::{
+    Identity, container,
+    format::{self, BLOCK_HEAD_LEN, BlockHead, Header, TAIL_HEAD_LEN},
 };
-use super::{Budget, Identity, MAGIC, STRETCH_BYTES, VERSION};
-use crate::codec::Decompressor;
-use crate::container::{Container, DirEntry};
-use crate::error::{Error, Result};
-use crate::hierarchy::SignalId;
-use crate::varint;
-use std::path::Path;
+use crate::{Error, Result, hierarchy::SignalId, trace::Reader, wire::Cursor};
+use std::{future::Future, path::Path};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexBlock {
@@ -19,378 +14,337 @@ pub struct IndexBlock {
     pub bytes: u64,
     pub delta: u64,
 }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Stretch {
     pub start: u64,
     pub end: u64,
     pub gap: u64,
 }
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Classification {
-    pub active: Vec<SignalId>,
-    pub undecided: Vec<SignalId>,
-}
-
 #[derive(Clone, Debug)]
 pub struct Index {
     header: Header,
     blocks: Vec<IndexBlock>,
-    off: Vec<u32>,
-    start: Vec<u64>,
-    end: Vec<u64>,
-    gap: Vec<u32>,
-}
-
-const GAP_SATURATED: u32 = u32::MAX;
-
-fn corrupt<T>(msg: &'static str) -> Result<T> {
-    Err(Error::Corrupt(msg))
+    signals: Vec<Vec<Stretch>>,
 }
 
 impl Index {
-    pub fn open(path: impl AsRef<Path>, trace: &Identity) -> Result<Index> {
-        Self::decode(&std::fs::read(path)?, trace)
+    pub fn open(path: impl AsRef<Path>, identity: &Identity) -> Result<Self> {
+        Self::decode(&std::fs::read(path)?, identity)
     }
-
-    pub fn decode(bytes: &[u8], trace: &Identity) -> Result<Index> {
-        let mut decode = std::pin::pin!(Self::decode_with(
+    pub fn decode(bytes: &[u8], identity: &Identity) -> Result<Self> {
+        let mut future = std::pin::pin!(Self::decode_with(
             bytes,
-            trace,
-            |_| Ok(()),
+            identity,
+            |used| if used <= 256 << 20 {
+                Ok(())
+            } else {
+                Err(Error::invalid(
+                    "activity index exceeds the default memory limit",
+                ))
+            },
             || std::future::ready(Ok(()))
         ));
-        let waker = std::task::Waker::noop();
-        match std::future::Future::poll(decode.as_mut(), &mut std::task::Context::from_waker(waker))
-        {
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match Future::poll(future.as_mut(), &mut context) {
             std::task::Poll::Ready(result) => result,
-            std::task::Poll::Pending => unreachable!("synchronous decoding never yields"),
+            std::task::Poll::Pending => unreachable!("synchronous sidecar decode does not yield"),
         }
     }
-
-    pub async fn decode_with<F: std::future::Future<Output = Result<()>>>(
+    pub fn decode_for(bytes: &[u8], reader: &Reader) -> Result<Self> {
+        let index = Self::decode(bytes, &Identity::of(reader)?)?;
+        index.verify_source(reader)?;
+        Ok(index)
+    }
+    pub fn verify_source(&self, reader: &Reader) -> Result<()> {
+        if self.identity() != Identity::of(reader)?
+            || self.signal_count() != reader.signal_count()
+            || self.blocks.len() != reader.block_count()
+            || self.t_min()
+                != reader
+                    .waveform_time_range()
+                    .map_or(0, |window| window.first)
+        {
+            return Err(Error::Corrupt("activity header does not match source"));
+        }
+        for (index, block) in self.blocks.iter().enumerate() {
+            if (block.start, block.end) != reader.block_range(index)
+                || block.bytes != reader.signal_block_bytes(index) + 24
+            {
+                return Err(Error::Corrupt("activity block does not match source"));
+            }
+        }
+        Ok(())
+    }
+    /// Admits memory before allocation and checkpoints while initializing tables and decoding rows.
+    pub async fn decode_with<F: Future<Output = Result<()>>>(
         bytes: &[u8],
-        trace: &Identity,
+        identity: &Identity,
         mut admit: impl FnMut(u64) -> Result<()>,
         mut checkpoint: impl FnMut() -> F,
-    ) -> Result<Index> {
-        admit(bytes.len() as u64)?;
-        let ((major, minor), entries) = Container::parse_closed(bytes, &MAGIC)?;
-        if major != VERSION {
-            return Err(Error::UnsupportedVersion {
-                major,
-                minor,
-                supported: VERSION,
-            });
-        }
-        let payload = |e: &DirEntry| Container::payload(bytes, e, true);
+    ) -> Result<Self> {
+        let mut used = bytes.len() as u64;
+        admit(used)?;
+        let entries = container::parse(bytes, |extra| admit(used.saturating_add(extra)))?;
+        used = used
+            .checked_add((entries.capacity() * std::mem::size_of::<container::Entry>()) as u64)
+            .ok_or(Error::Corrupt("activity memory overflow"))?;
+        admit(used)?;
         let [first, rest @ .., tail] = entries.as_slice() else {
-            return corrupt("activity index sections missing");
+            return Err(Error::Corrupt("activity sections missing"));
         };
-        if first.kind != KIND_HEADER
-            || tail.kind != KIND_TAIL
-            || rest.iter().any(|e| e.kind != KIND_BLOCK)
+        if first.kind != 1
+            || first.aux0 != 0
+            || first.aux1 != 0
+            || tail.kind != 3
+            || tail.aux0 != 0
+            || tail.aux1 != 0
+            || rest.iter().any(|entry| entry.kind != 2)
         {
-            return corrupt("activity index sections out of order");
+            return Err(Error::Corrupt("activity sections out of order"));
         }
-        let header = Header::decode(payload(first)?)?;
-        if header.identity != *trace {
+        let header = Header::decode(container::payload(bytes, first)?)?;
+        if header.identity != *identity {
             return Err(Error::invalid(
-                "the activity index was built for another trace",
+                "activity index belongs to another recording",
             ));
         }
-        let n = header.signals as usize;
-        let base = (n as u64 + 1) * 4 + (rest.len() * std::mem::size_of::<IndexBlock>()) as u64;
-        let directory = (entries.len() * std::mem::size_of::<DirEntry>()) as u64;
-        format::tail_rows(payload(tail)?)?;
-        let mut scratch = crate::codec::raw_len(&payload(tail)?[TAIL_HEAD_LEN..])? as u64;
-        for e in rest {
-            let p = payload(e)?;
-            BlockHead::decode(p)?;
-            scratch = scratch.max(crate::codec::raw_len(&p[BLOCK_HEAD_LEN..])? as u64);
-            checkpoint().await?;
-        }
-        let peak = base
-            .checked_add(directory)
-            .and_then(|n| n.checked_add(scratch.saturating_mul(2)))
-            .ok_or(Error::Corrupt("activity decode memory overflow"))?;
-        admit(peak)?;
-        let tail = payload(tail)?;
-        let (mut d, mut raw) = (Decompressor::new(), Vec::new());
-
-        let mut off = vec![0u32; n + 1];
-        let mut blocks = Vec::with_capacity(rest.len());
-        for e in rest {
-            checkpoint().await?;
-            let p = payload(e)?;
-            let head = BlockHead::decode(p)?;
-            if blocks
-                .last()
-                .is_some_and(|b: &IndexBlock| head.start < b.end)
-            {
-                return corrupt("activity index blocks out of time order");
-            }
-            blocks.push(IndexBlock {
-                start: head.start,
-                end: head.end,
-                bytes: head.bytes,
-                delta: 1 << head.exponent,
-            });
-            let c = format::unpack::<BLOCK_COLUMNS>(&p[BLOCK_HEAD_LEN..], &mut d, &mut raw)?;
-            let (mut sigs, mut heads) = (col(&raw, c[0]), col(&raw, c[1]));
-            let mut s = 0u64;
-            for _ in 0..head.rows {
-                checkpoint().await?;
-                s += sigs.u64()?;
-                let closed = heads.u64()? >> 1;
-                let slot = off
-                    .get_mut(s as usize + 1)
-                    .filter(|_| s < n as u64)
-                    .ok_or(Error::Corrupt("activity index names an unknown signal"))?;
-                *slot = u32::try_from(closed)
-                    .ok()
-                    .and_then(|c| slot.checked_add(c))
-                    .ok_or(Error::Corrupt("activity index too large"))?;
-            }
-        }
-        let c = format::unpack::<TAIL_COLUMNS>(&tail[TAIL_HEAD_LEN..], &mut d, &mut raw)?;
-        let mut sigs = col(&raw, c[0]);
-        let mut s = 0u64;
-        for _ in 0..format::tail_rows(tail)? {
-            checkpoint().await?;
-            s += sigs.u64()?;
-            let slot = off
-                .get_mut(s as usize + 1)
-                .filter(|_| s < n as u64)
-                .ok_or(Error::Corrupt("activity index names an unknown signal"))?;
-            *slot = slot
-                .checked_add(1)
-                .ok_or(Error::Corrupt("activity index too large"))?;
-        }
-        for i in 0..n {
-            checkpoint().await?;
-            off[i + 1] = off[i]
-                .checked_add(off[i + 1])
-                .ok_or(Error::Corrupt("activity index too large"))?;
-        }
-
-        let total = off[n] as usize;
-        admit(
-            peak.checked_add((total as u64).saturating_mul(STRETCH_BYTES))
-                .and_then(|v| v.checked_add(n as u64 * 5))
-                .ok_or(Error::Corrupt("activity decode memory overflow"))?,
-        )?;
-        let (mut start, mut end, mut gap) =
-            (vec![0u64; total], vec![0u64; total], vec![0u32; total]);
-        let mut cursor = off[..n].to_vec();
-        let mut opened = vec![false; n];
-        for (e, blk) in rest.iter().zip(&blocks) {
-            checkpoint().await?;
-            let p = payload(e)?;
-            let head = BlockHead::decode(p)?;
-            let c = format::unpack::<BLOCK_COLUMNS>(&p[BLOCK_HEAD_LEN..], &mut d, &mut raw)?;
-            let [
-                mut sigs,
-                mut heads,
-                mut firsts,
-                mut lens,
-                mut sils,
-                mut gaps,
-            ] = c.map(|r| col(&raw, r));
-            let mut s = 0usize;
-            let mut closed_total = 0u64;
-            for _ in 0..head.rows {
-                checkpoint().await?;
-                s += sigs.usize()?;
-                let h = heads.u64()?;
-                let i = cursor[s] as usize;
-                if h & 1 != 0 {
-                    if opened[s] || i >= off[s + 1] as usize {
-                        return corrupt("activity index opens a signal twice");
-                    }
-                    opened[s] = true;
-                    start[i] = blk
-                        .start
-                        .checked_add(firsts.u64()?)
-                        .ok_or(Error::Corrupt("activity index time overflow"))?;
-                } else if !opened[s] {
-                    return corrupt(
-                        "activity index closes a stretch of a signal that never changed",
-                    );
-                }
-                for k in 0..h >> 1 {
-                    checkpoint().await?;
-                    let i = i + k as usize;
-                    if i + 1 >= off[s + 1] as usize {
-                        return corrupt("activity index stretch counts disagree");
-                    }
-                    let (len, sil) = (lens.u64()?, sils.u64()?);
-                    let a = start[i].checked_add(len);
-                    let b = a.and_then(|a| a.checked_add(sil).filter(|&b| b > a));
-                    let (Some(a), Some(b)) = (a, b) else {
-                        return corrupt("activity index stretch out of order");
-                    };
-                    end[i] = a;
-                    gap[i] = gaps.u64()?.min(u64::from(GAP_SATURATED)) as u32;
-                    start[i + 1] = b;
-                }
-                cursor[s] += (h >> 1) as u32;
-                closed_total += h >> 1;
-            }
-            if closed_total != u64::from(head.closed)
-                || !(sigs.is_empty()
-                    && heads.is_empty()
-                    && firsts.is_empty()
-                    && lens.is_empty()
-                    && sils.is_empty()
-                    && gaps.is_empty())
-            {
-                return corrupt("activity index block columns disagree with its head");
-            }
-        }
-        let c = format::unpack::<TAIL_COLUMNS>(&tail[TAIL_HEAD_LEN..], &mut d, &mut raw)?;
-        let [mut sigs, mut lens, mut gaps] = c.map(|r| col(&raw, r));
-        let mut s = 0usize;
-        for _ in 0..format::tail_rows(tail)? {
-            checkpoint().await?;
-            s += sigs.usize()?;
-            let i = cursor[s] as usize;
-            if !opened[s] || i + 1 != off[s + 1] as usize {
-                return corrupt("activity index tail disagrees with its blocks");
-            }
-            end[i] = start[i]
-                .checked_add(lens.u64()?)
-                .ok_or(Error::Corrupt("activity index time overflow"))?;
-            gap[i] = gaps.u64()?.min(u64::from(GAP_SATURATED)) as u32;
-            cursor[s] += 1;
-        }
-        for s in 0..n {
-            checkpoint().await?;
-            if cursor[s] != off[s + 1] || opened[s] != (off[s + 1] > off[s]) {
-                return corrupt("activity index leaves a stretch open");
-            }
-        }
-        Ok(Index {
+        let count = header.signals as usize;
+        used = used
+            .checked_add((count as u64).saturating_mul(
+                (std::mem::size_of::<Vec<Stretch>>() + std::mem::size_of::<Option<u64>>()) as u64,
+            ))
+            .and_then(|value| {
+                value.checked_add((rest.len() * std::mem::size_of::<IndexBlock>()) as u64)
+            })
+            .ok_or(Error::Corrupt("activity memory overflow"))?;
+        admit(used)?;
+        let mut index = Self {
             header,
-            blocks,
-            off,
-            start,
-            end,
-            gap,
-        })
+            blocks: Vec::with_capacity(rest.len()),
+            signals: Vec::with_capacity(count),
+        };
+        let mut starts = Vec::with_capacity(count);
+        for _ in 0..count {
+            checkpoint().await?;
+            index.signals.push(Vec::new());
+            starts.push(None);
+        }
+        let mut decompressor = crate::codec::Decompressor::new();
+        let mut raw = Vec::new();
+        for entry in rest.iter().chain(std::iter::once(tail)) {
+            checkpoint().await?;
+            let body = container::payload(bytes, entry)?;
+            let (rows, closed, columns) = if entry.kind == 2 {
+                let head = BlockHead::decode(body)?;
+                if head.bytes < 24
+                    || (head.start, head.end) != (entry.aux0, entry.aux1)
+                    || index
+                        .blocks
+                        .last()
+                        .is_some_and(|last| head.start < last.end)
+                    || (index.blocks.is_empty() && head.start != index.header.t_min)
+                {
+                    return Err(Error::Corrupt("invalid activity block bounds"));
+                }
+                index.blocks.push(IndexBlock {
+                    start: head.start,
+                    end: head.end,
+                    bytes: head.bytes,
+                    delta: 1,
+                });
+                let blob = &body[BLOCK_HEAD_LEN..];
+                admit_blob(blob, &mut raw, used, &mut admit)?;
+                (
+                    head.rows,
+                    head.closed,
+                    format::unpack::<6>(blob, &mut decompressor, &mut raw)?,
+                )
+            } else {
+                let rows = format::tail_rows(body)?;
+                let blob = &body[TAIL_HEAD_LEN..];
+                admit_blob(blob, &mut raw, used, &mut admit)?;
+                let columns = format::unpack::<3>(blob, &mut decompressor, &mut raw)?;
+                (
+                    rows,
+                    0,
+                    [columns[0], columns[1], columns[2], (0, 0), (0, 0), (0, 0)],
+                )
+            };
+            if rows as usize > count || (index.blocks.is_empty() && index.header.t_min != 0) {
+                return Err(Error::Corrupt("invalid activity row count"));
+            }
+            let mut cols = columns.map(|(begin, end)| Cursor::new(&raw[begin..end]));
+            let mut signal = 0usize;
+            let mut observed_closed = 0u64;
+            for row in 0..rows {
+                checkpoint().await?;
+                let delta = usize::try_from(cols[0].var()?)
+                    .map_err(|_| Error::Corrupt("activity signal delta overflow"))?;
+                signal = signal
+                    .checked_add(delta)
+                    .filter(|&value| value < count)
+                    .ok_or(Error::Corrupt("unknown activity signal"))?;
+                if row != 0 && delta == 0 {
+                    return Err(Error::Corrupt("duplicate activity row"));
+                }
+                let head = if entry.kind == 2 { cols[1].var()? } else { 2 };
+                if entry.kind == 2 {
+                    if head == 0 {
+                        return Err(Error::Corrupt("empty activity row"));
+                    }
+                    if head & 1 != 0 {
+                        if starts[signal].is_some() {
+                            return Err(Error::Corrupt("activity signal opened twice"));
+                        }
+                        let block = index.blocks.last().unwrap();
+                        let first = block
+                            .start
+                            .checked_add(cols[2].var()?)
+                            .filter(|&time| time > index.header.t_min && time <= block.end)
+                            .ok_or(Error::Corrupt("activity first change outside source block"))?;
+                        starts[signal] = Some(first);
+                    }
+                    observed_closed = observed_closed
+                        .checked_add(head >> 1)
+                        .filter(|&value| value <= u64::from(closed))
+                        .ok_or(Error::Corrupt("activity closed count mismatch"))?;
+                }
+                for _ in 0..head >> 1 {
+                    checkpoint().await?;
+                    let begin =
+                        starts[signal].ok_or(Error::Corrupt("activity stretch has no start"))?;
+                    let (length, silence, gap) = if entry.kind == 2 {
+                        (cols[3].var()?, Some(cols[4].var()?), cols[5].var()?)
+                    } else {
+                        (cols[1].var()?, None, cols[2].var()?)
+                    };
+                    let end = begin
+                        .checked_add(length)
+                        .ok_or(Error::Corrupt("activity time overflow"))?;
+                    let maximum = index
+                        .blocks
+                        .last()
+                        .ok_or(Error::Corrupt("activity rows without source blocks"))?
+                        .end;
+                    if end > maximum || gap > 1 || (length == 0) != (gap == 0) {
+                        return Err(Error::Corrupt("invalid exact activity stretch"));
+                    }
+                    let list = &mut index.signals[signal];
+                    if list.len() == list.capacity() {
+                        let growth = list.capacity().max(1);
+                        used = used
+                            .checked_add(
+                                (growth as u64)
+                                    .saturating_mul(std::mem::size_of::<Stretch>() as u64),
+                            )
+                            .ok_or(Error::Corrupt("activity memory overflow"))?;
+                        admit(used.saturating_add(raw.capacity() as u64))?;
+                        list.try_reserve_exact(growth)
+                            .map_err(|_| Error::Corrupt("activity allocation failed"))?;
+                    }
+                    list.push(Stretch {
+                        start: begin,
+                        end,
+                        gap,
+                    });
+                    starts[signal] = match silence {
+                        Some(gap) => Some(
+                            end.checked_add(gap)
+                                .filter(|&next| gap > 1 && next <= maximum)
+                                .ok_or(Error::Corrupt("invalid activity silence"))?,
+                        ),
+                        None => None,
+                    };
+                }
+            }
+            if observed_closed != u64::from(closed) {
+                return Err(Error::Corrupt("activity closed count mismatch"));
+            }
+            for col in cols {
+                col.done()?;
+            }
+        }
+        if starts.iter().any(Option::is_some) {
+            return Err(Error::Corrupt("activity tail leaves stretches open"));
+        }
+        Ok(index)
     }
-
     #[must_use]
     pub fn identity(&self) -> Identity {
         self.header.identity
     }
-
-    #[must_use]
-    pub fn budget(&self) -> Budget {
-        self.header.budget
-    }
-
     #[must_use]
     pub fn t_min(&self) -> u64 {
         self.header.t_min
     }
-
     #[must_use]
     pub fn signal_count(&self) -> u32 {
         self.header.signals
     }
-
     #[must_use]
     pub fn blocks(&self) -> &[IndexBlock] {
         &self.blocks
     }
-
     #[must_use]
     pub fn stretch_count(&self) -> u64 {
-        self.start.len() as u64
+        self.signals.iter().map(|list| list.len() as u64).sum()
     }
-
     #[must_use]
     pub fn memory_bytes(&self) -> u64 {
-        self.start.len() as u64 * STRETCH_BYTES
-            + self.off.len() as u64 * 4
-            + (self.blocks.len() * std::mem::size_of::<IndexBlock>()) as u64
-    }
-
-    #[must_use]
-    pub fn exact_width(&self, t0: u64, t1: u64) -> u64 {
-        let cell = |t: u64| {
-            self.blocks
-                .partition_point(|b| b.end < t)
-                .min(self.blocks.len().saturating_sub(1))
-        };
-        if self.blocks.is_empty() {
-            u64::MAX
-        } else {
-            self.blocks[cell(t0)..=cell(t1.max(t0))]
+        (self.signals.capacity() * std::mem::size_of::<Vec<Stretch>>()
+            + self.blocks.capacity() * std::mem::size_of::<IndexBlock>()
+            + self
+                .signals
                 .iter()
-                .map(|b| b.delta)
-                .min()
-                .unwrap()
-        }
+                .map(|list| list.capacity() * std::mem::size_of::<Stretch>())
+                .sum::<usize>()) as u64
     }
-
     #[must_use]
-    pub fn classify(&self, t0: u64, t1: u64) -> Classification {
-        let mut out = Classification::default();
-        self.classify_range(0..self.header.signals, t0, t1, &mut out);
-        out
+    pub fn classify(&self, first: u64, last: u64) -> Vec<SignalId> {
+        let mut classification = Vec::new();
+        self.classify_range(0..self.signal_count(), first, last, &mut classification);
+        classification
     }
-
     pub fn classify_range(
         &self,
         signals: std::ops::Range<u32>,
-        t0: u64,
-        t1: u64,
-        out: &mut Classification,
+        first: u64,
+        last: u64,
+        output: &mut Vec<SignalId>,
     ) {
-        if t0 > t1 {
+        if first > last {
             return;
         }
-        let width = (t1 - t0).saturating_add(1);
-        let exact = self.exact_width(t0, t1) <= width;
-        for s in signals {
-            let (a, b) = (
-                self.off[s as usize] as usize,
-                self.off[s as usize + 1] as usize,
-            );
-            let j = a + self.end[a..b].partition_point(|&e| e < t0);
-            if j == b || self.start[j] > t1 {
-                continue;
+        for signal in signals.start..signals.end.min(self.signal_count()) {
+            let list = &self.signals[signal as usize];
+            let next = list.partition_point(|stretch| stretch.end < first);
+            if list.get(next).is_some_and(|stretch| stretch.start <= last) {
+                output.push(SignalId(signal));
             }
-            let decided = exact
-                || self.start[j] >= t0
-                || self.end[j] <= t1
-                || (self.gap[j] != GAP_SATURATED && u64::from(self.gap[j]) <= width);
-            if decided {
-                &mut out.active
-            } else {
-                &mut out.undecided
-            }
-            .push(SignalId(s));
         }
     }
-
     pub fn stretches(&self, signal: SignalId) -> impl ExactSizeIterator<Item = Stretch> + '_ {
-        let s = signal.0 as usize;
-        (self.off[s] as usize..self.off[s + 1] as usize).map(move |i| Stretch {
-            start: self.start[i],
-            end: self.end[i],
-            gap: if self.gap[i] == GAP_SATURATED {
-                u64::MAX
-            } else {
-                u64::from(self.gap[i])
-            },
-        })
+        self.signals
+            .get(signal.0 as usize)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .copied()
     }
 }
 
-fn col(raw: &[u8], (a, b): (usize, usize)) -> varint::Reader<'_> {
-    varint::Reader::new(&raw[a..b])
+fn admit_blob(
+    blob: &[u8],
+    raw: &mut Vec<u8>,
+    used: u64,
+    admit: &mut impl FnMut(u64) -> Result<()>,
+) -> Result<()> {
+    let length = crate::codec::raw_len(blob)?;
+    if length >= crate::wire::MAX_BLOCK_BYTES {
+        return Err(Error::Corrupt("activity page exceeds format limit"));
+    }
+    admit(used.saturating_add(raw.capacity().max(length) as u64))?;
+    raw.clear();
+    raw.try_reserve_exact(length)
+        .map_err(|_| Error::Corrupt("activity workspace allocation failed"))?;
+    Ok(())
 }

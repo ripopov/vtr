@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::Path;
 use vcd::{Command, IdCode, ScopeItem, SimulationCommand};
-use vtr::{Direction, LogicStates, NodeId, ScopeType, SignalId, SignalKind, VarType, Writer};
+use vtr::recording::{Recorder, SourceOptions, Writer};
+use vtr::{Direction, LogicStates, NodeId, ScopeType, SignalId, SignalKind, VarType};
 
 #[derive(Clone, Copy)]
 struct Signal {
@@ -56,7 +57,7 @@ fn declarations(
                     vcd::ScopeType::Fork => ScopeType::Fork,
                     _ => bail!("unsupported VCD scope type"),
                 };
-                let node = w.add_scope(parent, &scope.identifier, kind, "")?;
+                let node = w.scope_with(SourceOptions::new(&scope.identifier, parent), kind, "")?;
                 declarations(w, &scope.items, Some(node), signals)?;
             }
             ScopeItem::Var(var) => {
@@ -85,11 +86,20 @@ fn declarations(
                             e.get().kind == kind && e.get().event == event,
                             "alias {name:?} has an incompatible type or width"
                         );
-                        w.add_alias(parent, &name, var_type, Direction::Implicit, e.get().id)?;
+                        w.alias(
+                            e.get().id,
+                            SourceOptions::new(&name, parent),
+                            var_type,
+                            Direction::Implicit,
+                        )?;
                     }
                     std::collections::hash_map::Entry::Vacant(e) => {
-                        let (_, id) =
-                            w.add_var(parent, &name, var_type, Direction::Implicit, kind)?;
+                        let id = w.signal(
+                            SourceOptions::new(&name, parent),
+                            kind,
+                            var_type,
+                            Direction::Implicit,
+                        )?;
                         e.insert(Signal { id, kind, event });
                     }
                 }
@@ -138,14 +148,19 @@ pub fn convert_input(
             100 => 2,
             _ => bail!("VCD timescale factor must be 1, 10, or 100"),
         };
-    w.set_timescale(vtr::Timescale::Exponent(exponent))?;
+    let mut metadata = w.metadata()?;
+    metadata.timescale = exponent;
     if let Some(date) = header.date {
-        w.set_date(&date)?;
+        metadata.date = date;
     }
     if let Some(version) = header.version {
-        let version = w.intern(&version);
-        w.set_file_attr("vcd.version", vtr::Value::Str(version))?;
+        let key = w.intern("vcd.version")?;
+        metadata.attributes.push(vtr::attributes::Attribute {
+            key,
+            value: vtr::attributes::Value::Text(version),
+        });
     }
+    w.set_metadata(metadata)?;
     let mut signals = HashMap::new();
     declarations(w, &header.items, None, &mut signals)?;
     let signal = |code: IdCode| {
@@ -159,14 +174,14 @@ pub fn convert_input(
         let line = parser.line();
         let result = (|| -> Result<()> {
             match command? {
-                Command::Timestamp(time) => w.set_time(time)?,
+                Command::Timestamp(time) => w.advance_time(time)?,
                 Command::ChangeScalar(code, value) => {
                     let signal = signal(code)?;
                     ensure!(
                         matches!(signal.kind, SignalKind::Bits { width: 1, .. }),
                         "scalar value on non-scalar {code}"
                     );
-                    w.emit_logic_str(signal.id, value.to_string().as_bytes())?;
+                    emit_logic(w, signal, value.to_string().as_bytes())?;
                 }
                 Command::ChangeVector(code, value) => {
                     let signal = signal(code)?;
@@ -177,18 +192,18 @@ pub fn convert_input(
                         value.len() > 0 && value.len() <= width as usize,
                         "vector value exceeds declared width for {code}"
                     );
-                    w.emit_logic_str(signal.id, value.to_string().as_bytes())?;
+                    emit_logic(w, signal, value.to_string().as_bytes())?;
                 }
                 Command::ChangeReal(code, value) => w.emit_real(signal(code)?.id, value)?,
                 Command::ChangeString(code, value) => {
-                    w.emit_varlen(signal(code)?.id, value.as_bytes())?;
+                    w.emit_bytes(signal(code)?.id, value.as_bytes())?;
                 }
                 Command::Begin(kind) => {
                     ensure!(simulation.is_none(), "nested VCD dump command");
                     simulation = Some(kind);
                     match kind {
-                        SimulationCommand::Dumpoff => w.blackout_at(w.current_time(), false),
-                        SimulationCommand::Dumpon => w.blackout_at(w.current_time(), true),
+                        SimulationCommand::Dumpoff => w.blackout(w.current_time(), false)?,
+                        SimulationCommand::Dumpon => w.blackout(w.current_time(), true)?,
                         _ => {}
                     }
                 }
@@ -206,5 +221,19 @@ pub fn convert_input(
         result.with_context(|| format!("VCD line {line}"))?;
     }
     ensure!(simulation.is_none(), "unterminated VCD dump command");
+    Ok(())
+}
+
+fn emit_logic(writer: &mut Writer, signal: Signal, text: &[u8]) -> Result<()> {
+    let SignalKind::Bits { width, states } = signal.kind else {
+        bail!("logic value on non-logic signal");
+    };
+    ensure!(
+        !text.is_empty() && text.len() <= width as usize,
+        "invalid VCD logic width"
+    );
+    let mut bytes = vec![0; vtr::signal::packed_len(width, states)];
+    vtr::signal::pack_ascii(text, width, states, &mut bytes);
+    writer.emit_packed(signal.id, states, &bytes)?;
     Ok(())
 }

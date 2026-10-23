@@ -6,7 +6,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use fst_reader::{FstFilter, FstHierarchyEntry, FstReader, FstSignalValue};
-use vtr::{Direction, LogicStates, ScopeType, SignalId, SignalKind, VarType, Writer};
+use vtr::recording::{Recorder, SourceOptions, Writer};
+use vtr::{Direction, LogicStates, ScopeType, SignalId, SignalKind, VarType};
 
 trait Input: BufRead + Seek {}
 impl<T: BufRead + Seek> Input for T {}
@@ -62,7 +63,9 @@ fn convert_reader(
     }
     let mut reader = FstReader::open(input).context("parse FST")?;
     let header = reader.get_header();
-    writer.set_timescale(vtr::Timescale::Exponent(header.timescale_exponent))?;
+    let mut metadata = writer.metadata()?;
+    metadata.timescale = header.timescale_exponent;
+    writer.set_metadata(metadata)?;
     let mut scopes = Vec::new();
     let mut top = None;
     let mut signals = BTreeMap::new();
@@ -79,9 +82,8 @@ fn convert_reader(
                         name,
                         component,
                     } => {
-                        let id = writer.add_scope(
-                            scopes.last().copied(),
-                            &name,
+                        let id = writer.scope_with(
+                            SourceOptions::new(&name, scopes.last().copied()),
                             ScopeType::from_code(tpe as u16),
                             &component,
                         )?;
@@ -125,7 +127,11 @@ fn convert_reader(
                         } else if let Some(scope) = top {
                             scope
                         } else {
-                            let scope = writer.add_scope(None, "(top)", ScopeType::Module, "")?;
+                            let scope = writer.scope_with(
+                                SourceOptions::new("(top)", None),
+                                ScopeType::Module,
+                                "",
+                            )?;
                             top = Some(scope);
                             scope
                         };
@@ -137,21 +143,19 @@ fn convert_reader(
                                         && history.event == (var_type == VarType::Event),
                                     "FST alias has incompatible shape"
                                 );
-                                writer.add_alias(
-                                    Some(scope),
-                                    &name,
+                                writer.alias(
+                                    history.signal,
+                                    SourceOptions::new(&name, Some(scope)),
                                     var_type,
                                     direction,
-                                    history.signal,
                                 )?;
                             }
                             std::collections::btree_map::Entry::Vacant(e) => {
-                                let (_, signal) = writer.add_var(
-                                    Some(scope),
-                                    &name,
+                                let signal = writer.signal(
+                                    SourceOptions::new(&name, Some(scope)),
+                                    kind,
                                     var_type,
                                     direction,
-                                    kind,
                                 )?;
                                 e.insert(History::new(signal, kind, var_type == VarType::Event));
                             }
@@ -192,14 +196,14 @@ fn convert_reader(
     }
     while let Some(std::cmp::Reverse((time, i, offset))) = heap.pop() {
         let history = &histories[i];
-        writer.set_time(time)?;
+        writer.advance_time(time)?;
         history.emit(offset, writer)?;
         writing.advance(1);
         if let Some(&time) = history.times.get(offset + 1) {
             heap.push(std::cmp::Reverse((time, i, offset + 1)));
         }
     }
-    writer.set_time(header.end_time)?;
+    writer.advance_time(header.end_time)?;
     Ok(())
 }
 
@@ -248,7 +252,7 @@ impl History {
                 );
                 let start = self.data.len();
                 self.data
-                    .resize(start + vtr::value::packed_len(width, 9), 0);
+                    .resize(start + vtr::signal::packed_len(width, 9), 0);
                 vtr::signal::pack_ascii(bytes, width, 9, &mut self.data[start..]);
             }
             _ => anyhow::bail!("FST value differs from its declaration"),
@@ -263,12 +267,12 @@ impl History {
                 self.signal,
                 f64::from_le_bytes(self.data[index * 8..index * 8 + 8].try_into()?),
             )?,
-            SignalKind::VarLen => writer.emit_varlen(
+            SignalKind::VarLen => writer.emit_bytes(
                 self.signal,
                 &self.data[self.offsets[index]..self.offsets[index + 1]],
             )?,
             SignalKind::Bits { width, .. } => {
-                let stride = vtr::value::packed_len(width, 9);
+                let stride = vtr::signal::packed_len(width, 9);
                 writer.emit_packed(
                     self.signal,
                     9,

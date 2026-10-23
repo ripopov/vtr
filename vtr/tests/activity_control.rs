@@ -3,10 +3,80 @@
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use vtr::activity::{
-    self, Block, BlockScan, Budget, BuildControl, BuildOptions, Identity, Sidecar, Source,
-    SourceFormat,
+    self, Block, BlockScan, BuildControl, BuildOptions, Identity, Sidecar, Source, SourceFormat,
 };
 use vtr::{Error, Result};
+
+#[test]
+fn empty_signal_tables_yield_and_cancel_during_initialization() {
+    use std::{
+        cell::Cell,
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    let identity = Identity {
+        format: SourceFormat::Vtr,
+        length: 32,
+        toc_crc: 7,
+        recording: vtr::RecordingId([17; 16]),
+    };
+    let mut bytes = Vec::new();
+    activity::Builder::new(&mut bytes, identity, 4096, 0)
+        .unwrap()
+        .finish()
+        .unwrap();
+    for cancel_at in [None, Some(32)] {
+        let checkpoints = Cell::new(0);
+        let mut decode = std::pin::pin!(activity::Index::decode_with(
+            &bytes,
+            &identity,
+            |_| Ok(()),
+            || {
+                let count = checkpoints.get() + 1;
+                checkpoints.set(count);
+                let mut waiting = true;
+                std::future::poll_fn(move |_| {
+                    if waiting {
+                        waiting = false;
+                        Poll::Pending
+                    } else {
+                        Poll::Ready(if cancel_at == Some(count) {
+                            Err(Error::State("cancelled"))
+                        } else {
+                            Ok(())
+                        })
+                    }
+                })
+            }
+        ));
+        let mut pending = 0;
+        let result = loop {
+            match decode
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+            {
+                Poll::Pending => pending += 1,
+                Poll::Ready(result) => break result,
+            }
+        };
+        if let Some(limit) = cancel_at {
+            assert!(matches!(result, Err(Error::State("cancelled"))));
+            assert_eq!(checkpoints.get(), limit);
+            assert_eq!(pending, limit);
+        } else {
+            let index = result.unwrap();
+            assert_eq!(index.signal_count(), 4096);
+            assert_eq!(index.stretch_count(), 0);
+            assert!(pending >= 4096);
+            assert_eq!(
+                index.memory_bytes(),
+                activity::Index::decode(&bytes, &identity)
+                    .unwrap()
+                    .memory_bytes()
+            );
+        }
+    }
+}
 
 struct Trace {
     blocks: Vec<Block>,
@@ -35,6 +105,7 @@ impl Source for Trace {
             format: SourceFormat::Vtr,
             length: 100_000,
             toc_crc: 5,
+            recording: vtr::framing::RecordingId([42; 16]),
         }
     }
     fn signal_count(&self) -> u32 {
@@ -46,7 +117,7 @@ impl Source for Trace {
     fn blocks(&self) -> &[Block] {
         &self.blocks
     }
-    fn cost(&self, _: usize, _: Budget) -> Result<u64> {
+    fn cost(&self, _: usize) -> Result<u64> {
         Ok(1024)
     }
     fn worker(&self) {}
@@ -175,4 +246,39 @@ fn concurrent_builds_do_not_share_temporary_files() {
         .unwrap();
     assert!(sidecar.load(&trace.identity()).is_some());
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn signal_tables_are_admitted_before_allocating_even_without_waveform_blocks() {
+    struct Empty;
+    impl Source for Empty {
+        type Worker = ();
+        fn identity(&self) -> Identity {
+            Trace::new().identity()
+        }
+        fn signal_count(&self) -> u32 {
+            u32::MAX
+        }
+        fn t_min(&self) -> u64 {
+            0
+        }
+        fn blocks(&self) -> &[Block] {
+            &[]
+        }
+        fn cost(&self, _: usize) -> Result<u64> {
+            unreachable!()
+        }
+        fn worker(&self) {}
+        fn scan(&self, (): &mut (), _: usize, _: &mut BlockScan) -> Result<()> {
+            unreachable!()
+        }
+    }
+    let mut output = Vec::new();
+    let options = BuildOptions {
+        memory: 4096,
+        ..BuildOptions::default()
+    };
+    let error = activity::build_from(&Empty, &mut output, &options).unwrap_err();
+    assert!(error.to_string().contains("signal tables exceed"));
+    assert!(output.is_empty());
 }

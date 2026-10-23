@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(vtr_install_consumer LANGUAGES CXX)
+find_package(vtr 4 REQUIRED CONFIG)
+add_executable(vtr_install_smoke main.cpp)
+target_link_libraries(vtr_install_smoke PRIVATE vtr::vtr)

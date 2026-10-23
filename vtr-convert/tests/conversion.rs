@@ -1,5 +1,11 @@
 use std::path::{Path, PathBuf};
-use vtr::{Reader, TxQuery, TxStatus, Value, Writer, WriterOptions};
+use vtr::{
+    attributes::Value,
+    recording::{ExecutionMode, Status, Writer, WriterOptions},
+    trace::{Reader, Record},
+    transactions::TransactionQuery,
+};
+use vtr_convert::kanata::Instruction;
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -9,17 +15,16 @@ fn writer(path: &Path) -> Writer {
     Writer::create_with(
         path,
         WriterOptions {
-            dedup: false,
-            background: false,
+            mode: ExecutionMode::Inline,
             ..Default::default()
         },
     )
     .unwrap()
 }
-fn attr<'a>(r: &Reader, tx: &'a vtr::Transaction, name: &str) -> &'a Value {
-    &tx.attrs
+fn attr<'a>(r: &Reader, tx: &'a Record, name: &str) -> &'a Value {
+    &tx.attributes()
         .iter()
-        .find(|a| r.str(a.key) == name)
+        .find(|a| r.string(a.key).unwrap() == name)
         .unwrap()
         .value
 }
@@ -32,51 +37,87 @@ fn kanata_cycles_threads_stages_labels_relations_and_open_instructions() {
         .unwrap();
     w.close().unwrap();
     let r = Reader::open(path).unwrap();
-    assert_eq!(r.meta().timescale, 0);
-    assert!(r.meta().attrs.iter().any(
-        |(k, v)| r.str(*k) == "time.unit" && matches!(v, Value::Str(s) if r.str(*s) == "cycle")
-    ));
-    let clock = &r.clocks()[0];
-    assert_eq!(clock.path, "cpu.cycle");
-    let timeline = r.clock(clock.id).unwrap();
-    let stretch = &timeline.stretches()[0];
-    assert_eq!((stretch.begin, stretch.end, stretch.period), (100, 106, 1));
-    let streams: Vec<_> = r.generators().filter(|s| *s != clock.generator).collect();
-    assert_eq!(streams.len(), 2);
+    r.validate().unwrap();
+    assert_eq!(r.metadata().timescale, 0);
     assert!(
-        streams
+        r.metadata()
+            .attributes
             .iter()
-            .all(|s| r.generator_clock(*s) == Some(clock.id))
+            .any(|a| r.string(a.key).unwrap() == "time.unit"
+                && a.value == Value::Text("cycle".into()))
     );
-    let all = r.transactions(&TxQuery::default()).unwrap();
+    let clock = r.find_generator("cpu.cycle").unwrap();
+    let mut stretches = Vec::new();
+    r.transactions(
+        TransactionQuery {
+            generator: Some(clock),
+            ..Default::default()
+        },
+        |record| {
+            stretches.push(record);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!((stretches[0].begin(), stretches[0].end()), (100, 106));
+    assert_eq!(r.cycle_at(clock, 106).unwrap(), Some(6));
+    let mut all = Vec::new();
+    r.transactions(TransactionQuery::default(), |record| {
+        if record.generator() != Some(clock) {
+            all.push(record);
+        }
+        true
+    })
+    .unwrap();
     let find = |id| {
         all.iter()
-            .find(|t| {
-                t.attrs
-                    .iter()
-                    .any(|a| r.str(a.key) == "insn_id_in_sim" && a.value == Value::I64(id))
+            .find(|record| {
+                record
+                    .payload()
+                    .decode::<Instruction>()
+                    .unwrap()
+                    .simulation_id
+                    == id
             })
             .unwrap()
     };
     let (a, b, c) = (find(10), find(11), find(12));
-    assert_eq!((a.begin, a.end, a.status), (100, 103, TxStatus::Unset));
-    assert_eq!((b.begin, b.end, b.status), (101, 103, TxStatus::Aborted));
-    assert_eq!((c.begin, c.end, c.status), (103, 106, TxStatus::Open));
-    assert!(matches!(attr(&r,a,"vtr.label"), Value::Str(s) if r.str(*s) == "load\nr1\nretired"));
-    assert!(matches!(attr(&r,a,"detail"), Value::Str(s) if r.str(*s) == "address\n0x100"));
-    assert_eq!((a.stages[0].begin, a.stages[0].end), (100, Some(101)));
-    assert_eq!(r.str(a.stages[1].name), "X");
-    assert!(
-        a.stages[0]
-            .attrs
-            .iter()
-            .any(|(k, v)| r.str(*k) == "vtr.label"
-                && matches!(v,Value::Str(s) if r.str(*s)=="fetch"))
+    assert_eq!(all.len(), 3);
+    for record in &all {
+        assert_eq!(
+            r.clock_for(record.generator().unwrap()).unwrap(),
+            Some(clock)
+        );
+    }
+    assert_eq!((a.begin(), a.end(), a.status()), (100, 103, Status::Unset));
+    assert_eq!(
+        (b.begin(), b.end(), b.status()),
+        (101, 103, Status::Aborted)
     );
-    let relations = r.relations_from(a.id).unwrap();
+    assert_eq!((c.begin(), c.end(), c.status()), (103, 106, Status::Open));
+    assert_eq!(
+        attr(&r, a, "vtr.label"),
+        &Value::Text("load\nr1\nretired".into())
+    );
+    assert_eq!(attr(&r, a, "detail"), &Value::Text("address\n0x100".into()));
+    assert_eq!((a.stages()[0].begin, a.stages()[0].end), (100, Some(101)));
+    assert_eq!(r.string(a.stages()[1].name).unwrap(), "X");
+    assert!(
+        a.stages()[0]
+            .attributes
+            .iter()
+            .any(|a| r.string(a.key).unwrap() == "vtr.label"
+                && a.value == Value::Text("fetch".into()))
+    );
+    let mut relations = Vec::new();
+    r.relations(a.id(), false, |relation| {
+        relations.push(relation);
+        true
+    })
+    .unwrap();
     assert_eq!(relations.len(), 1);
-    assert_eq!(relations[0].to, b.id);
-    assert_eq!(r.str(relations[0].kind), "wakeup");
+    assert_eq!(relations[0].destination, b.id());
+    assert_eq!(r.string(relations[0].kind).unwrap(), "wakeup");
 }
 #[test]
 fn kanata_gzip_and_malformed_input() {
@@ -124,17 +165,17 @@ fn vcd_short_vectors_strings_and_dump_intervals() {
     vtr_convert::vcd::convert_vcd(input, &mut w, &Default::default()).unwrap();
     w.close().unwrap();
     let r = Reader::open(path).unwrap();
-    assert_eq!(r.meta().timescale, -9);
-    let bus = r.find_signal("bus", '.').unwrap();
+    assert_eq!(r.metadata().timescale, -9);
+    let bus = r.find_signal("bus").unwrap();
     for (time, want) in [(0, "0001"), (2, "xxxx"), (4, "zzzz")] {
         assert_eq!(r.value_at(bus, time).unwrap().to_ascii(), want);
     }
-    let text = r.find_signal("text", '.').unwrap();
+    let text = r.find_signal("text").unwrap();
     assert!(
         matches!(r.value_at(text,0).unwrap(), vtr::OwnedSignalValue::VarLen(bytes) if bytes == b"hello")
     );
     assert_eq!(
-        r.blackout()
+        r.blackouts()
             .iter()
             .map(|b| (b.time, b.active))
             .collect::<Vec<_>>(),

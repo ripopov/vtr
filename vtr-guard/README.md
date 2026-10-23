@@ -14,6 +14,19 @@ process-wide and supports at most 64 watched writers. `VTR_GUARD=0` disables
 installation; `VTR_GUARD_DEADLINE_MS` and `VTR_GUARD_STOP_GRACE_MS` override the
 corresponding durations.
 
-The [C++ and C guide](../vtr-cpp/README.md) covers the independent native
-`libvtr` guard exposed through `vtr.h`. Rust callers can use the API documented in
-[`src/lib.rs`](src/lib.rs).
+Rust writers use the public `vtr::Writer` and typed `Recorder` API. Threaded
+rescue stops new captures, wakes blocked producers, drains accepted operations
+(including spilled queues), and writes an incomplete directory with a typed
+run-ending log. Explicit producer handles may still be live during rescue.
+
+Idle inline writers can be closed after their owner is parked. A writer
+interrupted inside an inline call retains its verified file prefix; the guard
+cannot safely borrow its mutable encoder. Likewise, a fault on a VTR worker
+retains already written sections. Readers recover such unfinished prefixes.
+An independent sealer never reuses a backend that unwound through a panic.
+
+The native C++ SDK currently has no crash guard. See the
+[C++ guide](../vtr-cpp/README.md) for the native recording API.
+
+`cargo test -p vtr-guard` exercises fatal signals, interrupted payload capture,
+process exit, graceful stop, and forced stop in isolated Linux subprocesses.

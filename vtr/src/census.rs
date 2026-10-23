@@ -1,8 +1,6 @@
 //! Scope sizes: how many distinct signals, variables and scopes each scope holds, subscopes
 //! included.
 
-use crate::hierarchy::{Hierarchy, NodeId, NodeKind};
-
 const NONE: u32 = u32::MAX;
 
 #[derive(Debug, Default)]
@@ -245,37 +243,5 @@ impl ScopeSizes {
     #[must_use]
     pub fn scopes(&self, scope: u32) -> u32 {
         self.scopes[scope as usize]
-    }
-}
-
-impl Hierarchy {
-    pub fn scope_sizes(&self) -> (Vec<NodeId>, ScopeSizes) {
-        let mut c = Census::new();
-        let mut nodes = Vec::new();
-        let mut stack: Vec<Option<NodeId>> = self
-            .roots()
-            .filter(|&n| self.kind(n) == NodeKind::Scope)
-            .map(Some)
-            .collect();
-        stack.reverse();
-        let mut kids = Vec::new();
-        while let Some(entry) = stack.pop() {
-            let Some(n) = entry else {
-                c.leave();
-                continue;
-            };
-            c.enter();
-            nodes.push(n);
-            stack.push(None);
-            for k in self.children(n) {
-                match self.kind(k) {
-                    NodeKind::Var => c.var(self.signal_of(k).expect("var has a signal").0),
-                    NodeKind::Scope => kids.push(k),
-                    _ => {}
-                }
-            }
-            stack.extend(kids.drain(..).rev().map(Some));
-        }
-        (nodes, c.finish())
     }
 }

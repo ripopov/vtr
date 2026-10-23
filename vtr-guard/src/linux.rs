@@ -8,7 +8,7 @@ use std::ptr::null_mut;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicU64};
-use vtr::{CrashState, Ending, Sealer, Writer};
+use vtr::recording::{CrashState, Ending, Sealer, Writer};
 
 const FATAL: [i32; 7] = [
     libc::SIGSEGV,
@@ -334,8 +334,10 @@ pub unsafe fn watch(writer: *mut Writer) -> Result<(), Error> {
             return Ok(());
         }
         altstack()?;
+        if STATE.load(Acquire) != IDLE {
+            return Err(Error::Full);
+        }
         let sealer = (*writer).sealer();
-        sealer.state().set_watched(true);
         for i in 0..SLOTS {
             if WATCHED[i]
                 .compare_exchange(null_mut(), RESERVED, AcqRel, Relaxed)
@@ -343,12 +345,16 @@ pub unsafe fn watch(writer: *mut Writer) -> Result<(), Error> {
             {
                 OWNER[i].store(gettid(), Relaxed);
                 PARKED[i].store(false, Relaxed);
+                sealer.state().set_watched(true);
                 let slot = Box::into_raw(Box::new(Slot { writer, sealer }));
                 STATES[i].store(
                     std::ptr::from_ref::<CrashState>((*slot).sealer.state()).cast_mut(),
                     Release,
                 );
                 WATCHED[i].store(slot, Release);
+                if STATE.load(Acquire) != IDLE {
+                    park_here();
+                }
                 return Ok(());
             }
         }
@@ -359,20 +365,28 @@ pub unsafe fn watch(writer: *mut Writer) -> Result<(), Error> {
 pub fn unwatch(writer: *mut Writer) {
     for i in 0..SLOTS {
         let p = WATCHED[i].load(Acquire);
+        if p == RESERVED && OWNER[i].load(Relaxed) == gettid() && STATE.load(Acquire) != IDLE {
+            park_here();
+        }
         if p.is_null() || p == RESERVED {
             continue;
         }
-        // SAFETY: Published slots stay live until the successful removal below; registration and removal belong to their owner.
-        if unsafe { (*p).writer } == writer
-            && WATCHED[i]
-                .compare_exchange(p, null_mut(), AcqRel, Relaxed)
-                .is_ok()
+        // SAFETY: Only the owner removes and frees a slot; rescue retains claimed slots until exit.
+        if unsafe { (*p).writer } != writer {
+            continue;
+        }
+        if WATCHED[i]
+            .compare_exchange(p, null_mut(), AcqRel, Relaxed)
+            .is_ok()
         {
             STATES[i].store(null_mut(), Release);
             OWNER[i].store(0, Relaxed);
             // SAFETY: The successful compare_exchange claims the Box allocated by watch exactly once.
             let slot = unsafe { Box::from_raw(p) };
             slot.sealer.state().set_watched(false);
+        } else if STATE.load(Acquire) != IDLE {
+            // Rescue owns the pointer now; keep the writer live until the process exits.
+            park_here();
         }
     }
 }
@@ -461,7 +475,7 @@ fn crash_rescue() {
         ADDR.load(Relaxed),
         TID.load(Acquire),
     );
-    let name = vtr::ending::signal_name(signal).unwrap_or("a signal");
+    let name = vtr::recording::ending::signal_name(signal).unwrap_or("a signal");
     if is_vtr_thread(thread) {
         say(format!(
             "vtr-guard: {name} on VTR's own thread {thread}; the traces keep what was written\n"
@@ -549,15 +563,31 @@ extern "C" fn at_exit(status: i32, _: *mut c_void) {
 fn finish_all(end: Ending, stopped: i32) -> usize {
     let me = gettid();
     let park = PARK_SIG.load(Relaxed);
+    let slots: [Option<&Slot>; SLOTS] = std::array::from_fn(|i| {
+        loop {
+            let pointer = WATCHED[i].load(Acquire);
+            if pointer.is_null() || pointer == RESERVED {
+                return None;
+            }
+            if WATCHED[i]
+                .compare_exchange(pointer, RESERVED, AcqRel, Acquire)
+                .is_ok()
+            {
+                // SAFETY: Claiming the slot prevents unwatch from freeing it. Rescue retains it until exit.
+                return Some(unsafe { &*pointer });
+            }
+        }
+    });
     let mut waiting = [false; SLOTS];
     for i in 0..SLOTS {
-        let state = STATES[i].load(Acquire);
+        let Some(slot) = slots[i] else {
+            continue;
+        };
         let owner = OWNER[i].load(Relaxed);
-        if state.is_null() || owner == 0 || owner == stopped || owner == me {
+        if owner == 0 || owner == stopped || owner == me {
             continue;
         }
-        // SAFETY: Published crash states are retained by watched slots throughout rescue.
-        unsafe { &*state }.request_park(park_on_leave);
+        slot.sealer.state().request_park(park_on_leave);
         waiting[i] = tgkill(owner, park);
     }
     let until = now_ms() + DEADLINE_MS.load(Relaxed) / 4;
@@ -567,17 +597,14 @@ fn finish_all(end: Ending, stopped: i32) -> usize {
     }
     let mut n = 0;
     for i in 0..SLOTS {
-        let p = WATCHED[i].swap(null_mut(), AcqRel);
-        if p.is_null() || p == RESERVED {
+        let Some(slot) = slots[i] else {
             continue;
-        }
-        // SAFETY: The atomic swap claims a published slot; rescue retains its allocation.
-        let slot = unsafe { &*p };
+        };
         let owner = OWNER[i].load(Relaxed);
-        let stopped_here =
-            owner == stopped || owner == me || PARKED[i].load(Acquire) || !waiting[i];
+        let stopped_here = owner == stopped || owner == me || PARKED[i].load(Acquire);
         let state = slot.sealer.state();
         let r = if stopped_here && !state.busy() {
+            state.clear_park_request();
             // SAFETY: The owner is stopped and the crash state is idle, giving rescue exclusive access.
             unsafe { (*slot.writer).close_with(end) }
         } else {

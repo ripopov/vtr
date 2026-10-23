@@ -1,43 +1,42 @@
-//! VTR: random-access storage for simulation waveforms, transactions, and hierarchy.
+//! VTR: typed simulation records, waveforms, hierarchy, and relations.
 
 pub mod activity;
+pub mod arguments;
+pub mod attributes;
 pub mod block;
 pub mod census;
-pub mod clock;
 pub mod codec;
-pub mod container;
-pub mod ending;
+pub mod declarations;
 pub mod error;
+pub mod framing;
 pub mod hierarchy;
-pub mod hierarchy_index;
-pub mod logblock;
-pub mod logfmt;
-pub mod reader;
-pub mod sections;
+pub mod recording;
+pub mod records;
+pub mod schema;
 pub mod signal;
-pub mod strings;
-pub mod txblock;
-pub mod value;
+pub mod trace;
+pub mod transactions;
 pub mod varint;
-pub mod writer;
+mod wire;
 pub mod xform;
 
+pub use attributes::{Attribute, Attributes, Value};
 pub use census::{Census, Contributions, ScopeSizes};
-pub use clock::GENERATOR_KIND as CLOCK_GENERATOR_KIND;
-pub use clock::{ClockId, ClockInfo, ClockTimeline, CycleAt, Stretch};
 pub use codec::{Codec, Compression};
-pub use ending::Ending;
+pub use declarations::{Declarations, Metadata, Node, NodeData};
 pub use error::{Error, Result};
-pub use hierarchy::{
-    Direction, Hierarchy, Node, NodeData, NodeId, NodeKind, ScopeType, SignalId, SignalKind,
-    VarType,
+pub use framing::{Completion, Fingerprint, RecordingId, recover};
+pub use hierarchy::{Direction, NodeId, ScopeType, SignalId, SignalKind, VarType};
+pub use recording::{
+    ActiveRecord, BufferOptions, ClockSource, CrashState, EncodingOptions, Ending, ExecutionMode,
+    Keyspace, OwnerRef, Producer, ProducerId, QueueStats, Recorder, Sealer, SignalUpdate, Source,
+    SourceOptions, Stage, Status, Tracker, TrackerDiagnostic, Transaction, Writer, WriterOptions,
+    WriterStats, ending,
 };
-pub use logblock::GENERATOR_KIND as LOG_GENERATOR_KIND;
-pub use logblock::{LogArg, LogArgType, LogRecord, LogSite, LogSiteId, LogSiteSpec, Severity};
-pub use reader::{LogQuery, ReadOptions, Reader, SignalData, TxQuery};
-pub use sections::{Blackout, FileType, Meta, Timescale};
+pub use records::{GeneratorId, RecordId, RecordKind, RecordQuery, SpanKind};
+pub use schema::{Payload, PayloadReader, TypeId, Types};
 pub use signal::{Logic, LogicStates, OwnedSignalValue, SignalValue};
-pub use strings::StrId;
-pub use txblock::{Relation, Transaction, TxAttr, TxEvent, TxId, TxKind, TxStage, TxStatus};
-pub use value::Value;
-pub use writer::{CrashState, Sealer, Writer, WriterBuilder, WriterOptions, WriterStats, recover};
+pub use trace::{
+    Blackout, FormatLocale, PayloadView, ReadOptions, Reader, Record, Severity, TimeWindow,
+};
+pub use transactions::{Relation, TransactionQuery};

@@ -38,61 +38,57 @@ struct Selection {
 
 class VtrReader {
     vtr::Reader reader_;
-    std::map<vtr::Id, unsigned> generators_, attrs_;
-    std::vector<vtr::Id> generator_ids_;
-public:
-    VtrReader(const Profile& p, const std::string& path) : reader_(path) {
-        if (reader_.signals().size() != p.signals) throw std::runtime_error("VTR signal count mismatch");
-        for (unsigned g = 0; g < p.generators; ++g) {
-            auto node = reader_.find_node("top.generator_" + std::to_string(g));
-            if (node == vtr::none) throw std::runtime_error("missing VTR generator");
-            generator_ids_.push_back(node);
-            generators_[node] = g;
+    std::map<std::uint32_t, unsigned> generators_;
+    std::vector<vtr::GeneratorId> generator_ids_;
+
+  public:
+    VtrReader(const Profile& profile, const std::string& path)
+        : reader_(path, {.verify_checksums = false}) {
+        if (reader_.signals().size() != profile.signals) {
+            throw std::runtime_error("VTR signal count mismatch");
         }
-        const auto strings = reader_.strings();
-        for (vtr::Id i = 0; i < strings.size(); ++i) {
-            const std::string_view name = strings[i];
-            for (unsigned a = 0; a < attr_names.size(); ++a)
-                if (name == attr_names[a]) attrs_[i] = a;
-        }
-    }
-    void signals(Selection& select) {
-        auto callback = [&](u64 time, vtr::Id signal, const vtr::SignalValue& value) {
-            select.signal(time, signal, value.as_u64());
-            return true;
-        };
-        if (select.query) {
-            const auto& q = *select.query;
-            reader_.changes(q.source, q.begin, q.end, callback);
-        } else reader_.changes(0, unlimited, callback);
-    }
-    void point(Selection& select, const Query& q) {
-        auto bytes = reader_.value_at(q.source, q.begin);
-        vtr::SignalValue value{reader_.signals()[q.source], bytes};
-        select.digest.signal(q.begin, q.source, value.as_u64());
-    }
-    void transactions(Selection& select) {
-        vtr::Query query;
-        if (select.query) {
-            query.generator = generator_ids_.at(select.query->source);
-            query.begin = select.query->begin;
-            query.end = select.query->end;
-        }
-        reader_.transactions(query, [&](const vtr::Transaction& tx) {
-            if (tx.attrs.size() != 5) throw std::runtime_error("VTR attribute count mismatch");
-            Transaction t{0, tx.begin, tx.end, generators_.at(tx.generator), {}};
-            unsigned seen = 0;
-            for (const auto& attr : tx.attrs) {
-                if (attr.value.tag != vtr::Tag::u64) throw std::runtime_error("unexpected VTR attribute type");
-                auto slot = attrs_.at(attr.key);
-                if (seen & (1u << slot)) throw std::runtime_error("duplicate VTR attribute");
-                seen |= 1u << slot;
-                t.attrs[slot] = attr.value.number;
+        for (unsigned i = 0; i < profile.generators; ++i) {
+            auto id = reader_.find_generator("top.generator_" + std::to_string(i));
+            if (!id) {
+                throw std::runtime_error("missing VTR generator");
             }
-            if (seen != 31) throw std::runtime_error("incomplete VTR transaction");
-            t.serial = t.attrs[0];
-            select.tx(t);
-            return true;
+            generator_ids_.push_back(*id);
+            generators_[id->value] = i;
+        }
+    }
+
+    void signals(Selection& selection) {
+        std::optional<vtr::SignalId> signal;
+        vtr::TimeWindow window;
+        if (selection.query) {
+            signal = vtr::SignalId{selection.query->source};
+            window = {selection.query->begin, selection.query->end};
+        }
+        reader_.changes(signal, window, [&](const vtr::SignalChange& change) {
+            selection.signal(change.time, change.signal.value, change.value.as_u64());
+            return vtr::Flow::next;
+        });
+    }
+
+    void point(Selection& selection, const Query& query) {
+        selection.digest.signal(
+            query.begin, query.source,
+            reader_.value_at(vtr::SignalId{query.source}, query.begin).as_u64());
+    }
+
+    void transactions(Selection& selection) {
+        vtr::TransactionQuery query;
+        if (selection.query) {
+            query.generator = generator_ids_.at(selection.query->source);
+            query.time = {selection.query->begin, selection.query->end};
+        }
+        reader_.transactions(query, [&](const vtr::Record& record) {
+            Transaction transaction{
+                0, record.begin(), record.end(), generators_.at(record.generator()->value),
+                record.payload().as<std::array<std::uint64_t, 5>>()};
+            transaction.serial = transaction.attrs[0];
+            selection.tx(transaction);
+            return vtr::Flow::next;
         });
     }
 };

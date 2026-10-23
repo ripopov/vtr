@@ -16,7 +16,7 @@ from run import HERE, PROFILES, metric_values
 
 
 def render(data):
-    lines = ["# Native VTR container tuning", "",
+    lines = ["# Native VTR paired comparison", "",
              f"Status: **{data['status']}**. Measured {data['started_utc']}. "
              f"Elapsed: {data['elapsed_seconds']:.2f} s.", "",
              f"Host: {data['host']}. CPU affinity: {data['cpu']}. "
@@ -24,13 +24,12 @@ def render(data):
              "Each pair runs both binaries in shuffled order on one CPU. Each binary writes its own trace, "
              "then runs the full read and all twelve probes of every applicable query. Every result is "
              "validated against both binaries' independent producer replays. "
-             "Timings include the same work as [the format comparison](report.md); lower time and RSS are better. "
+             "Timings include complete writes, full reads, and fresh-reader queries; lower time and RSS are better. "
              "Changes below are candidate / baseline − 1. Small differences and process RSS variation "
              "are not evidence of a speedup or regression.", "",
-             "[Container selection, sources, license, and lifetime constraints](../vtr-cpp/third_party/README.md). "
-             "Sparse tables use vendored unordered_dense maps/sets; dense signal IDs and byte dictionaries "
-             "use indexed arrays. Transaction capture already uses indexed storage, so its steady-state "
-             "performance is expected to change little.", ""]
+             "Both executables use their own source replay and files. Preserve build provenance and "
+             "compare every metric, including slower results. See the benchmark guide for "
+             "the shared workload and timing boundaries.", ""]
     for label, binary in data["binaries"].items():
         lines += [f"{label.title()}: {binary['label']}. Binary SHA-256: `{binary['sha256']}`.", ""]
     for profile, oracle in data["oracles"].items():

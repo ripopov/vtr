@@ -18,8 +18,9 @@ impl Sidecar {
         beside.push(".index");
         let cached = cache_dir.map(|d| {
             d.join(format!(
-                "{}-{}-{:08x}.index",
+                "{}-{}-{}-{:08x}.index",
                 id.format.name(),
+                id.recording,
                 id.length,
                 id.toc_crc
             ))

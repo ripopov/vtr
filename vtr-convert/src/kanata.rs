@@ -4,7 +4,18 @@ use anyhow::{Context, Result, bail, ensure};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use vtr::{FileType, NodeId, TxId, TxStatus, Value, Writer};
+use vtr::attributes::{Attribute, Value};
+use vtr::recording::{Recorder, Source, SourceOptions, Status, Transaction, Writer};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Instruction {
+    pub simulation_id: i64,
+    pub line: u64,
+}
+vtr::impl_payload!(Instruction {
+    simulation_id,
+    line
+});
 
 #[derive(Default)]
 struct Stage {
@@ -15,7 +26,7 @@ struct Stage {
     label: String,
 }
 struct Op {
-    tx: TxId,
+    tx: Transaction<Instruction>,
     label: String,
     detail: String,
     retired: Option<(u64, i64, bool)>,
@@ -66,17 +77,16 @@ fn convert_reader(
         lines.next().transpose()?.as_deref() == Some("Kanata\t0004"),
         "expected Kanata version 0004 header"
     );
-    w.set_timescale(vtr::Timescale::Seconds)?;
-    w.set_file_type(FileType::Architectural)?;
-    let unit = w.intern("cycle");
-    w.set_file_attr("time.unit", Value::Str(unit))?;
-    let version = w.intern("0004");
-    w.set_file_attr("kanata.version", Value::Str(version))?;
-    let core = w.add_scope(None, "cpu", vtr::ScopeType::Core, "")?;
-    let clock = w.add_clock(Some(core), "cycle")?;
-    let clock_path = w.intern("cpu.cycle");
+    let mut metadata = w.metadata()?;
+    metadata.timescale = 0;
+    metadata.file_type = 4;
+    w.set_metadata(metadata)?;
+    super::metadata_attribute(w, "time.unit", Value::Text("cycle".into()))?;
+    super::metadata_attribute(w, "kanata.version", Value::Text("0004".into()))?;
+    let core = w.scope_with(SourceOptions::new("cpu", None), vtr::ScopeType::Core, "")?;
+    let clock = w.clock(SourceOptions::new("cycle", Some(core)))?;
     let mut clock_running = false;
-    let mut threads: HashMap<u64, NodeId> = HashMap::new();
+    let mut threads: HashMap<u64, Source<Instruction>> = HashMap::new();
     let mut ops: BTreeMap<u64, Op> = BTreeMap::new();
     let mut cycle = 0u64;
     let mut start_set = false;
@@ -108,8 +118,9 @@ fn convert_reader(
                     };
                     ensure!(next >= cycle, "cycles must not go backwards");
                     cycle = next;
+                    w.advance_time(cycle)?;
                     if !start_set {
-                        w.set_file_attr("kanata.start_cycle", Value::U64(cycle))?;
+                        super::metadata_attribute(w, "kanata.start_cycle", Value::U64(cycle))?;
                         start_set = true;
                     }
                     if !clock_running {
@@ -125,25 +136,31 @@ fn convert_reader(
                     let r#gen = match threads.entry(tid) {
                         std::collections::hash_map::Entry::Occupied(e) => *e.get(),
                         std::collections::hash_map::Entry::Vacant(e) => {
-                            let generator =
-                                w.add_generator(Some(core), &format!("thread{tid}"), "PIPELINE")?;
-                            w.node_attr(generator, vtr::clock::KEY_CLOCK, Value::Str(clock_path))?;
+                            let generator = w.transactions::<Instruction>(
+                                SourceOptions::new(format!("thread{tid}"), Some(core)),
+                                "PIPELINE",
+                            )?;
+                            w.associate_clock(generator, clock)?;
                             *e.insert(generator)
                         }
                     };
                     if !start_set {
-                        w.set_file_attr("kanata.start_cycle", Value::U64(cycle))?;
+                        super::metadata_attribute(w, "kanata.start_cycle", Value::U64(cycle))?;
                         start_set = true;
                     }
                     if !clock_running {
                         w.clock_run(clock, cycle, 1)?;
                         clock_running = true;
                     }
-                    let tx = w.begin_tx(r#gen, cycle)?;
-                    let key = w.intern("insn_id_in_sim");
-                    w.tx_attr(tx, key, &Value::I64(gid))?;
-                    let key = w.intern("line");
-                    w.tx_attr(tx, key, &Value::U64(line_index as u64 + 2))?;
+                    let tx = w.begin_at(
+                        r#gen,
+                        cycle,
+                        &Instruction {
+                            simulation_id: gid,
+                            line: line_index as u64 + 2,
+                        },
+                        None,
+                    )?;
                     ops.insert(
                         id,
                         Op {
@@ -162,10 +179,13 @@ fn convert_reader(
                     let attrs = if kind == 0 {
                         vec![]
                     } else {
-                        vec![(w.intern("type"), Value::U64(kind))]
+                        vec![Attribute {
+                            key: w.intern("type")?,
+                            value: Value::U64(kind),
+                        }]
                     };
-                    let key = w.intern("wakeup");
-                    w.relate(key, producer.tx, consumer.tx, &attrs)?;
+                    let key = w.intern("wakeup")?;
+                    w.relate(key, producer.tx.id(), consumer.tx.id(), attrs)?;
                 }
                 _ => {
                     let id = num(1)?;
@@ -236,43 +256,39 @@ fn convert_reader(
         let mut parse = parse;
         parse(w, &mut ops).with_context(|| format!("Kanata line {}", line_index + 2))?;
     }
-    w.set_time(cycle)?;
+    w.advance_time(cycle)?;
     let counter = progress.begin(vtr_progress::Phase::Writing, Some(ops.len() as u64));
     for op in ops.values() {
         for (key, text) in [("vtr.label", &op.label), ("detail", &op.detail)] {
             if !text.is_empty() {
-                let key = w.intern(key);
-                let value = Value::Str(w.intern(text));
-                w.tx_attr(op.tx, key, &value)?;
+                let key = w.intern(key)?;
+                let value = Value::Text(text.clone());
+                w.attribute(op.tx.owner(), key, value)?;
             }
         }
         for stage in &op.stages {
-            let name = w.intern(&stage.name);
-            let lane = w.intern(&stage.lane);
+            let name = w.intern(&stage.name)?;
+            let lane = w.intern(&stage.lane)?;
             let attrs = if stage.label.is_empty() {
                 vec![]
             } else {
-                vec![(w.intern("vtr.label"), Value::Str(w.intern(&stage.label)))]
+                vec![Attribute {
+                    key: w.intern("vtr.label")?,
+                    value: Value::Text(stage.label.clone()),
+                }]
             };
-            w.tx_stage(
-                op.tx,
-                name,
-                lane,
-                stage.begin,
-                stage.end.unwrap_or(op.retired.map_or(cycle, |r| r.0)),
-                &attrs,
-            )?;
+            w.embedded_stage(op.tx.owner(), stage.begin, name, lane, stage.end, attrs)?;
         }
         if let Some((end, rid, flushed)) = op.retired {
-            let key = w.intern("retire_id");
-            w.tx_attr(op.tx, key, &Value::I64(rid))?;
-            w.end_tx(
+            let key = w.intern("retire_id")?;
+            w.attribute(op.tx.owner(), key, Value::I64(rid))?;
+            w.end_at(
                 op.tx,
                 end,
                 if flushed {
-                    TxStatus::Aborted
+                    Status::Aborted
                 } else {
-                    TxStatus::Unset
+                    Status::Unset
                 },
             )?;
         }

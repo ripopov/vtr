@@ -1,12 +1,11 @@
-//! The VTR front end: every block's change times from its entry headers, and the undecided
-//! signals of a window from the reader.
+//! Source waveform block scans for exact activity sidecars.
 
-use super::{Block, BlockScan, Budget, BuildOptions, Identity, Source, Summary};
+use super::{Block, BlockScan, BuildOptions, Identity, Source, Summary};
 use crate::block::{self, GroupView};
 use crate::codec::{self, Decompressor};
 use crate::error::{Error, Result};
-use crate::hierarchy::{SignalId, SignalKind};
-use crate::reader::Reader;
+use crate::hierarchy::SignalKind;
+use crate::trace::Reader;
 use std::io::Write;
 
 pub fn build(reader: &Reader, out: impl Write, opts: &BuildOptions) -> Result<Summary> {
@@ -28,7 +27,7 @@ impl<'a> VtrSource<'a> {
                 Block {
                     start,
                     end,
-                    bytes: reader.signal_block_bytes(i),
+                    bytes: reader.signal_block_bytes(i) + 24,
                 }
             })
             .collect();
@@ -59,8 +58,8 @@ impl Source for VtrSource<'_> {
         &self.blocks
     }
 
-    fn cost(&self, i: usize, budget: Budget) -> Result<u64> {
-        scan_cost(self.reader, i, self.blocks[i], budget)
+    fn cost(&self, i: usize) -> Result<u64> {
+        scan_cost(self.reader, i)
     }
 
     fn worker(&self) -> Decompressor {
@@ -72,33 +71,9 @@ impl Source for VtrSource<'_> {
     }
 }
 
-pub fn resolve(reader: &Reader, signals: &[SignalId], t0: u64, t1: u64) -> Result<Vec<SignalId>> {
-    let t_min = if reader.block_count() > 0 {
-        reader.block_range(0).0
-    } else {
-        0
-    };
-    let t0 = t0.max(t_min.saturating_add(1));
-    if t0 > t1 || signals.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut sigs = signals.to_vec();
-    sigs.sort_unstable();
-    sigs.dedup();
-    if let Some(s) = sigs.last().filter(|s| s.0 >= reader.signal_count()) {
-        return Err(Error::invalid(format!("unknown signal {}", s.0)));
-    }
-    let hit = reader.changing(&sigs, t0, t1)?;
-    Ok(sigs
-        .into_iter()
-        .zip(hit)
-        .filter_map(|(s, h)| h.then_some(s))
-        .collect())
-}
-
-fn scan_cost(reader: &Reader, i: usize, b: Block, budget: Budget) -> Result<u64> {
+fn scan_cost(reader: &Reader, i: usize) -> Result<u64> {
     let (p, h, kinds) = reader.signal_block(i)?;
-    let (mut rows, mut run) = (0u64, 0u64);
+    let (mut rows, mut run, mut points) = (0u64, 0u64, 0u64);
     for (g, clen, off) in block::dirty_groups(p, &h) {
         let view = GroupView::parse(
             block::group_container(p, &h, clen, off)?,
@@ -106,12 +81,16 @@ fn scan_cost(reader: &Reader, i: usize, b: Block, budget: Budget) -> Result<u64>
             kinds,
         )?;
         rows += view.n_sigs as u64;
+        points =
+            points.saturating_add((view.aliases.len() as u64).saturating_mul(u64::from(h.n_times)));
         for r in &view.runs {
-            run = run.max(codec::raw_len(r.blob)? as u64 + u64::from(r.count) * 8);
+            let length = codec::raw_len(r.blob)? as u64;
+            points = points.saturating_add(length);
+            run = run.max(length.saturating_mul(2) + u64::from(r.count) * 16);
         }
     }
     let times = u64::from(h.n_times) * 8 + codec::raw_len(&p[h.tt_off()..h.index_off()])? as u64;
-    Ok(BlockScan::estimate(rows, b, budget) + times + run)
+    Ok(BlockScan::estimate(rows, points) + times + run)
 }
 
 fn scan_block(reader: &Reader, i: usize, scan: &mut BlockScan, d: &mut Decompressor) -> Result<()> {
@@ -142,7 +121,7 @@ fn scan_block(reader: &Reader, i: usize, scan: &mut BlockScan, d: &mut Decompres
         }
     }
     aliases.sort_unstable();
-    let group_size = reader.meta().group_size.max(1);
+    let group_size = reader.metadata().group_size.max(1);
     let (mut decoded, mut cols) = (None, Vec::new());
     for (target, alias) in aliases {
         let g = target / group_size;

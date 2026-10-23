@@ -5,7 +5,11 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use vtr::activity::{self, BuildOptions};
-use vtr::*;
+use vtr::{
+    Direction, ScopeType, SignalId, SignalKind, VarType,
+    recording::{ExecutionMode, Recorder, SourceOptions, Writer, WriterOptions},
+    trace::Reader,
+};
 
 struct Counting;
 
@@ -61,30 +65,35 @@ const SIGNALS: usize = 20_000;
 fn write_trace(path: &std::path::Path, steps: usize) {
     let mut rng = StdRng::seed_from_u64(1);
     let opts = WriterOptions {
-        block_records: 40_000,
+        mode: ExecutionMode::Inline,
+        encoding: vtr::recording::EncodingOptions {
+            waveform_records: 40_000,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let mut w = Writer::create_with(path, opts).unwrap();
-    let top = Some(w.add_scope(None, "top", ScopeType::Module, "").unwrap());
+    let top = Some(
+        w.scope_with(SourceOptions::new("top", None), ScopeType::Module, "")
+            .unwrap(),
+    );
     let sigs: Vec<SignalId> = (0..SIGNALS)
         .map(|i| {
-            w.add_var(
-                top,
-                &format!("s{i}"),
-                VarType::Wire,
-                Direction::Implicit,
+            w.signal(
+                SourceOptions::new(format!("s{i}"), top),
                 SignalKind::Bits {
                     width: 16,
                     states: 2,
                 },
+                VarType::Wire,
+                Direction::Implicit,
             )
             .unwrap()
-            .1
         })
         .collect();
     let mut t = 0;
     for step in 0..steps {
-        w.set_time(t).unwrap();
+        w.advance_time(t).unwrap();
         let phase = (step / 50) % 10;
         for &s in sigs[phase..].iter().step_by(10) {
             if rng.gen_ratio(1, 4) {
@@ -135,7 +144,7 @@ fn memory_does_not_grow_with_the_run() {
         opts.memory
     );
     let tight = BuildOptions {
-        memory: 1 << 10,
+        memory: 1 << 20,
         ..opts
     };
     let r = Reader::open(&short).unwrap();

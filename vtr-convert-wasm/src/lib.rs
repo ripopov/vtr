@@ -97,12 +97,15 @@ fn convert_with_limit(
             bytes
         };
         let length = bytes.len() as u64;
-        let mut writer = vtr::Writer::from_writer(
-            output.clone(),
-            vtr::WriterOptions {
-                background: false,
-                dedup: false,
-                compression: vtr::Compression::LZ4,
+        let mut writer = vtr::recording::Writer::from_writer(
+            Box::new(output.clone()),
+            vtr::recording::WriterOptions {
+                mode: vtr::recording::ExecutionMode::Inline,
+                encoding: vtr::recording::EncodingOptions {
+                    waveform_deduplicate: false,
+                    compression: vtr::Compression::LZ4,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )?;

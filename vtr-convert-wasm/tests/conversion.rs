@@ -30,19 +30,20 @@ fn memory_output_matches_native_conversion_and_reports_final_size() {
             observed.lock().unwrap().push(snapshot);
         })
         .unwrap();
-        let reader = vtr::Reader::from_bytes(output.clone()).unwrap();
-        assert!(
-            reader.signal_count() > 0
-                || !reader.transactions(&Default::default()).unwrap().is_empty()
-        );
+        let reader = vtr::trace::Reader::from_bytes(output.clone()).unwrap();
+        let report = reader.validate().unwrap();
+        assert!(reader.signal_count() > 0 || report.records > 0);
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("native.vtr");
-        let mut writer = vtr::Writer::create_with(
+        let mut writer = vtr::recording::Writer::create_with(
             &path,
-            vtr::WriterOptions {
-                background: false,
-                dedup: false,
-                compression: vtr::Compression::LZ4,
+            vtr::recording::WriterOptions {
+                mode: vtr::recording::ExecutionMode::Inline,
+                encoding: vtr::recording::EncodingOptions {
+                    waveform_deduplicate: false,
+                    compression: vtr::Compression::LZ4,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         )
@@ -65,7 +66,9 @@ fn memory_output_matches_native_conversion_and_reports_final_size() {
         }
         .unwrap();
         writer.close().unwrap();
-        assert_eq!(std::fs::read(path).unwrap(), output);
+        let native = std::fs::read(path).unwrap();
+        assert_ne!(&native[16..32], &output[16..32]);
+        assert_same_observations(&native, &output);
         let snapshots = snapshots.lock().unwrap();
         assert!(snapshots.iter().all(vtr_progress::Snapshot::valid));
         assert!(snapshots.iter().any(|s| s.phase == Phase::Reading));
@@ -77,7 +80,7 @@ fn memory_output_matches_native_conversion_and_reports_final_size() {
 
         let compressed =
             vtr_convert_wasm::convert_to_vtr(&format!("{name}.gz"), gzip(bytes), |_| {}).unwrap();
-        assert_eq!(compressed, output);
+        assert_same_observations(&compressed, &output);
     }
 }
 
@@ -107,4 +110,9 @@ fn failed_conversions_never_return_partial_vtr_images() {
         assert_eq!(phases.lock().unwrap().last(), Some(&Phase::Failed));
         assert!(!phases.lock().unwrap().contains(&Phase::Complete));
     }
+}
+
+fn assert_same_observations(left: &[u8], right: &[u8]) {
+    assert_eq!(&left[..16], &right[..16]);
+    assert_eq!(&left[32..], &right[32..]);
 }

@@ -1,17 +1,17 @@
 //! Sidecar sections (`vtr/docs/SPEC.md`, "Activity index sidecar").
 
-use super::{Budget, Identity, SourceFormat};
+pub(super) use super::container::FileWriter;
+use super::{Identity, SourceFormat};
 use crate::codec::{Compression, Compressor, Decompressor};
-use crate::container::{self, DirEntry, SectionKind};
 use crate::error::{Error, Result};
+use crate::framing::RecordingId;
 use crate::varint;
-use std::io::Write;
 
 pub(super) const KIND_HEADER: u32 = 1;
 pub(super) const KIND_BLOCK: u32 = 2;
 pub(super) const KIND_TAIL: u32 = 3;
 
-const HEADER_LEN: usize = 40;
+const HEADER_LEN: usize = 56;
 pub(super) const BLOCK_HEAD_LEN: usize = 40;
 pub(super) const TAIL_HEAD_LEN: usize = 8;
 
@@ -24,7 +24,6 @@ pub(super) const COMPRESSION: Compression = Compression::ZSTD_DEFAULT;
 pub(super) struct Header {
     pub identity: Identity,
     pub signals: u32,
-    pub budget: Budget,
     pub t_min: u64,
 }
 
@@ -35,9 +34,8 @@ impl Header {
         h[8..12].copy_from_slice(&self.identity.toc_crc.to_le_bytes());
         h[12] = self.identity.format.code();
         h[16..20].copy_from_slice(&self.signals.to_le_bytes());
-        h[20..24].copy_from_slice(&Budget::ppm(self.budget.disk).to_le_bytes());
-        h[24..28].copy_from_slice(&Budget::ppm(self.budget.memory).to_le_bytes());
         h[32..40].copy_from_slice(&self.t_min.to_le_bytes());
+        h[40..56].copy_from_slice(&self.identity.recording.0);
         h
     }
 
@@ -45,18 +43,18 @@ impl Header {
         if p.len() != HEADER_LEN {
             return Err(Error::Corrupt("activity index header has the wrong length"));
         }
+        if p[13..16].iter().chain(&p[20..32]).any(|&b| b != 0) {
+            return Err(Error::Corrupt("activity header reserved fields"));
+        }
         let format = SourceFormat::from_code(p[12])?;
         Ok(Header {
             identity: Identity {
                 format,
                 length: le64(p, 0),
                 toc_crc: le32(p, 8),
+                recording: RecordingId(p[40..56].try_into().unwrap()),
             },
             signals: le32(p, 16),
-            budget: Budget {
-                disk: f64::from(le32(p, 20)) / 1e6,
-                memory: f64::from(le32(p, 24)) / 1e6,
-            },
             t_min: le64(p, 32),
         })
     }
@@ -96,7 +94,7 @@ impl BlockHead {
             closed: le32(p, 28),
             exponent: p[32],
         };
-        if h.exponent > 63 || h.end < h.start {
+        if h.exponent != 0 || p[33..40].iter().any(|&b| b != 0) || h.end < h.start {
             return Err(Error::Corrupt("activity index block head out of range"));
         }
         Ok(h)
@@ -114,6 +112,9 @@ fn le64(p: &[u8], o: usize) -> u64 {
 pub(super) fn tail_rows(p: &[u8]) -> Result<u32> {
     if p.len() < TAIL_HEAD_LEN {
         return Err(Error::Corrupt("activity index tail truncated"));
+    }
+    if p[4..8].iter().any(|&b| b != 0) {
+        return Err(Error::Corrupt("activity tail reserved fields"));
     }
     Ok(le32(p, 0))
 }
@@ -157,69 +158,8 @@ pub(super) fn unpack<const N: usize>(
         *o = (pos, end);
         pos = end;
     }
+    if pos != raw.len() {
+        return Err(Error::Corrupt("activity columns leave trailing bytes"));
+    }
     Ok(out)
-}
-
-pub(super) struct FileWriter<W: Write> {
-    w: W,
-    pos: u64,
-    dir: Vec<DirEntry>,
-}
-
-impl<W: Write> FileWriter<W> {
-    pub fn new(mut w: W) -> Result<Self> {
-        let h = container::encode_file_header(&super::MAGIC, super::VERSION, 0);
-        w.write_all(&h)?;
-        Ok(FileWriter {
-            w,
-            pos: h.len() as u64,
-            dir: Vec::new(),
-        })
-    }
-
-    pub fn section(&mut self, kind: u32, parts: &[&[u8]], aux0: u64, aux1: u64) -> Result<()> {
-        let len: u64 = parts.iter().map(|p| p.len() as u64).sum();
-        let mut crc = crc32fast::Hasher::new();
-        for p in parts {
-            crc.update(p);
-        }
-        self.w.write_all(&container::encode_section_header(
-            kind,
-            0,
-            len,
-            crc.finalize(),
-        ))?;
-        for p in parts {
-            self.w.write_all(p)?;
-        }
-        self.dir.push(DirEntry {
-            kind,
-            flags: 0,
-            offset: self.pos,
-            len,
-            aux0,
-            aux1,
-        });
-        self.pos += container::SECTION_HEADER_LEN as u64 + len;
-        Ok(())
-    }
-
-    pub fn finish(mut self) -> Result<u64> {
-        let dir = container::encode_directory(&self.dir);
-        let at = self.pos;
-        self.w.write_all(&container::encode_section_header(
-            SectionKind::Directory as u32,
-            0,
-            dir.len() as u64,
-            crc32fast::hash(&dir),
-        ))?;
-        self.w.write_all(&dir)?;
-        let len = at
-            + container::SECTION_HEADER_LEN as u64
-            + dir.len() as u64
-            + container::TRAILER_LEN as u64;
-        self.w.write_all(&container::encode_trailer(at, len))?;
-        self.w.flush()?;
-        Ok(len)
-    }
 }

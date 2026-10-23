@@ -7,9 +7,9 @@ parsing, native files, and atomic destination publication.
 browser worker with in-memory input and output.
 
 Call `fst::convert_fst`, `kanata::convert_kanata`, or `vcd::convert_vcd` with an
-input path, a fresh `vtr::Writer`, and a `vtr_progress::Reporter`, then close the writer. Discard output after
-any conversion error. For FST, disable writer deduplication to retain recorded
-samples, including repeated events. Foreign-format decoding dependencies belong
+input path, a fresh `vtr::recording::Writer`, and a `vtr_progress::Reporter`, then close the writer. Discard output after
+any conversion error. Set `WriterOptions.encoding.waveform_deduplicate=false` for FST to retain recorded
+samples, including repeated events. Sources declare their payload schemas; Kanata instructions carry `simulation_id` and source `line` fields, with retirement metadata and labels stored as attributes. Foreign-format decoding dependencies belong
 in this crate; the viewer and `volna-server` read VTR only.
 
 The `convert_input` entry points accept readers instead of paths. FST needs a

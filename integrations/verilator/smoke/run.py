@@ -22,12 +22,13 @@ def main():
     shutil.copy2(ROOT/'build/cpp/libvtr.a', lib/'libvtr.a')
     include = out/'include'/'vtr'
     include.mkdir(parents=True, exist_ok=True)
-    for name in ('vtr_trace.sv', 'vtr_trace_dpi.hpp', 'vtr_track.hpp'):
-        shutil.copy2(ROOT/'vtr-cpp'/'include'/name, include/name)
-    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'vtr-cpp/include'), VTR_LIBDIR=str(lib))
+    for name in ('vtr_trace.sv', 'vtr_trace_dpi.h', 'vtr_track.h', 'vtr_common.h', 'vtr_writer.h'):
+        shutil.copy2(ROOT/'vtr-cpp'/name, include/name)
+    env = dict(os.environ, VTR_INCLUDE=str(ROOT/'vtr-cpp'), VTR_LIBDIR=str(lib))
     cli = ROOT/'target/release/vtr'
     for mode in ('vtr', 'fst'):
         obj = out/f'obj_{mode}'
+        (obj/'sim').unlink(missing_ok=True)
         flags = ['-CFLAGS', f'-I{include.parent}',
                  '-LDFLAGS', '-lvtr -llz4 -lzstd -lz'] if mode == 'vtr' else []
         if mode == 'fst':

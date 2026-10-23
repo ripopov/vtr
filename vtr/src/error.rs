@@ -22,6 +22,8 @@ pub enum Error {
     Checksum { offset: u64 },
     #[error("codec error: {0}")]
     Codec(String),
+    #[error("recording failed: {0}")]
+    Recording(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

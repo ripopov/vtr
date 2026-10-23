@@ -1,7 +1,8 @@
 #pragma once
 
 #include "workload.hpp"
-#include <vtr.hpp>
+#include <vtr_reader.h>
+#include <vtr_writer.h>
 #include <fstapi.h>
 #include <ftr/ftr_writer.h>
 #include <charconv>
@@ -35,37 +36,56 @@ struct NullWriter : Writer {
 
 class VtrWriter final : public Writer {
     vtr::Writer writer_;
-    std::vector<vtr::Id> signals_, generators_;
-    std::array<vtr::Id, 5> keys_;
-    std::unordered_map<u64, u64> active_;
-public:
-    VtrWriter(const Profile& p, const std::string& path) : writer_(path) {
-        writer_.metadata().timescale = -9;
-        auto top = writer_.add_scope(vtr::none, "top");
+    std::vector<vtr::SignalId> signals_;
+    std::vector<vtr::Source<std::array<std::uint64_t, 5>, vtr::SourceKind::transaction>> generators_;
+    std::unordered_map<u64, vtr::Transaction<std::array<std::uint64_t, 5>>> active_;
+
+    static vtr::WriterOptions options() {
+        vtr::WriterOptions options;
+        options.meta.timescale = -9;
+        options.mode = vtr::ExecutionMode::inline_;
+        return options;
+    }
+
+  public:
+    VtrWriter(const Profile& profile, const std::string& path) : writer_(path, options()) {
+        auto top = writer_.scope("top");
         auto scope = top;
-        for (unsigned i = 0; i < p.signals; ++i) {
-            if (i % 32 == 0) scope = writer_.add_scope(top, "unit_" + std::to_string(i / 32));
-            signals_.push_back(writer_.add_var(scope, "signal_" + std::to_string(i),
-                {vtr::SignalKind::bits, width(i), 2}).second);
+        for (unsigned i = 0; i < profile.signals; ++i) {
+            if (i % 32 == 0) {
+                scope = writer_.scope("unit_" + std::to_string(i / 32), top);
+            }
+            signals_.push_back(writer_.signal(
+                {.name = "signal_" + std::to_string(i), .parent = scope}, {.width = width(i)}));
         }
-        for (unsigned g = 0; g < p.generators; ++g)
-            generators_.push_back(writer_.add_generator(top, "generator_" + std::to_string(g), "request"));
-        for (unsigned i = 0; i < keys_.size(); ++i) keys_[i] = writer_.intern(attr_names[i]);
+        for (unsigned i = 0; i < profile.generators; ++i) {
+            generators_.push_back(writer_.transactions<std::array<std::uint64_t, 5>>(
+                {.name = "generator_" + std::to_string(i), .parent = top}, "request"));
+        }
     }
-    void time(u64 t) override { writer_.set_time(t); }
-    void signal(u64, unsigned s, u64 value) override { writer_.emit(signals_[s], value); }
-    void begin(const Transaction& t) override {
-        auto id = writer_.begin_tx(generators_[t.generator], t.begin);
-        active_.emplace(t.serial, id);
-        for (unsigned i = 0; i < 4; ++i) writer_.tx_attr(id, keys_[i], t.attrs[i]);
+
+    void time(u64 time) override {
+        writer_.advance_time(time);
     }
-    void end(const Transaction& t) override {
-        auto id = active_.at(t.serial);
-        writer_.tx_attr(id, keys_[4], t.attrs[4]);
-        writer_.end_tx(id, t.end);
-        active_.erase(t.serial);
+
+    void signal(u64, unsigned signal, u64 value) override {
+        writer_.emit(signals_[signal], value);
     }
-    void close() override { writer_.close(); }
+
+    void begin(const Transaction& transaction) override {
+        auto record = writer_.begin_at(generators_[transaction.generator], transaction.begin, transaction.attrs);
+        active_.emplace(transaction.serial, record);
+    }
+
+    void end(const Transaction& transaction) override {
+        auto record = active_.at(transaction.serial);
+        writer_.end_at(record, transaction.end);
+        active_.erase(transaction.serial);
+    }
+
+    void close() override {
+        writer_.close();
+    }
 };
 
 class FstWriter final : public Writer {

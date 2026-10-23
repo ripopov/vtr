@@ -79,8 +79,11 @@ Transactions issue every fourth tick with phase offsets and periodic idle
 bursts. Lifetimes span 4–63 ticks, allowing multiple outstanding requests from
 each generator and completion out of issue order. Every transaction preserves
 its generator, begin/end timestamps, and five unsigned attributes: `serial`,
-`address`, `bytes`, `opcode`, and `status`. Status is attached at completion;
-other attributes are attached at issue. Active lifetime state is bounded by
+`address`, `bytes`, `opcode`, and `status`. FTR attaches status at completion and the other fields at issue. VTR captures
+the five values as a typed array at issue, using the deterministic status from
+the common schedule, and records the actual interval end at completion. All
+readers verify the same five values and lifetime; neither adapter receives a
+precomputed recording. Active lifetime state is bounded by
 generator count and maximum latency, rather than total trace length. The final
 drain completes requests that extend beyond the nominal duration.
 
@@ -136,7 +139,7 @@ threads.
 | `search-signal` | All transitions of one signal equal to a target value in an inclusive time window | VTR signal/time selection; FST facility mask/time range; VCD sequential scan |
 | `find-signal` | All matching transitions of one signal anywhere in the trace | Same readers, with no time-window restriction |
 | `point` | Signal value already in effect at an arbitrary timestamp | VTR `value_at`; FST handle-at-time lookup; VCD scan up to the requested time |
-| `search-transaction` | Transactions from one generator overlapping a window with `address == target` | VTR generator/time selection and attribute filtering; FTR stream/time chunk pruning and attribute filtering |
+| `search-transaction` | Transactions from one generator overlapping a window with `address == target` | VTR generator/time selection and typed-payload filtering; FTR stream/time chunk pruning and attribute filtering |
 | `find-transaction` | All transactions from one generator with `address == target`, regardless of time | Same readers, with no time-window restriction |
 
 Queries vary sources, timestamps, and signal widths. Some value predicates are
@@ -186,36 +189,67 @@ Run `python3 -m unittest discover -s . -p 'test_*.py'` after building to check
 all format/query combinations on short traces, truncated FTR rejection, and
 deadline failure reporting.
 
-The native waveform writer transforms and compresses columns at block flush;
-the Rust writer prepares chunks during capture. Compare total write time along
-with capture and close: moving work into `close()` is an intentional tradeoff,
-not an improvement in producer latency on its own. The independent codecs and
-transform sampling can produce slightly different file sizes within the same
-VTR 2.0 format. Both decoders are checked against each implementation's output
-by the native library's interoperability tests.
+## Implementation and performance boundaries
 
-The native migration was checked on 2026-10-19 against the Rust-backed C API at
-`bb2c8bb`, with the same default workloads and CPU affinity. Total write/read
-time and peak RSS improved in every profile. Accepted costs are the longer
-waveform close phase described above and an idle-profile file of 1.853 MiB
-versus 1.831 MiB (1.2%). Sparse point queries also retain a small median cost:
-a paired seven-repetition check measured 0.338 ms for C++ versus 0.302 ms for
-Rust, with p95 improving from 0.534 ms to 0.513 ms. The native reader eagerly builds owning
-metadata on open, and each benchmark probe includes a fresh open. This migration
-accepts that small cold-query cost alongside the larger streaming and memory
-improvements; keep it visible in subsequent comparisons.
+VTR uses the current C++20 typed SDK and VTR 3.2 pages. Its independent Rust
+implementation reads and writes the same format. Codec and transform policies
+may produce different physical files while preserving observations. Bidirectional
+native tests check both implementations; this benchmark compares the named
+native readers and writers rather than the Rust implementation's throughput.
 
-## Container tuning
+Compare complete write/read time, file size, every query percentile, RSS, and
+capture/close costs. Typed payloads and retained result ownership change both
+storage and CPU work. Smaller files or a faster capture loop alone do not prove
+an end-to-end improvement. Retain slower results and investigate their causes.
+Fresh-reader queries include schema/hierarchy construction; their costs must
+remain visible even when steady-state streaming improves.
 
-The [container report](containers.md) compares the native baseline at `3f7a764`
-with vendored unordered_dense maps/sets and indexed alias/dictionary storage.
-It covers every measured metric with seven shuffled pairs at full workload size.
-Waveform write time falls by 2–15% and full read time by 3–7%; transaction
-streaming is largely unchanged. File sizes are identical in bytes for all six
-profiles. These are end-to-end results for the combined changes, not isolated
-hash-table speedups. The [dependency notes](../vtr-cpp/third_party/README.md)
-record the alternatives considered, upstream revision, license, and reference
-invalidation constraints.
+A comparison against revision `a0fa762` used seven shuffled pairs per default
+workload on CPU 0. Both producer replays and every read and
+query digest agreed. The original executable's SHA-256 was
+`9512050cc6af8e670b0c8dd5211d72119aa29f66dba6854a7f7d2679e97f7f91`;
+the current executable's was
+`3b0d101ed230757bca6fe0a865474175939829b7f205dc929b8046515d2fefbe`.
+These measurements describe this host and configuration, not performance limits:
+
+| Workload | Complete write time | Complete read time | File size | Write peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| core | +2.9% | −1.2% | +0.4% | −63.2% |
+| soc | +13.6% | +14.8% | −0.9% | −85.8% |
+| idle | +19.9% | +10.9% | −6.5% | −30.5% |
+| requests | −2.7% | +35.0% | −54.4% | −34.7% |
+| many-generators | −3.8% | +31.3% | −56.0% | −29.7% |
+| mixed | +5.1% | +13.6% | −21.2% | −9.8% |
+
+Two controlled probes distinguish API costs from waveform buffering. With the
+same library, workload, codec, and 16 MiB buffer, direct wire, engine, and public
+SDK writers produced equal-size files and independently verified observations.
+Their median complete SoC writes took 348.08, 356.60, and 385.65 ms respectively.
+The public API selects the execution backend and translates errors; the engine
+also enforces poisoned-writer lifecycle rules. These layers remain in the
+supported API. Increasing the buffer to 64 MiB reduced the default SoC write
+time by 5.6% while increasing peak RSS from 16.23 to 41.00 MiB. Removing the byte
+limit increased RSS to 115.11 MiB and made the write 3.1% slower. Buffer size
+alone does not explain the CPU costs.
+
+A separate seven-pair probe kept the public writer and replaced only the reader
+adapter with the private engine API. Complete requests reads fell from 21.31 to
+12.91 ms, and many-generators reads from 37.40 to 20.55 ms. The engine lends
+transaction rows to a synchronous visitor; the SDK constructs independently
+retained records and payloads. Public waveform reads additionally adapt samples
+to `SignalChange`; SoC reads took 117.14 ms through the SDK and 104.35 ms through
+the engine. These probes quantify different ownership and presentation
+contracts, rather than interchangeable APIs. The benchmark continues to measure
+the public SDK, including those costs.
+
+Fresh-reader signal queries also pay for the public catalog. In the revision
+comparison, SoC search-signal p50 rose from 0.270 to 0.415 ms, while core fell
+from 0.426 to 0.109 ms. Transaction search p50 fell from 1.830 to 0.106 ms for
+requests and from 1.837 to 0.291 ms for many-generators. The typed pages and
+selective indexes favor different access patterns; smaller files and faster
+transaction searches coexist with the retained-record read costs above.
+
+## Paired implementation comparisons
 
 To compare future native changes, preserve the benchmark binary before rebuilding:
 

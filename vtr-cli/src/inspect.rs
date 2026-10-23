@@ -1,282 +1,228 @@
-use anyhow::{Context, Result};
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
-use std::path::Path;
-use vtr::{NodeData, NodeId, Reader, TxQuery, Value};
-fn fmt_value(r: &Reader, v: &Value) -> String {
-    match v {
-        Value::Null => "null".into(),
-        Value::Bool(b) => b.to_string(),
-        Value::I64(i) => i.to_string(),
-        Value::U64(u) => u.to_string(),
-        Value::F64(f) => f.to_string(),
-        Value::Str(s) => format!("{:?}", r.str(*s)),
-        Value::Bytes(b) => {
-            let mut text = String::from("0x");
-            for byte in b {
-                write!(text, "{byte:02x}").unwrap();
-            }
-            text
-        }
-        Value::Bits { width, data } => vtr::SignalValue::Bits {
-            width: *width,
-            states: 2,
-            data,
-        }
-        .to_ascii(),
-        Value::Logic { width, data } => vtr::SignalValue::Bits {
-            width: *width,
-            states: 4,
-            data,
-        }
-        .to_ascii(),
-        Value::Logic9 { width, data } => vtr::SignalValue::Bits {
-            width: *width,
-            states: 9,
-            data,
-        }
-        .to_ascii(),
-        Value::Time(t) => format!("{t}t"),
-        Value::Enum { value, name } => format!("{}({value})", r.str(*name)),
-        Value::Pointer(p) => format!("@{p:#x}"),
-        Value::Fixed { raw, scale } => format!("{raw}*2^-{scale}"),
-        Value::UFixed { raw, scale } => format!("{raw}*2^-{scale}"),
-        Value::List(l) => format!(
-            "[{}]",
-            l.iter()
-                .map(|x| fmt_value(r, x))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Value::Map(m) => format!(
-            "{{{}}}",
-            m.iter()
-                .map(|(k, x)| format!("{}: {}", r.str(*k), fmt_value(r, x)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        Value::Text(s) => format!("{s:?}"),
-    }
-}
+use anyhow::{Context, Result, bail};
+use std::{collections::BTreeMap, path::Path};
+use vtr::{
+    Direction, NodeId, ScopeType, VarType,
+    declarations::NodeData,
+    records::{RecordKind, RecordQuery},
+    trace::{Reader, Record, Severity},
+    transactions::TransactionQuery,
+};
 
 pub fn info(path: &Path) -> Result<()> {
-    let r = Reader::open(path)?;
-    let path = path.display();
-    let m = r.meta();
-    println!("file:        {path}");
-    let recovered = match r.recovered() {
-        Some(dropped) => format!(" (recovered, no directory; {dropped} bytes dropped)"),
-        None => String::new(),
-    };
+    let reader = Reader::open(path)?;
+    let metadata = reader.metadata();
+    println!("file:        {}", path.display());
+    println!("version:     3.2");
+    println!("recording:   {}", reader.identity());
     println!(
-        "version:     {}.{}{recovered}",
-        r.version().0,
-        r.version().1
+        "completion:  {:?} ({} bytes dropped)",
+        reader.completion(),
+        reader.dropped_bytes()
     );
-    println!("writer:      {}", m.writer);
-    println!("date:        {}", m.date);
-    println!("file type:   {:?}", m.file_type);
-    println!("timescale:   1e{} s", m.timescale);
-    println!("time zero:   {}", m.time_zero);
-    match r.time_range() {
-        Some((a, b)) => println!("time range:  {a} .. {b}"),
-        None => println!("time range:  (empty)"),
+    println!("writer:      {}", metadata.writer);
+    println!("date:        {}", metadata.date);
+    println!("file type:   {}", metadata.file_type);
+    println!("timescale:   1e{} s", metadata.timescale);
+    println!("time zero:   {}", metadata.time_zero);
+    if let Some(window) = reader.waveform_time_range() {
+        println!("wave range:  {} .. {}", window.first, window.last);
     }
-    match r.ending()? {
-        (end, Some(t)) => println!("ended:       {end} at t={t}"),
-        (end, None) => println!("ended:       {end}"),
+    if !metadata.comment.is_empty() {
+        println!("comment:     {}", metadata.comment);
     }
-    if !m.comment.is_empty() {
-        println!("comment:     {}", m.comment);
-    }
-    for (k, v) in &m.attrs {
-        println!("attr:        {} = {}", r.str(*k), fmt_value(&r, v));
-    }
-    let h = r.hierarchy();
-    let mut scopes = 0;
-    let mut vars = 0;
-    let mut gens = 0;
-    for n in h.ids() {
-        match h.kind(n) {
-            vtr::NodeKind::Scope => scopes += 1,
-            vtr::NodeKind::Var => vars += 1,
-            vtr::NodeKind::Generator => gens += 1,
-            vtr::NodeKind::EnumTable => {}
-        }
-    }
-    println!(
-        "hierarchy:   {scopes} scopes, {vars} vars ({} signals), {gens} generators",
-        r.signal_count()
-    );
-    println!("strings:     {}", r.strings().len());
-    println!("signal blocks: {}", r.block_count());
-    {
-        let st = r.run_stats()?;
-        let names = ["plain", "shuffle", "delta", "delta+shuffle", "dictionary"];
-        let parts: Vec<String> = st
-            .iter()
-            .zip(names)
-            .filter(|(s, _)| s.0 > 0)
-            .map(|(s, n)| format!("{n} {} ({} bytes)", s.0, s.1))
-            .collect();
-        println!("column runs: {}", parts.join(", "));
-    }
-    let (ntx, nrel) = r.tx_counts();
-    println!(
-        "tx blocks:   {} ({} transactions, {nrel} relations)",
-        r.tx_block_count(),
-        ntx - r.log_count()
-    );
-    println!(
-        "log blocks:  {} ({} records, {} sites)",
-        r.log_block_count(),
-        r.log_count(),
-        r.log_sites().len()
-    );
-    println!("blackout:    {} transitions", r.blackout().len());
-    let mut by_kind: std::collections::BTreeMap<u32, (usize, u64)> = BTreeMap::default();
-    for e in r.sections() {
-        let x = by_kind.entry(e.kind).or_default();
-        x.0 += 1;
-        x.1 += e.len + 24;
-    }
-    for (k, (n, bytes)) in by_kind {
-        let name = vtr::container::SectionKind::from_u32(k)
-            .map(|k| format!("{k:?}"))
-            .unwrap_or(format!("kind {k}"));
-        println!("section {name:<12} x{n:<6} {bytes} bytes");
-    }
-    Ok(())
-}
-
-fn print_node(r: &Reader, n: NodeId, depth: usize, max_depth: usize, vars: bool) {
-    if depth >= max_depth {
-        return;
-    }
-    let node = r.hierarchy().node(n);
-    let indent = "  ".repeat(depth);
-    let name = r.name(n);
-    match &node.data {
-        NodeData::Scope {
-            scope_type,
-            component,
-        } => {
-            let c = r.str(*component);
-            println!(
-                "{indent}{name} [{}{}]",
-                scope_type.name(),
-                if c.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {c}")
-                }
-            );
-        }
-        NodeData::Var {
-            var_type,
-            direction,
-            signal,
-            declares,
-        } => {
-            if !vars {
-                return;
-            }
-            let k = r.hierarchy().signal_kind(*signal).unwrap();
-            let kd = match k {
-                vtr::SignalKind::Bits { width, states } => format!("{width} bits, {states}-state"),
-                vtr::SignalKind::Real => "real".into(),
-                vtr::SignalKind::VarLen => "string".into(),
-            };
-            println!(
-                "{indent}{name} : {} {} {kd} sig#{}{}",
-                var_type.name(),
-                direction.name(),
-                signal.0,
-                if declares.is_none() { " (alias)" } else { "" }
-            );
-        }
-        NodeData::Generator { kind } => println!("{indent}{name} [generator {}]", r.str(*kind)),
-
-        NodeData::EnumTable { entries } => {
-            println!("{indent}{name} [enum {} literals]", entries.len());
-        }
-    }
-    for (k, v) in &node.attrs {
-        println!("{indent}  @{} = {}", r.str(*k), fmt_value(r, v));
-    }
-    if depth + 1 < max_depth {
-        for c in r.hierarchy().children(n) {
-            print_node(r, c, depth + 1, max_depth, vars);
-        }
-    }
-}
-
-pub fn hierarchy(path: &Path, depth: usize, vars: bool, sizes: bool) -> Result<()> {
-    let r = Reader::open(path)?;
-    if sizes {
-        print_sizes(&r, depth);
-    } else {
-        for root in r.hierarchy().roots() {
-            print_node(&r, root, 0, depth, vars);
-        }
-    }
-    Ok(())
-}
-
-fn thousands(n: u32) -> String {
-    let d = n.to_string();
-    let mut out = String::new();
-    for (i, c) in d.chars().enumerate() {
-        if i > 0 && (d.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-fn print_sizes(r: &Reader, max_depth: usize) {
-    let (nodes, sizes) = r.hierarchy().scope_sizes();
-    let mut depth = vec![0usize; nodes.len()];
-    let mut rows = Vec::new();
-    for i in 0..nodes.len() as u32 {
-        if let Some(p) = sizes.parent(i) {
-            depth[i as usize] = depth[p as usize] + 1;
-        }
-        if depth[i as usize] < max_depth {
-            let name = format!(
-                "{}{}",
-                "  ".repeat(depth[i as usize]),
-                r.name(nodes[i as usize])
-            );
-            rows.push([
-                name,
-                thousands(sizes.scopes(i)),
-                thousands(sizes.variables(i)),
-                thousands(sizes.signals(i)),
-            ]);
-        }
-    }
-    let head = ["scope", "scopes", "variables", "signals"].map(String::from);
-    let mut w = [0; 4];
-    for row in std::iter::once(&head).chain(&rows) {
-        for (k, c) in row.iter().enumerate() {
-            w[k] = w[k].max(c.chars().count());
-        }
-    }
-    for row in std::iter::once(&head).chain(&rows) {
+    for attribute in &metadata.attributes {
         println!(
-            "{:<a$}  {:>b$}  {:>c$}  {:>d$}",
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            a = w[0],
-            b = w[1],
-            c = w[2],
-            d = w[3]
+            "attr:        {} = {}",
+            reader.string(attribute.key)?,
+            reader.format_value(&attribute.value)?
         );
     }
+    let (mut scopes, mut variables, mut generators) = (0, 0, 0);
+    for node in &reader.declarations().nodes {
+        match node.data {
+            NodeData::Scope { .. } => scopes += 1,
+            NodeData::Signal { .. } => variables += 1,
+            NodeData::Generator { .. } => generators += 1,
+            NodeData::EnumTable { .. } => (),
+        }
+    }
+    println!(
+        "hierarchy:   {scopes} scopes, {variables} variables ({} signals), {generators} generators",
+        reader.signal_count()
+    );
+    println!("strings:     {}", reader.declarations().strings.len());
+    println!("datatypes:   {}", reader.types().len());
+    println!("wave blocks: {}", reader.block_count());
+    let report = reader.validate()?;
+    println!(
+        "records:     {} ({} relations, {} unresolved references)",
+        report.records,
+        report.relations,
+        report.missing.len()
+    );
+    println!("blackout:    {} transitions", reader.blackouts().len());
+    let mut sections = BTreeMap::<u32, (usize, u64)>::new();
+    for section in reader.sections() {
+        let entry = sections.entry(section.kind).or_default();
+        entry.0 += 1;
+        entry.1 += section.length + 24;
+    }
+    for (kind, (count, bytes)) in sections {
+        let name = match kind {
+            1 => "Metadata",
+            2 => "Strings",
+            3 => "Hierarchy",
+            4 => "Waveforms",
+            5 => "Transactions",
+            6 => "Blackout",
+            9 => "Records",
+            10 => "Datatypes",
+            _ => "Optional",
+        };
+        println!("section {name:<12} x{count:<6} {bytes} bytes");
+    }
+    Ok(())
+}
+
+pub fn hierarchy(path: &Path, max_depth: usize, variables: bool, sizes: bool) -> Result<()> {
+    let reader = Reader::open(path)?;
+    if sizes {
+        let (nodes, sizes) = reader.scope_sizes();
+        let mut depths = vec![0; nodes.len()];
+        println!("scope  scopes  variables  signals");
+        for (index, &node) in nodes.iter().enumerate() {
+            depths[index] = sizes
+                .parent(index as u32)
+                .map_or(0, |parent| depths[parent as usize] + 1);
+            if depths[index] < max_depth {
+                println!(
+                    "{}{}  {}  {}  {}",
+                    "  ".repeat(depths[index]),
+                    reader.name(node)?,
+                    sizes.scopes(index as u32),
+                    sizes.variables(index as u32),
+                    sizes.signals(index as u32)
+                );
+            }
+        }
+        return Ok(());
+    }
+    let mut pending: Vec<_> = reader
+        .children(None)
+        .iter()
+        .rev()
+        .map(|&node| (node, 0))
+        .collect();
+    while let Some((id, depth)) = pending.pop() {
+        if depth >= max_depth {
+            continue;
+        }
+        let node = reader.node(id)?;
+        let name = reader.name(id)?;
+        let indent = "  ".repeat(depth);
+        match &node.data {
+            NodeData::Scope {
+                scope_type,
+                component,
+            } => println!(
+                "{indent}{name} [{} {}]",
+                ScopeType::from_code(*scope_type).name(),
+                reader.string(*component)?
+            ),
+            NodeData::Signal {
+                signal,
+                var_type,
+                direction,
+                alias,
+            } => {
+                if !variables {
+                    continue;
+                }
+                println!(
+                    "{indent}{name} : {} {} {:?} sig#{}{}",
+                    VarType::from_code(*var_type).name(),
+                    Direction::from_u8(*direction).name(),
+                    reader.signal_kind(*signal)?,
+                    signal.0,
+                    if *alias { " (alias)" } else { "" }
+                );
+            }
+            NodeData::Generator { kind, payload_type } => println!(
+                "{indent}{name} [generator {} type#{payload_type}]",
+                reader.string(*kind)?
+            ),
+            NodeData::EnumTable { entries } => {
+                println!("{indent}{name} [enum {} literals]", entries.len());
+            }
+        }
+        for attribute in &node.attributes {
+            println!(
+                "{indent}  @{} = {}",
+                reader.string(attribute.key)?,
+                reader.format_value(&attribute.value)?
+            );
+        }
+        pending.extend(
+            reader
+                .children(Some(id))
+                .iter()
+                .rev()
+                .map(|&node| (node, depth + 1)),
+        );
+    }
+    Ok(())
+}
+
+fn show(reader: &Reader, record: &Record, indent: &str) -> Result<()> {
+    let source = record
+        .generator()
+        .map(|generator| reader.full_path(NodeId(generator)))
+        .transpose()?
+        .unwrap_or_default();
+    println!(
+        "{indent}record {} {source} [{} .. {}] status={} kind={:?}{}",
+        record.id(),
+        record.begin(),
+        record.end(),
+        record.status(),
+        record.kind(),
+        record
+            .parent()
+            .map(|parent| format!(" parent={parent}"))
+            .unwrap_or_default()
+    );
+    println!(
+        "{indent}    payload = {}",
+        reader.format_payload(&record.payload())?
+    );
+    for attribute in record.attributes() {
+        println!(
+            "{indent}    {} = {}",
+            reader.string(attribute.key)?,
+            reader.format_value(&attribute.value)?
+        );
+    }
+    for event in record.events() {
+        println!(
+            "{indent}    event {} @{} {}",
+            event.id,
+            event.time,
+            reader.string(event.name)?
+        );
+    }
+    for stage in record.stages() {
+        println!(
+            "{indent}    stage {} {} lane={} [{} .. {}]",
+            stage.id,
+            reader.string(stage.name)?,
+            reader.string(stage.lane)?,
+            stage.begin,
+            stage
+                .end
+                .map_or_else(|| "open".into(), |end| end.to_string())
+        );
+    }
+    Ok(())
 }
 
 pub fn transactions(
@@ -286,89 +232,71 @@ pub fn transactions(
     max: usize,
     ids: &[u64],
 ) -> Result<()> {
-    let r = Reader::open(path)?;
-    let q = TxQuery {
-        window: Some(window),
-        scope: find_scope(&r, scope)?,
-        ..Default::default()
-    };
-    let show = |tx: &vtr::Transaction| {
-        let r#gen = r.name(tx.generator);
-        let scope = r
-            .hierarchy()
-            .parent(tx.generator)
-            .map(|s| r.full_path(s, "."))
-            .unwrap_or_default();
-        println!(
-            "tx {} {scope}/{gen} [{} .. {}] status={} kind={:?}{}",
-            tx.id,
-            tx.begin,
-            tx.end,
-            tx.status.name(),
-            tx.kind,
-            tx.parent
-                .map(|p| format!(" parent={p}"))
-                .unwrap_or_default()
-        );
-        for a in &tx.attrs {
-            println!("    {} = {}", r.str(a.key), fmt_value(&r, &a.value));
-        }
-        for e in &tx.events {
-            println!(
-                "    event @{} {} {}",
-                e.time,
-                r.str(e.name),
-                fmt_value(&r, &Value::Map(e.attrs.clone()))
-            );
-        }
-        for s in &tx.stages {
-            println!(
-                "    stage {} lane={} [{} .. {}] {}",
-                r.str(s.name),
-                r.str(s.lane),
-                s.begin,
-                s.end.map_or("open".into(), |e| e.to_string()),
-                fmt_value(&r, &Value::Map(s.attrs.clone()))
-            );
-        }
-    };
+    let reader = Reader::open(path)?;
     if !ids.is_empty() {
         for &id in ids {
-            match r.transaction(id)? {
-                Some(tx) => {
-                    show(&tx);
-                    for rel in r.relations_from(id)? {
-                        println!(
-                            "    -> {} {} {}",
-                            r.str(rel.kind),
-                            rel.to,
-                            fmt_value(&r, &Value::Map(rel.attrs.clone()))
-                        );
-                    }
-                    for rel in r.relations_to(id)? {
-                        println!(
-                            "    <- {} {} {}",
-                            r.str(rel.kind),
-                            rel.from,
-                            fmt_value(&r, &Value::Map(rel.attrs.clone()))
-                        );
-                    }
+            let record = reader
+                .lookup(id)?
+                .with_context(|| format!("record {id} not found"))?;
+            show(&reader, &record, "")?;
+            if matches!(record.kind(), RecordKind::Transaction | RecordKind::Clock) {
+                let expansion = reader.expand(id)?;
+                for located in expansion.located {
+                    show(&reader, &located, "    ")?;
                 }
-                None => anyhow::bail!("transaction {id} not found"),
+                if !expansion.missing_blocks.is_empty() {
+                    println!("    missing child blocks: {:?}", expansion.missing_blocks);
+                }
+            }
+            for incoming in [false, true] {
+                let mut relations = Vec::new();
+                reader.relations(id, incoming, |relation| {
+                    relations.push(relation);
+                    true
+                })?;
+                for relation in relations {
+                    println!(
+                        "    {} {} {}",
+                        if incoming { "<-" } else { "->" },
+                        reader.string(relation.kind)?,
+                        if incoming {
+                            relation.source
+                        } else {
+                            relation.destination
+                        }
+                    );
+                }
             }
         }
         return Ok(());
     }
-    let mut n = 0;
-    r.visit_transactions(&q, |tx| {
-        n += 1;
-        if n <= max {
-            show(tx);
-        }
-        true
-    })?;
-    if n > max {
-        println!("... {} more", n - max);
+    let scope = find_scope(&reader, scope)?;
+    let mut count = 0usize;
+    let mut records = Vec::new();
+    reader.transactions(
+        TransactionQuery {
+            begin: window.0,
+            end: window.1,
+            ..Default::default()
+        },
+        |record| {
+            if record
+                .generator()
+                .is_some_and(|generator| reader.is_within(NodeId(generator), scope))
+            {
+                count += 1;
+                if records.len() < max {
+                    records.push(record);
+                }
+            }
+            true
+        },
+    )?;
+    for record in records {
+        show(&reader, &record, "")?;
+    }
+    if count > max {
+        println!("... {} more", count - max);
     }
     Ok(())
 }
@@ -378,120 +306,134 @@ pub fn logs(
     scope: Option<&str>,
     window: (u64, u64),
     max: usize,
-    severity: vtr::Severity,
+    severity: Severity,
     sites: bool,
 ) -> Result<()> {
-    let r = Reader::open(path)?;
+    let reader = Reader::open(path)?;
+    let scope = find_scope(&reader, scope)?;
+    let sources: BTreeMap<_, _> = reader
+        .log_sources()?
+        .into_iter()
+        .filter(|source| {
+            source.severity >= severity && reader.is_within(NodeId(source.generator), scope)
+        })
+        .map(|source| (source.generator, source))
+        .collect();
     if sites {
-        for (i, s) in r.log_sites().iter().enumerate() {
-            let loc = match (s.file, s.line) {
-                (Some(f), Some(l)) => format!(" ({}:{l})", r.str(f)),
-                (Some(f), None) => format!(" ({})", r.str(f)),
-                _ => String::new(),
-            };
-            let args: Vec<String> = s
-                .args
-                .iter()
-                .zip(s.names.iter())
-                .map(|(t, n)| format!("{}:{}", r.str(*n), t.name()))
-                .collect();
+        for source in sources.values() {
             println!(
-                "site {i} {} {} {:?}{loc} [{}]",
-                r.full_path(s.node, "."),
-                s.severity.name(),
-                r.str(s.fmt),
-                args.join(", ")
+                "site {} {} {} type#{}",
+                source.generator,
+                reader.full_path(NodeId(source.generator))?,
+                source.severity.name(),
+                source.payload_type
             );
         }
         return Ok(());
     }
-    let q = vtr::LogQuery {
-        window: Some(window),
-        scope: find_scope(&r, scope)?,
-        min_severity: severity,
-        ..Default::default()
-    };
-    let mut n = 0usize;
-    let mut line = String::new();
-    let mut output_error = None;
-    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
-    use std::io::Write;
-    r.visit_log(&q, |rec| {
-        n += 1;
-        if n > max {
-            return false;
-        }
-        line.clear();
-        rec.format_into(r.strings(), &mut line);
-        if let Err(error) = writeln!(
-            out,
-            "{} {:<5} {}: {}",
-            rec.time,
-            rec.severity().name(),
-            r.full_path(rec.site.node, "."),
-            line
-        ) {
-            output_error = Some(error);
-            return false;
-        }
-        true
-    })?;
-    if let Some(error) = output_error {
+    let mut shown = 0usize;
+    let mut error = None;
+    reader.records(
+        RecordQuery {
+            kind: Some(RecordKind::Log),
+            begin: window.0,
+            end: window.1,
+            ..Default::default()
+        },
+        |record| {
+            let Some(source) = record
+                .generator()
+                .and_then(|generator| sources.get(&generator))
+            else {
+                return true;
+            };
+            if shown >= max {
+                return false;
+            }
+            match reader.format_log_bytes(&record) {
+                Ok(bytes) => {
+                    let message = String::from_utf8(bytes).unwrap_or_else(|error| {
+                        use std::fmt::Write;
+                        let mut text = String::from("[non-UTF-8 bytes] ");
+                        for byte in error.into_bytes() {
+                            write!(text, "{byte:02x}").unwrap();
+                        }
+                        text
+                    });
+                    println!(
+                        "{} {:<5} {}: {}",
+                        record.begin(),
+                        source.severity.name(),
+                        reader.full_path(NodeId(source.generator)).unwrap(),
+                        message
+                    );
+                }
+                Err(failure) => {
+                    error = Some(failure);
+                    return false;
+                }
+            }
+            shown += 1;
+            true
+        },
+    )?;
+    if let Some(error) = error {
         return Err(error.into());
     }
-    out.flush()?;
     Ok(())
 }
 
 pub fn clocks(path: &Path) -> Result<()> {
-    let r = Reader::open(path)?;
-    for c in r.clocks() {
-        let tl = r.clock(c.id)?;
-        let stopped: u64 = tl
-            .stretches()
-            .windows(2)
-            .filter_map(|w| {
-                tl.cycle_at(w[0].end)
-                    .filter(|a| a.stopped)
-                    .map(|_| w[1].begin - w[0].end)
-            })
-            .sum();
+    let reader = Reader::open(path)?;
+    for (id, node) in reader.declarations().nodes.iter().enumerate() {
+        if !matches!(node.data, NodeData::Generator { .. })
+            || reader.declarations().generators.get(id as u32)?.kind != RecordKind::Clock
+        {
+            continue;
+        }
+        let mut stretches = Vec::new();
+        reader.transactions(
+            TransactionQuery {
+                generator: Some(id as u32),
+                ..Default::default()
+            },
+            |record| {
+                stretches.push(record);
+                true
+            },
+        )?;
+        stretches.sort_by_key(Record::begin);
         println!(
-            "clock {} {}: {} edges, {} stretches, stopped {stopped}{}",
-            c.id.0,
-            c.path,
-            tl.edge_count(),
-            tl.stretches().len(),
-            if tl.is_open() {
-                ", running at close"
-            } else {
-                ""
-            }
+            "clock {id} {}: {} stretches",
+            reader.full_path(NodeId(id as u32))?,
+            stretches.len()
         );
-        for s in tl.stretches() {
-            let period = if s.period == 0 {
-                "single edge".to_string()
-            } else {
-                format!("period {}", s.period)
-            };
+        for stretch in stretches {
             println!(
-                "    [{} .. {}] {period}, {} edges from cycle {}",
-                s.begin,
-                s.end,
-                s.edges(),
-                s.first_cycle
+                "    [{} .. {}] cycles {} .. {}{}",
+                stretch.begin(),
+                stretch.end(),
+                reader.cycle_at(id as u32, stretch.begin())?.unwrap(),
+                reader.cycle_at(id as u32, stretch.end())?.unwrap(),
+                if stretch.status() == vtr::Status::Open {
+                    ", running at close"
+                } else {
+                    ""
+                }
             );
         }
     }
     Ok(())
 }
-
-fn find_scope(r: &Reader, name: Option<&str>) -> Result<Option<NodeId>> {
+fn find_scope(reader: &Reader, name: Option<&str>) -> Result<Option<NodeId>> {
     name.map(|name| {
-        r.hierarchy()
-            .nodes_of_kind(vtr::NodeKind::Scope)
-            .find(|&s| r.full_path(s, ".") == name)
-            .with_context(|| format!("scope {name:?} not found; use its full hierarchy path"))
+        let id = reader
+            .find(name)
+            .with_context(|| format!("scope {name:?} not found"))?;
+        if !matches!(reader.node(id)?.data, NodeData::Scope { .. }) {
+            bail!("{name:?} is not a scope");
+        }
+        Ok(id)
     })
     .transpose()
 }

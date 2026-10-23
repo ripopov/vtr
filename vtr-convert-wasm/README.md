@@ -37,6 +37,10 @@ toolchain and a `wasm-bindgen` CLI matching the version in `Cargo.lock`:
 rustup target add wasm32-unknown-unknown
 cargo build --locked --release -p vtr-convert-wasm --target wasm32-unknown-unknown
 wasm-bindgen --target web --out-dir build/converter target/wasm32-unknown-unknown/release/vtr_convert_wasm.wasm
+# Execute the converter as WASM and compare against the native CLI.
+cargo build --locked --release -p vtr-cli
+wasm-bindgen --target nodejs --out-dir build/converter-node target/wasm32-unknown-unknown/release/vtr_convert_wasm.wasm
+node vtr-convert-wasm/tests/wasm.mjs build/converter-node target/release/vtr
 cargo test --locked -p vtr-convert-wasm -p vtr-progress -p vtr-convert
 cargo clippy --locked -p vtr-convert-wasm -p vtr-progress -p vtr-convert --all-targets -- -D warnings
 ```
@@ -52,7 +56,7 @@ import starts; startup and direct VTR opening do not request them.
 Run `npm run build` and `npm run test:imports` from Volna's `docs/` directory to
 verify the browser integration.
 
-Native tests compare memory output against the same file writer byte-for-byte,
+Native tests compare memory output against the same file writer byte-for-byte except for the independently generated recording IDs,
 check gzip equivalence, progress completion, and failure behavior. Browser tests
 exercise the compiled WASM worker through the actual viewer host, including
 pipeline and waveform loading, cancellation, replacement, unavailable WASM,

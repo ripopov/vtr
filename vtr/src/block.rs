@@ -4,7 +4,7 @@ use crate::codec::{Compression, Compressor, Decompressor};
 use crate::error::{Error, Result};
 use crate::hierarchy::SignalKind;
 use crate::signal::SignalValue;
-use crate::value::packed_len;
+use crate::signal::packed_len;
 use crate::varint::{self, Reader};
 use crate::xform::{self, Xform};
 use std::sync::Arc;

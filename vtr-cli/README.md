@@ -29,14 +29,17 @@ while the writer flushes its buffers.
 | `value FILE SIGNAL TIME` | VTR | Signal value at a tick |
 | `changes FILE SIGNAL [--from T] [--to T] [--max N]` | VTR | Changes in an inclusive window |
 | `transactions FILE [--scope PATH] [--from T] [--to T] [--max N]` | VTR | Transactions, attributes, events, and stages |
-| `transactions FILE --id ID[,ID…]` | VTR | Selected transactions and their incoming/outgoing relations |
+| `transactions FILE --id ID[,ID…]` | VTR | Selected records, located children, and incoming/outgoing relations |
 | `logs FILE [--scope PATH] [--severity LEVEL] [--from T] [--to T] [--max N]` | VTR | Formatted messages; `--sites` lists declarations instead |
 | `clocks FILE` | VTR | Declared clocks and edge stretches |
 | `convert INPUT OUTPUT [--format kanata\|vcd\|fst]` | Kanata, VCD, FST | Create a VTR recording |
 | `to-vcd INPUT OUTPUT` | VTR | Export waveforms |
-| `recover INPUT OUTPUT` | VTR | Copy verified sections into a complete recording |
+| `recover INPUT OUTPUT` | VTR | Copy verified prefix sections into an incomplete recording |
 | `index FILE [--check] [--threads N] [--memory MiB]` | VTR | Build or validate an activity sidecar |
 | `active FILE [--from T] [--to T] [--build]` | VTR | List changing signals once each, using their first declaration |
+
+`logs` prints messages containing invalid UTF-8 as hexadecimal bytes, prefixed
+with `[non-UTF-8 bytes]`.
 
 Times are unsigned integer ticks in the file's time base, with both window
 ends included. An omitted bound means zero or the largest tick. Signal and
@@ -47,12 +50,11 @@ inspection, not as a stable serialization protocol.
 Conversion, export, and recovery require a new destination path. They publish
 output only after successful completion. Exit codes are 0 for success, 1 for
 `index --check` with no valid sidecar, 2 for invalid arguments or processing
-errors, and 3 for successful recovery that dropped bytes.
+errors, and 3 for successful recovery that dropped bytes. Recovery preserves the recording ID and writes an incomplete directory. Replacing even a valid old directory changes the fingerprint and discards the previous footer.
 
 Activity commands use the VTR reader and activity index directly. Sidecars are validated
-against the source identity and written beside the trace, with the library's
-user-cache fallback. `active` resolves undecided signals from the recording;
-it requires an index or `--build`. `--memory` limits builder scratch, not total
+against the recording ID, finalized length, and directory CRC and written beside the trace, with the library's
+user-cache fallback. `active` queries exact ranges from VTI 3.0 sidecars; it requires an index or `--build`. `--memory` limits builder scratch, not total
 process memory or the retained index. Keep recordings unchanged while reading.
 
 ## Conversion semantics and limits
@@ -104,7 +106,7 @@ cargo run -p vtr-cli --locked -- clocks "$work/pipeline.vtr"
 
 Rust callers use `vtr_convert::kanata::convert_kanata`,
 `vtr_convert::vcd::convert_vcd`, or `vtr_convert::fst::convert_fst` with a fresh
-`vtr::Writer`, then explicitly close it.
+`vtr::recording::Writer`, then explicitly close it.
 Converters leave partial writer state after errors; discard that output.
 `vcdout::write_vcd` writes to any `std::io::Write` sink. See the crate rustdoc
 for a runnable example.

@@ -29,12 +29,18 @@ CXX=${CXX:-$(command -v clang++ || echo g++)}
 export CXX
 "$SRC/configure" --prefix="$PREFIX"
 make -j"${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
+# Upstream installman uses source-qualified prerequisites as destination paths.
+# Local copies keep its out-of-tree installation destinations relative.
+for page in verilator_coverage.1 verilator_gantt.1 verilator_profcfunc.1; do
+  cp "$SRC/$page" "$BUILD_DIR/$page"
+done
 make install
 # The vtr_trace SystemVerilog package and its DPI bodies, from this VTR revision:
 # --trace-vtr parses include/vtr/vtr_trace.sv, verilated_vtr_dpi.cpp includes the DPI
 # header, which includes the keyed tracker beside it.
 ROOT=$("$PREFIX/bin/verilator" --getenv VERILATOR_ROOT)
 mkdir -p "$ROOT/include/vtr"
-INC=$HERE/../../vtr-cpp/include
-cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.hpp" "$INC/vtr_track.hpp" "$ROOT/include/vtr/"
+INC=$HERE/../../vtr-cpp
+cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.h" "$INC/vtr_track.h" \
+   "$INC/vtr_common.h" "$INC/vtr_writer.h" "$ROOT/include/vtr/"
 echo "$PREFIX/bin/verilator"

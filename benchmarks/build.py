@@ -66,7 +66,7 @@ def main():
              "-I", fst, "-c", fst / source, "-o", obj])
         objects.append(obj)
     run([cxx, "-std=c++20", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
-         "-I", ROOT / "vtr-cpp" / "include", "-isystem", fst,
+         "-I", ROOT / "vtr-cpp", "-isystem", fst,
          "-isystem", BUILD / "deps" / "lwtr" / "src", HERE / "benchmark.cpp", *objects,
          libvtr, "-llz4", "-lzstd", "-lz", "-lbz2", "-ldl", "-lpthread", "-lm", "-o", BUILD / "benchmark"])
     (BUILD / "build.json").write_text(json.dumps({

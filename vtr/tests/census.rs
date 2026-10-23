@@ -197,41 +197,49 @@ fn trace_hierarchy_counts_aliases_once() {
         let mut declared: Vec<Option<SignalId>> = vec![None; 64];
         for i in 0..t.parent.len() {
             let parent = t.parent[i].map(|p| ids[p]);
-            let me = w
-                .add_scope(parent, &format!("s{i}"), ScopeType::Module, "")
-                .unwrap();
+            let me = w.scope(format!("s{i}"), parent).unwrap();
             if i % 5 == 0 {
-                w.add_generator(Some(me), "tx", "TRANSACTION").unwrap();
+                w.transactions::<()>(SourceOptions::new("tx", Some(me)), "TRANSACTION")
+                    .unwrap();
             }
             for (k, &g) in t.vars[i].iter().enumerate() {
                 let name = format!("v{k}");
                 match declared[g as usize] {
                     Some(s) => {
-                        w.add_alias(Some(me), &name, VarType::Wire, Direction::Implicit, s)
-                            .unwrap();
+                        w.alias(
+                            s,
+                            SourceOptions::new(&name, Some(me)),
+                            VarType::Wire,
+                            Direction::Implicit,
+                        )
+                        .unwrap();
                     }
                     None => {
                         declared[g as usize] = Some(
-                            w.add_var(Some(me), &name, VarType::Wire, Direction::Implicit, one)
-                                .unwrap()
-                                .1,
+                            w.signal(
+                                SourceOptions::new(&name, Some(me)),
+                                one,
+                                VarType::Wire,
+                                Direction::Implicit,
+                            )
+                            .unwrap(),
                         );
                     }
                 }
             }
             ids.push(me);
         }
-        w.set_time(0).unwrap();
+        w.advance_time(0).unwrap();
         w.close().unwrap();
 
         let r = Reader::open(&path).unwrap();
-        let (nodes, sizes) = r.hierarchy().scope_sizes();
+        let (nodes, sizes) = r.scope_sizes();
         assert_eq!(nodes.len(), t.parent.len());
         assert!(
             nodes
                 .iter()
                 .enumerate()
-                .all(|(i, &n)| r.name(n) == format!("s{i}"))
+                .all(|(i, &n)| r.name(n).unwrap() == format!("s{i}"))
         );
         assert_eq!(triples(&sizes), brute(&t));
     }

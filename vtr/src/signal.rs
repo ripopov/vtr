@@ -1,7 +1,6 @@
 //! Signal value representation and bit packing.
 
 use crate::hierarchy::SignalKind;
-use crate::value::packed_len;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -401,6 +400,17 @@ pub fn default_value(kind: SignalKind, out: &mut Vec<u8>) {
         }
         SignalKind::Real => out.extend_from_slice(&0f64.to_le_bytes()),
         SignalKind::VarLen => {}
+    }
+}
+
+#[inline]
+#[must_use]
+pub fn packed_len(width: u32, states: u8) -> usize {
+    let width = width as usize;
+    match states {
+        2 => width.div_ceil(8),
+        4 => width.div_ceil(4),
+        _ => width.div_ceil(2),
     }
 }
 

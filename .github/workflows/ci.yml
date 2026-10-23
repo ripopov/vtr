@@ -9,38 +9,44 @@ permissions:
 
 jobs:
   vtr-cpp-install:
-    name: Native C++ and C integration (Linux)
+    name: Native C++ (Linux, sanitizers ${{ matrix.sanitize }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitize: ["OFF", "ON"]
+    env:
+      ASAN_OPTIONS: detect_leaks=1
+      UBSAN_OPTIONS: halt_on_error=1
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-09-29
       - run: sudo apt-get update && sudo apt-get install -y cmake liblz4-dev libzstd-dev zlib1g-dev
-      - run: cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S vtr-cpp -B build/cpp -DCMAKE_BUILD_TYPE=${{ matrix.sanitize == 'ON' && 'Debug' || 'Release' }} -DVTR_SANITIZE=${{ matrix.sanitize }}
       - run: cmake --build build/cpp --parallel 2
       - run: ctest --test-dir build/cpp --output-on-failure
-      - name: Install and link an external C consumer
+      - name: Install and link an external C++ consumer
+        if: matrix.sanitize == 'OFF'
         shell: bash
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/vtr-cpp"
-          ./vtr-cpp/install.sh --target-dir "$out/target" --prefix "$out/prefix"
-          ./vtr-cpp/install.sh --target-dir "$out/target" --prefix "$out/prefix"
-          cp vtr-cpp/tests/c_smoke.c "$out/c_smoke.c"
-          export PKG_CONFIG_PATH="$out/prefix/lib/pkgconfig"
-          cc -std=c99 -Wall -Wextra -Werror -O1 \
-            $(pkg-config --cflags vtr) "$out/c_smoke.c" \
-            $(pkg-config --static --libs vtr) -o "$out/c_smoke"
-          "$out/c_smoke" "$out/trace.vtr"
-          ./vtr-cpp/install.sh --target-dir "$out/target-debug" --prefix "$out/prefix-debug" --debug
-          export PKG_CONFIG_PATH="$out/prefix-debug/lib/pkgconfig"
-          cc -std=c99 -Wall -Wextra -Werror -O1 \
-            $(pkg-config --cflags vtr) "$out/c_smoke.c" \
-            $(pkg-config --static --libs vtr) -o "$out/c_smoke_debug"
-          "$out/c_smoke_debug" "$out/trace-debug.vtr"
-          "$out/c_smoke" "$out/trace-again.vtr"
+          mkdir -p "$out"
+          cp -R vtr-cpp/tests/install_consumer "$out/consumer"
+          for config in Release Debug; do
+            cmake -S vtr-cpp -B "$out/library-$config" -DCMAKE_BUILD_TYPE="$config" \
+              -DBUILD_TESTING=OFF -DVTR_BUILD_EXAMPLES=OFF
+            cmake --build "$out/library-$config" --parallel 2
+            cmake --install "$out/library-$config" --prefix "$out/prefix-$config"
+            cmake --install "$out/library-$config" --prefix "$out/prefix-$config"
+            cmake -S "$out/consumer" -B "$out/consumer-$config" \
+              -DCMAKE_BUILD_TYPE="$config" -DCMAKE_PREFIX_PATH="$out/prefix-$config"
+            cmake --build "$out/consumer-$config" --parallel 2
+            "$out/consumer-$config/vtr_install_smoke" "$out/trace-$config.vtr"
+          done
           test -z "$(git status --porcelain)"
 
   test:
@@ -66,11 +72,34 @@ jobs:
         shell: bash
         run: |
           cargo run -p vtr --locked --example waveform -- "$RUNNER_TEMP/waveform.vtr"
+          cargo run -p vtr --locked --example transactions -- "$RUNNER_TEMP/transactions.vtr"
+          cargo run -p vtr --locked --example tracking -- "$RUNNER_TEMP/tracking.vtr"
           cargo run -p vtr --locked --example logging -- "$RUNNER_TEMP/logging.vtr"
           cargo run -p vtr-cli --locked -- convert vtr-convert/tests/fixtures/pipeline.kanata "$RUNNER_TEMP/pipeline.vtr"
           cargo run -p vtr-cli --locked -- clocks "$RUNNER_TEMP/pipeline.vtr"
           cargo run -p vtr-cli --locked -- convert vtr-convert/tests/fixtures/waves.vcd "$RUNNER_TEMP/imported.vtr"
           cargo run -p vtr-cli --locked -- value "$RUNNER_TEMP/imported.vtr" 'top.bus [3:0]' 5
+
+  converter-wasm:
+    name: WASM conversion fidelity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-29
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y clang lld
+      - run: cargo build --release --locked -p vtr-cli
+      - run: cargo build --release --locked -p vtr-convert-wasm --target wasm32-unknown-unknown
+      - run: cargo install --locked wasm-bindgen-cli --version 0.2.128
+      - run: wasm-bindgen --target nodejs --out-dir build/converter-node target/wasm32-unknown-unknown/release/vtr_convert_wasm.wasm
+      - run: node vtr-convert-wasm/tests/wasm.mjs build/converter-node target/release/vtr
 
   quality:
     name: Format, lint, docs, and package
@@ -148,6 +177,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly-2026-09-29 miri setup
       # These tests exercise Rust-owned memory without invoking native codecs or mmap.
-      - run: cargo +nightly-2026-09-29 miri test -p vtr --lib --locked strings::tests
+      - run: cargo +nightly-2026-09-29 miri test -p vtr --lib --locked signal::tests
       - run: cargo +nightly-2026-09-29 miri test -p vtr --lib --locked varint::tests
       - run: cargo +nightly-2026-09-29 miri test -p vtr --lib --locked allocator_
+      - run: cargo +nightly-2026-09-29 miri test -p vtr --test bindings --locked declarative_bindings_match_cpp
+      - run: cargo +nightly-2026-09-29 miri test -p vtr --test bindings --locked recursive_automatic_bindings

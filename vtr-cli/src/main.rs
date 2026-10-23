@@ -1,7 +1,12 @@
 use anyhow::{Context, Result, bail, ensure};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
-use vtr::{Reader, Writer};
+use vtr::{
+    NodeId,
+    declarations::NodeData,
+    recording::{EncodingOptions, Writer, WriterOptions},
+    trace::{Reader, Severity, TimeWindow},
+};
 mod inspect;
 mod progress;
 
@@ -82,7 +87,7 @@ enum Command {
         #[arg(long, default_value_t = 100)]
         max: usize,
         #[arg(long, default_value = "trace", value_parser = parse_severity)]
-        severity: vtr::Severity,
+        severity: Severity,
         #[arg(long, conflicts_with_all = ["scope", "from", "to", "max", "severity"])]
         sites: bool,
     },
@@ -122,8 +127,8 @@ enum Command {
         build: bool,
     },
 }
-fn parse_severity(s: &str) -> Result<vtr::Severity, String> {
-    vtr::Severity::from_name(s)
+fn parse_severity(s: &str) -> Result<Severity, String> {
+    Severity::from_name(s)
         .ok_or_else(|| "expected trace, debug, info, warn, error, or fatal".into())
 }
 
@@ -192,7 +197,10 @@ fn activity_index(
         &identity,
         vtr::activity::default_cache_dir().as_deref(),
     );
-    if let Some((_, index)) = sidecar.load(&identity) {
+    if let Some((_, index)) = sidecar
+        .load(&identity)
+        .filter(|(_, index)| index.verify_source(reader).is_ok())
+    {
         return Ok(Some(index));
     }
     let Some(options) = options else {
@@ -215,12 +223,18 @@ fn activity_index(
         })
         .context("cannot lock the activity sidecar")?;
     lock.lock()?;
-    if let Some((_, index)) = sidecar.load(&identity) {
+    if let Some((_, index)) = sidecar
+        .load(&identity)
+        .filter(|(_, index)| index.verify_source(reader).is_ok())
+    {
         return Ok(Some(index));
     }
 
     let (path, _) = sidecar.write(|out| vtr::activity::build(reader, out, &options))?;
-    Ok(Some(vtr::activity::Index::open(path, &identity)?))
+    Ok(Some(vtr::activity::Index::decode_for(
+        &std::fs::read(path)?,
+        reader,
+    )?))
 }
 fn run(cli: Cli) -> Result<u8> {
     match cli.command {
@@ -234,7 +248,7 @@ fn run(cli: Cli) -> Result<u8> {
         Command::Value { file, signal, time } => {
             let r = Reader::open(file)?;
             let id = r
-                .find_signal(&signal, '.')
+                .find_signal(&signal)
                 .with_context(|| format!("signal {signal:?} not found"))?;
             println!("{}", r.value_at(id, time)?.to_ascii());
         }
@@ -247,17 +261,25 @@ fn run(cli: Cli) -> Result<u8> {
             let (from, to) = window.checked()?;
             let r = Reader::open(file)?;
             let id = r
-                .find_signal(&signal, '.')
+                .find_signal(&signal)
                 .with_context(|| format!("signal {signal:?} not found"))?;
-            let changes = r.changes(id, from, to)?;
-            for (t, value) in changes.iter().take(max) {
-                println!("{t}\t{}", value.to_ascii());
-            }
-            if changes.len() > max {
-                eprintln!(
-                    "{} more changes; increase --max to show them",
-                    changes.len() - max
-                );
+            let mut count = 0usize;
+            r.changes(
+                Some(id),
+                TimeWindow {
+                    first: from,
+                    last: to,
+                },
+                |time, _, value| {
+                    if count < max {
+                        println!("{time}\t{}", value.to_ascii());
+                    }
+                    count += 1;
+                    true
+                },
+            )?;
+            if count > max {
+                eprintln!("{} more changes; increase --max to show them", count - max);
             }
         }
         Command::Transactions {
@@ -296,8 +318,11 @@ fn run(cli: Cli) -> Result<u8> {
                 display.output(path);
                 let mut writer = Writer::create_with(
                     path,
-                    vtr::WriterOptions {
-                        dedup: false,
+                    WriterOptions {
+                        encoding: EncodingOptions {
+                            waveform_deduplicate: false,
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
                 )?;
@@ -335,13 +360,12 @@ fn run(cli: Cli) -> Result<u8> {
             println!("wrote {} changes to {}", changes, output.display());
         }
         Command::Recover { input, output } => {
-            let dropped = output_file(&output, |path| Ok(vtr::recover(&input, path)?))?;
-            println!(
-                "wrote {}; dropped {} bytes",
-                output.display(),
-                dropped.unwrap_or(0)
-            );
-            if dropped.is_some_and(|n| n > 0) {
+            let dropped = output_file(&output, |path| {
+                vtr::framing::recover(&input, path)?;
+                Ok(Reader::open(path)?.dropped_bytes())
+            })?;
+            println!("wrote {}; dropped {} bytes", output.display(), dropped);
+            if dropped > 0 {
                 return Ok(3);
             }
         }
@@ -368,20 +392,13 @@ fn run(cli: Cli) -> Result<u8> {
             let reader = Reader::open(&file)?;
             let index = activity_index(&file, &reader, build.then_some((0, 256)))?
                 .context("no valid activity index; run vtr index <file> or pass --build")?;
-            let classification = index.classify(from, to);
             let mut active: std::collections::BTreeSet<_> =
-                classification.active.into_iter().collect();
-            active.extend(vtr::activity::resolve(
-                &reader,
-                &classification.undecided,
-                from,
-                to,
-            )?);
-            for id in reader.hierarchy().ids() {
-                if let Some(signal) = reader.hierarchy().signal_of(id)
+                index.classify(from, to).into_iter().collect();
+            for (id, node) in reader.declarations().nodes.iter().enumerate() {
+                if let NodeData::Signal { signal, .. } = node.data
                     && active.remove(&signal)
                 {
-                    println!("{}", reader.full_path(id, "."));
+                    println!("{}", reader.full_path(NodeId(id as u32))?);
                 }
             }
         }

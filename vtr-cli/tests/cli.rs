@@ -1,5 +1,12 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use vtr::{
+    NodeId,
+    attributes::{Attribute, Value},
+    declarations::NodeData,
+    recording::{EncodingOptions, ExecutionMode, Recorder, SourceOptions, Writer, WriterOptions},
+    trace::Reader,
+};
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vtr-convert/tests/fixtures")
@@ -159,8 +166,8 @@ fn transactions_clocks_logs_and_window_bounds() {
         d,
         &["transactions", "run.vtr", "--scope", "cpu", "--from", "104"],
     );
-    assert!(output.contains("insn_id_in_sim = 12"));
-    assert!(!output.contains("insn_id_in_sim = 10"));
+    assert!(output.contains("simulation_id: 12"));
+    assert!(!output.contains("simulation_id: 10"));
     assert!(ok(d, &["transactions", "run.vtr", "--id", "2"]).contains("wakeup"));
     assert_eq!(
         run(d, &["transactions", "run.vtr", "--id", "999"])
@@ -174,24 +181,33 @@ fn transactions_clocks_logs_and_window_bounds() {
             .code(),
         Some(2)
     );
-    let mut w = vtr::Writer::create(d.join("logs.vtr")).unwrap();
-    let stream = w
-        .add_scope(None, "messages", vtr::ScopeType::Generic, "")
-        .unwrap();
+    let mut w = Writer::create(d.join("logs.vtr")).unwrap();
+    let stream = w.scope("messages", None).unwrap();
+    let severity = w.intern("log.severity").unwrap();
     let site = w
-        .add_log_site(&vtr::LogSiteSpec::new(
-            Some(stream),
-            vtr::Severity::Warn,
-            "hello {}",
-            &[vtr::LogArgType::U64],
-        ))
+        .logs::<u64>(SourceOptions {
+            name: "hello {}".into(),
+            parent: Some(stream),
+            attributes: vec![Attribute {
+                key: severity,
+                value: Value::U64(3),
+            }],
+        })
         .unwrap();
-    w.log(site, 5, &[1u64.into()]).unwrap();
-    w.log(site, 10, &[2u64.into()]).unwrap();
+    w.advance_time(5).unwrap();
+    w.log(site, &1, None).unwrap();
+    w.advance_time(10).unwrap();
+    w.log(site, &2, None).unwrap();
+    let bytes = w
+        .logs::<i16>(SourceOptions::new("{:c}", Some(stream)))
+        .unwrap();
+    let raw = if std::ffi::c_char::MIN == 0 { 255 } else { -1 };
+    w.log(bytes, &raw, None).unwrap();
     w.close().unwrap();
     let logs = ok(d, &["logs", "logs.vtr", "--to", "5"]);
     assert!(logs.contains("hello 1"));
     assert!(!logs.contains("hello 2"));
+    assert!(ok(d, &["logs", "logs.vtr"]).contains("[non-UTF-8 bytes] ff"));
     assert!(ok(d, &["logs", "logs.vtr", "--sites"]).contains("hello {}"));
     assert!(ok(d, &["logs", "logs.vtr", "--severity", "error"]).is_empty());
     assert_eq!(
@@ -215,50 +231,67 @@ fn fst_must_be_converted_before_activity_indexing() {
     ok(d, &["index", "values.vtr"]);
     ok(d, &["index", "values.vtr", "--check"]);
     let output = ok(d, &["active", "values.vtr", "--from", "11", "--to", "1000"]);
-    let reader = vtr::Reader::open(d.join("values.vtr")).unwrap();
-    let refs: Vec<_> = (0..reader.signal_count()).map(vtr::SignalId).collect();
-    let mut active: std::collections::BTreeSet<_> =
-        vtr::activity::resolve(&reader, &refs, 11, 1000)
-            .unwrap()
-            .into_iter()
-            .collect();
+    let reader = Reader::open(d.join("values.vtr")).unwrap();
+    let mut active = std::collections::BTreeSet::new();
+    let first = reader.waveform_time_range().unwrap().first;
+    reader
+        .changes(
+            None,
+            vtr::TimeWindow {
+                first: 11,
+                last: 1000,
+            },
+            |time, signal, _| {
+                if time > first {
+                    active.insert(signal);
+                }
+                true
+            },
+        )
+        .unwrap();
     let expected: Vec<_> = reader
-        .hierarchy()
-        .ids()
-        .filter(|&id| {
-            reader
-                .hierarchy()
-                .signal_of(id)
-                .is_some_and(|s| active.remove(&s))
+        .declarations()
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(id, node)| {
+            if let NodeData::Signal { signal, .. } = node.data
+                && active.remove(&signal)
+            {
+                Some(reader.full_path(NodeId(id as u32)).unwrap())
+            } else {
+                None
+            }
         })
-        .map(|id| reader.full_path(id, "."))
         .collect();
     assert_eq!(output.lines().collect::<Vec<_>>(), expected);
 }
 #[test]
-fn recovery_reports_dropped_bytes_and_preserves_complete_files() {
+fn recovery_reports_dropped_bytes_and_preserves_recording_identity() {
     let dir = tempfile::tempdir().unwrap();
     let d = dir.path();
-    let mut w = vtr::Writer::create_with(
+    let mut w = Writer::create_with(
         d.join("full.vtr"),
-        vtr::WriterOptions {
-            block_records: 100,
-            background: false,
+        WriterOptions {
+            mode: ExecutionMode::Inline,
+            encoding: EncodingOptions {
+                waveform_records: 100,
+                ..Default::default()
+            },
             ..Default::default()
         },
     )
     .unwrap();
-    let (_, s) = w
-        .add_var(
-            None,
-            "a",
+    let s = w
+        .signal(
+            SourceOptions::new("a", None),
+            vtr::SignalKind::bits(8, vtr::LogicStates::Two),
             vtr::VarType::Wire,
             vtr::Direction::Implicit,
-            vtr::SignalKind::bits(8, vtr::LogicStates::Two),
         )
         .unwrap();
     for t in 0..1000 {
-        w.set_time(t).unwrap();
+        w.advance_time(t).unwrap();
         w.emit_u64(s, t).unwrap();
     }
     w.close().unwrap();
@@ -276,11 +309,23 @@ fn recovery_reports_dropped_bytes_and_preserves_complete_files() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let r = vtr::Reader::open(d.join("recovered.vtr")).unwrap();
-    assert!(r.recovered().is_none());
-    assert!(matches!(r.ending().unwrap().0,vtr::Ending::Recovered{dropped} if dropped>0));
-    ok(d, &["recover", "full.vtr", "copy.vtr"]);
-    assert_eq!(bytes, std::fs::read(d.join("copy.vtr")).unwrap());
+    let r = Reader::open(d.join("recovered.vtr")).unwrap();
+    assert_eq!(r.completion(), vtr::framing::Completion::Incomplete);
+    assert!(r.dropped_bytes() > 0);
+    r.validate().unwrap();
+    let source = Reader::open(d.join("full.vtr")).unwrap();
+    assert_eq!(
+        run(d, &["recover", "full.vtr", "copy.vtr"]).status.code(),
+        Some(3)
+    );
+    let copy = Reader::open(d.join("copy.vtr")).unwrap();
+    assert_eq!(copy.identity(), source.identity());
+    assert_ne!(copy.fingerprint(), source.fingerprint());
+    assert_eq!(
+        copy.load_signal(s).unwrap().times(),
+        source.load_signal(s).unwrap().times()
+    );
+    copy.validate().unwrap();
 }
 
 #[cfg(unix)]

@@ -2,7 +2,12 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use vtr::{OwnedSignalValue, Reader, SignalKind, Writer, WriterOptions};
+use vtr::{
+    OwnedSignalValue, SignalKind,
+    declarations::NodeData,
+    recording::{ExecutionMode, Writer, WriterOptions},
+    trace::{Reader, TimeWindow},
+};
 
 fn converted(bytes: &[u8]) -> anyhow::Result<Reader> {
     let dir = tempfile::tempdir()?;
@@ -12,8 +17,11 @@ fn converted(bytes: &[u8]) -> anyhow::Result<Reader> {
     let mut writer = Writer::create_with(
         &output,
         WriterOptions {
-            dedup: false,
-            background: false,
+            mode: ExecutionMode::Inline,
+            encoding: vtr::recording::EncodingOptions {
+                waveform_deduplicate: false,
+                ..Default::default()
+            },
             ..Default::default()
         },
     )?;
@@ -42,17 +50,25 @@ fn every_sample_matches_the_fst_decoder() {
         let converted = converted(&bytes).unwrap();
         let mut original = FstReader::open(std::io::Cursor::new(bytes)).unwrap();
         assert_eq!(
-            converted.meta().timescale,
+            converted.metadata().timescale,
             original.get_header().timescale_exponent
         );
         assert_eq!(
-            converted.time_range().unwrap().1,
+            converted.waveform_time_range().unwrap().last,
             original.get_header().end_time
         );
+        converted.validate().unwrap();
         let variables: Vec<_> = converted
-            .hierarchy()
-            .ids()
-            .filter(|&id| converted.hierarchy().signal_of(id).is_some())
+            .declarations()
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                if let NodeData::Signal { signal, .. } = node.data {
+                    Some((node, signal))
+                } else {
+                    None
+                }
+            })
             .collect();
         let mut declarations = Vec::new();
         original
@@ -64,9 +80,8 @@ fn every_sample_matches_the_fst_decoder() {
             .unwrap();
         assert_eq!(variables.len(), declarations.len());
         let mut histories = BTreeMap::new();
-        for (&id, (name, handle)) in variables.iter().zip(&declarations) {
-            assert_eq!(converted.str(converted.hierarchy().name(id)), name);
-            let signal = converted.hierarchy().signal_of(id).unwrap();
+        for (&(node, signal), (name, handle)) in variables.iter().zip(&declarations) {
+            assert_eq!(converted.string(node.name).unwrap(), name);
             if let Some((other, _, _)) = histories.get(handle) {
                 assert_eq!(signal, *other, "alias {name}");
             } else {
@@ -74,7 +89,16 @@ fn every_sample_matches_the_fst_decoder() {
                     *handle,
                     (
                         signal,
-                        converted.changes(signal, 0, u64::MAX).unwrap(),
+                        {
+                            let mut samples = Vec::new();
+                            converted
+                                .changes(Some(signal), TimeWindow::default(), |time, _, value| {
+                                    samples.push((time, value.to_owned()));
+                                    true
+                                })
+                                .unwrap();
+                            samples
+                        },
                         0usize,
                     ),
                 );

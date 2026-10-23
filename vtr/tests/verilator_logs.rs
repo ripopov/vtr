@@ -1,141 +1,139 @@
-//! Read actual Verilator output, including files closed during fatal shutdown.
+//! Read actual Verilator output, including traces closed by fatal exit callbacks.
 
 use std::path::PathBuf;
-use vtr::{LogQuery, Reader, Severity, TxQuery};
+use vtr::*;
 
-fn fixture(mode: &str) -> Reader {
-    Reader::open(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("tests/fixtures/verilator/logs_{mode}.vtr")),
-    )
-    .unwrap()
+fn fixture(scenario: &str, execution: &str) -> Reader {
+    let directory = std::env::var_os("VTR_VERILATOR_FIXTURES").map_or_else(
+        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/verilator"),
+        PathBuf::from,
+    );
+    Reader::open(directory.join(format!("logs_{scenario}_{execution}.vtr"))).unwrap()
 }
 
 #[test]
-fn verilator_uses_one_stream_and_one_generator_per_severity() {
-    let reader = fixture("normal");
-    assert_eq!(reader.log_sites().len(), 6);
-    let stream = reader.log_sites()[0].scope.unwrap();
-    for (level, site) in reader.log_sites().iter().enumerate() {
-        assert_eq!(site.severity.code(), level as u8);
-        assert_eq!(site.scope.unwrap(), stream);
-        assert_eq!(reader.str(site.fmt), "{}");
-        assert_eq!(site.args, [vtr::LogArgType::Text]);
-    }
-    let mut rows = Vec::new();
-    reader
-        .visit_log(&LogQuery::default(), |r| {
-            rows.push((r.id, r.time, r.severity(), r.format(reader.strings())));
-            true
-        })
-        .unwrap();
-    assert_eq!(rows.len(), 15);
-    assert_eq!(
-        (rows[0].1, rows[0].2, rows[0].3.as_str()),
-        (0, Severity::Info, "boot complete\n")
-    );
-    assert_eq!(rows[2].2, Severity::Warn);
-    assert!(rows[2].3.contains("retry pending"));
-    assert_eq!(rows[4].3, "fragment ");
-    assert_eq!(rows[5].3, "complete\n");
-    assert_eq!(rows.last().unwrap().1, 7);
-    let mut transactions = Vec::new();
-    reader
-        .visit_transactions(&TxQuery::default(), |tx| {
-            assert_eq!(tx.begin, tx.end);
+fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
+    for execution in ["inline", "threaded"] {
+        let reader = fixture("normal", execution);
+        let sources = reader.log_sources().unwrap();
+        assert_eq!(sources.len(), 6);
+        let scope = reader
+            .node(NodeId(sources[0].generator))
+            .unwrap()
+            .parent
+            .unwrap();
+        assert_eq!(reader.full_path(scope).unwrap(), "simulation_log");
+        for (source, severity) in sources.iter().zip([
+            Severity::Trace,
+            Severity::Debug,
+            Severity::Info,
+            Severity::Warn,
+            Severity::Error,
+            Severity::Fatal,
+        ]) {
+            assert_eq!(source.severity, severity);
             assert_eq!(
-                reader.transaction_generator(tx.id).unwrap(),
-                Some(tx.generator)
+                reader.node(NodeId(source.generator)).unwrap().parent,
+                Some(scope)
             );
-            transactions.push(tx.id);
-            true
-        })
-        .unwrap();
-    assert_eq!(transactions, rows.iter().map(|r| r.0).collect::<Vec<_>>());
-    let mut owner_ids = transactions.clone();
-    owner_ids.reverse();
-    owner_ids.extend([u64::MAX, transactions[0]]);
-    assert_eq!(
-        reader.transaction_generators(&owner_ids).unwrap(),
-        owner_ids
-            .iter()
-            .map(|&id| reader.transaction_generator(id).unwrap())
-            .collect::<Vec<_>>()
-    );
-    let warning = reader
-        .log_sites()
-        .iter()
-        .find(|s| s.severity == Severity::Warn)
-        .unwrap();
-    let mut count = 0;
-    reader
-        .visit_log(
-            &LogQuery {
-                generator: Some(warning.node),
-                window: Some((0, 0)),
-                ..Default::default()
-            },
-            |_| {
-                count += 1;
-                true
-            },
-        )
-        .unwrap();
-    assert_eq!(count, 1);
-}
-
-#[test]
-fn terminating_tasks_leave_readable_timestamped_logs() {
-    for (mode, severity, text) in [
-        ("error", Severity::Error, "response rejected"),
-        ("fatal", Severity::Fatal, "watchdog expired"),
-        ("finish", Severity::Info, "Verilog $finish"),
-    ] {
-        let reader = fixture(mode);
-        let mut found = false;
+            assert_eq!(reader.name(NodeId(source.generator)).unwrap(), "{}");
+            assert_eq!(source.payload_type, 13);
+        }
+        let mut records = Vec::new();
         reader
-            .visit_log(&LogQuery::default(), |r| {
-                assert!(r.time <= 5);
-                found |= r.time == 5
-                    && r.severity() == severity
-                    && r.format(reader.strings()).contains(text);
-                true
-            })
+            .records(
+                RecordQuery {
+                    kind: Some(RecordKind::Log),
+                    ..RecordQuery::default()
+                },
+                |record| {
+                    records.push(record);
+                    true
+                },
+            )
             .unwrap();
-        assert!(found, "{mode}");
+        records.sort_unstable_by_key(Record::id);
+        assert_eq!(records.len(), 9);
+        assert_eq!(reader.format_log(&records[0]).unwrap(), "boot complete\n");
+        assert_eq!(reader.format_log(&records[3]).unwrap(), "fragment ");
+        assert_eq!(reader.format_log(&records[4]).unwrap(), "complete\n");
+        assert_eq!(records.last().unwrap().begin(), 7);
+        let warning = sources
+            .iter()
+            .find(|source| source.severity == Severity::Warn)
+            .unwrap();
+        let mut count = 0;
+        reader
+            .records(
+                RecordQuery {
+                    generator: Some(warning.generator),
+                    begin: 0,
+                    end: 0,
+                    ..RecordQuery::default()
+                },
+                |record| {
+                    assert!(
+                        reader
+                            .format_log(&record)
+                            .unwrap()
+                            .contains("retry pending")
+                    );
+                    count += 1;
+                    true
+                },
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        for record in &records {
+            assert_eq!(
+                reader.lookup(record.id()).unwrap().unwrap().generator(),
+                record.generator()
+            );
+        }
+        reader.validate().unwrap();
+        drop(reader);
+        assert_eq!(
+            records[0].payload().decode::<String>().unwrap(),
+            "boot complete\n"
+        );
     }
 }
 
 #[test]
-fn binary_hdl_output_is_recoverable_without_aborting() {
-    let reader = fixture("bytes");
-    let mut found = false;
-    reader
-        .visit_log(&LogQuery::default(), |r| {
-            found |= r.time == 5 && r.format(reader.strings()) == "[non-UTF-8 bytes] 72617720ff0a";
-            true
-        })
-        .unwrap();
-    assert!(found);
-    assert_eq!(reader.log_count(), 16);
-}
-
-#[test]
-fn runtime_diagnostics_and_trace_reentry_are_recorded() {
-    for (mode, time, severity, text) in [
-        ("runtime", 5, Severity::Info, "Time scale"),
-        ("repeat", 3, Severity::Warn, "previous dump"),
-    ] {
-        let reader = fixture(mode);
-        let mut found = false;
-        reader
-            .visit_log(&LogQuery::default(), |r| {
-                found |= r.time == time
-                    && r.severity() == severity
-                    && r.format(reader.strings()).contains(text);
-                true
-            })
-            .unwrap();
-        assert!(found, "{mode}");
+fn terminating_tasks_binary_output_and_runtime_warnings_remain_readable() {
+    for execution in ["inline", "threaded"] {
+        for (scenario, time, severity, text) in [
+            ("error", 5, Severity::Error, "response rejected"),
+            ("fatal", 5, Severity::Fatal, "watchdog expired"),
+            ("finish", 5, Severity::Info, "Verilog $finish"),
+            ("bytes", 5, Severity::Info, "[non-UTF-8 bytes] 72617720ff0a"),
+            ("runtime", 5, Severity::Info, "Time scale"),
+            ("repeat", 3, Severity::Warn, "previous dump"),
+        ] {
+            let reader = fixture(scenario, execution);
+            let sources = reader.log_sources().unwrap();
+            let mut found = false;
+            reader
+                .records(
+                    RecordQuery {
+                        kind: Some(RecordKind::Log),
+                        ..RecordQuery::default()
+                    },
+                    |record| {
+                        let source = sources
+                            .iter()
+                            .find(|source| Some(source.generator) == record.generator())
+                            .unwrap();
+                        found |= record.begin() == time
+                            && source.severity == severity
+                            && reader.format_log(&record).unwrap().contains(text);
+                        true
+                    },
+                )
+                .unwrap();
+            assert!(found, "{scenario}, {execution}");
+            assert_eq!(reader.completion(), Completion::Complete);
+            reader.validate().unwrap();
+        }
     }
 }

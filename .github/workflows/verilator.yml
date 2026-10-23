@@ -29,3 +29,7 @@ jobs:
       - run: cmake --build build/cpp --parallel 2
       - run: integrations/verilator/build.sh "$PWD/build/verilator/install"
       - run: python3 integrations/verilator/smoke/run.py --verilator build/verilator/install/bin/verilator
+      - run: python3 integrations/verilator/logs/run.py --verilator build/verilator/install/bin/verilator --fixtures build/verilator-fixtures
+      - run: cargo test -p vtr --locked --test verilator_logs
+        env:
+          VTR_VERILATOR_FIXTURES: "${{ github.workspace }}/build/verilator-fixtures"
