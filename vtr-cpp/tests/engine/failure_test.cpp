@@ -380,6 +380,8 @@ void failed_direct_capture(const fs::path& dir) {
         });
         stream.advance_time(1);
         stream.log(generator, 1, capture(std::string("before")));
+        stream.advance_time(2);
+        stream.flush();
         const vtr::detail::EncodedPayload broken{size, nullptr,
                                                  [](std::span<std::byte> output, const void*) {
                                                      output[0] = std::byte{7};
@@ -387,14 +389,14 @@ void failed_direct_capture(const fs::path& dir) {
                                                  }};
         bool rejected = false;
         try {
-            stream.log(generator, 1, broken);
+            stream.log(generator, 2, broken);
         } catch (const std::bad_alloc&) {
             rejected = true;
         }
         check(rejected, "direct capture did not invoke its encoder");
         rejected = false;
         try {
-            stream.advance_time(2);
+            stream.advance_time(3);
         } catch (const std::bad_alloc&) {
             rejected = true;
         }

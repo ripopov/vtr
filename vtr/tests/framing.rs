@@ -73,6 +73,7 @@ fn recovery_preserves_identity_and_invalidates_the_old_fingerprint() {
     assert!(recover(&input, &input).is_err());
     std::fs::hard_link(&input, &output).unwrap();
     assert!(recover(&input, &output).is_err());
+    assert_eq!(std::fs::read(&input).unwrap(), bytes);
     std::fs::remove_file(&output).unwrap();
     recover(&input, &output).unwrap();
     let original = Container::open(&input, true).unwrap();

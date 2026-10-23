@@ -491,6 +491,10 @@ pub fn recover(input: impl AsRef<Path>, output: impl AsRef<Path>) -> Result<()> 
             return Err(Error::invalid("recovery paths refer to the same file"));
         }
     }
+    #[cfg(windows)]
+    if output.try_exists()? && same_file::is_same_file(input, output)? {
+        return Err(Error::invalid("recovery paths refer to the same file"));
+    }
     let mut bytes = Vec::new();
     std::fs::File::open(input)?.read_to_end(&mut bytes)?;
     let parsed = Container::parse(Data::Owned(bytes.into()), true, false)?;
