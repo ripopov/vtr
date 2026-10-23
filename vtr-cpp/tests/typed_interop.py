@@ -8,7 +8,7 @@ def main():
     native, build = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     root = Path(__file__).resolve().parents[2]
     build.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["cargo", "build", "--locked", "--offline", "--manifest-path", str(root / "Cargo.toml"),
+    subprocess.run(["cargo", "build", "--locked", "--manifest-path", str(root / "Cargo.toml"),
                     "-p", "vtr", "--example", "typed_interop", "--target-dir", str(build / "rust")], check=True)
     rust = build / "rust/debug/examples/typed_interop"
     for codec in range(3):

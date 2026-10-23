@@ -7,14 +7,15 @@ use vtr::{
 fn range_includes_detail_outside_owners_without_decoding_payloads_or_filling_owner_cache() {
     let directory = tempfile::tempdir().unwrap();
     for (mode, workers) in [(ExecutionMode::Inline, 0), (ExecutionMode::Threaded, 2)] {
-        for compression in [
+        for (codec, compression) in [
             Compression::NONE,
             Compression::LZ4,
             Compression::ZSTD_DEFAULT,
-        ] {
-            let path = directory
-                .path()
-                .join(format!("{mode:?}-{compression:?}.vtr"));
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = directory.path().join(format!("{mode:?}-{codec}.vtr"));
             let mut options = WriterOptions {
                 mode,
                 ..Default::default()

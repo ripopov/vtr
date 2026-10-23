@@ -18,23 +18,52 @@ const converter = require(resolve(bindings, 'vtr_convert_wasm.js'));
 assert.equal(converter.max_input_bytes(), 256 * 1024 * 1024);
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../../vtr-convert/tests/fixtures');
 const temporary = mkdtempSync(join(tmpdir(), 'vtr-wasm-'));
+
+function observations(file) {
+    const inspect = (command, ...args) => execFileSync(resolve(cli), [command, file, ...args], { encoding: 'utf8' });
+    const hierarchy = inspect('hierarchy', '--vars');
+    const ancestors = [];
+    const signals = {};
+    for (const line of hierarchy.split('\n')) {
+        const signal = /^( *)(.*?) : /.exec(line);
+        if (signal) {
+            const path = [...ancestors.slice(0, signal[1].length / 2), signal[2]].join('.');
+            signals[path] = inspect('changes', path, '--max', '1000000');
+        } else {
+            const node = /^( *)(.*?) \[/.exec(line);
+            if (node) ancestors[node[1].length / 2] = node[2];
+        }
+    }
+    const transactions = inspect('transactions', '--max', '1000000');
+    const ids = [...transactions.matchAll(/^record (\d+) .*kind=Transaction(?: |$)/gm)].map(match => match[1]);
+    return {
+        metadata: inspect('info').split('\n').filter(line => !/^(file:|recording:|section )/.test(line)),
+        hierarchy,
+        signals,
+        transactions,
+        records: ids.length ? inspect('transactions', '--id', ids.join(',')) : '',
+        clocks: inspect('clocks'),
+    };
+}
+
 try {
     for (const name of ['pipeline.fst', 'pipeline.kanata', 'waves.vcd']) {
         const input = readFileSync(join(fixtures, name));
         const nativePath = join(temporary, `${name}.native.vtr`);
         execFileSync(resolve(cli), ['convert', join(fixtures, name), nativePath, '--progress=none']);
         const native = readFileSync(nativePath);
+        const expected = observations(nativePath);
         for (const compressed of [false, true]) {
             progress = [];
             const bytes = Buffer.from(converter.convert(compressed ? `${name}.gz` : name, compressed ? gzipSync(input) : input));
             assert.deepEqual(bytes.subarray(0, 16), native.subarray(0, 16));
             assert.notDeepEqual(bytes.subarray(16, 32), native.subarray(16, 32));
-            assert.deepEqual(bytes.subarray(32), native.subarray(32));
             assert.equal(bytes.readUInt16LE(8), 3);
             assert.equal(bytes.readUInt16LE(10), 2);
             const output = join(temporary, `${name}.wasm.vtr`);
             writeFileSync(output, bytes);
-            execFileSync(resolve(cli), ['info', output]);
+            // Native and WASM LZ4 encoders can produce different compressed bytes.
+            assert.deepEqual(observations(output), expected, `${name}: decoded WASM/native content`);
             const final = progress.at(-1);
             assert.equal(final.phase, 'complete');
             assert.equal(final.input_bytes, compressed ? gzipSync(input).length : input.length);

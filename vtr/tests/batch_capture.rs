@@ -22,12 +22,15 @@ fn batches_match_individual_emissions_including_events_dumping_codecs_and_spill(
         (ExecutionMode::Threaded, 0),
         (ExecutionMode::Threaded, 2),
     ] {
-        for compression in [Compression::NONE, Compression::LZ4, Compression::ZSTD_FAST] {
+        for (codec, compression) in [Compression::NONE, Compression::LZ4, Compression::ZSTD_FAST]
+            .into_iter()
+            .enumerate()
+        {
             for deduplicate in [false, true] {
                 let mut expected = None;
                 for batch in [false, true] {
                     let path = dir.path().join(format!(
-                        "{mode:?}-{workers}-{compression:?}-{deduplicate}-{batch}.vtr"
+                        "{mode:?}-{workers}-{codec}-{deduplicate}-{batch}.vtr"
                     ));
                     let mut options = WriterOptions {
                         mode,
