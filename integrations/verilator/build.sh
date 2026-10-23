@@ -29,10 +29,11 @@ CXX=${CXX:-$(command -v clang++ || echo g++)}
 export CXX
 "$SRC/configure" --prefix="$PREFIX"
 make -j"${JOBS:-$(getconf _NPROCESSORS_ONLN)}"
-# Upstream installman uses source-qualified prerequisites as destination paths.
-# Local copies keep its out-of-tree installation destinations relative.
-for page in verilator_coverage.1 verilator_gantt.1 verilator_profcfunc.1; do
-  cp "$SRC/$page" "$BUILD_DIR/$page"
+# Local man pages keep installman from using source paths as installation paths.
+for page in verilator.1 verilator_coverage.1 verilator_gantt.1 verilator_profcfunc.1; do
+  if [ ! -f "$BUILD_DIR/$page" ]; then
+    cp "$SRC/$page" "$BUILD_DIR/$page"
+  fi
 done
 make install
 # The vtr_trace SystemVerilog package and its DPI bodies, from this VTR revision:
