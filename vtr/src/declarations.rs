@@ -130,6 +130,7 @@ pub struct Declarations {
     pub types: Types,
     pub generators: Generators,
     interned: HashMap<String, u32>,
+    indexed_strings: usize,
 }
 
 impl Declarations {
@@ -144,19 +145,28 @@ impl Declarations {
         self.strings
             .get(id as usize)
             .map(String::as_str)
-            .ok_or(Error::Corrupt("unknown string identifier"))
+            .ok_or_else(|| Error::corrupt("unknown string identifier"))
     }
 
     pub fn intern(&mut self, text: &str) -> Result<u32> {
+        if self.indexed_strings < self.strings.len() {
+            self.interned
+                .reserve(self.strings.len() - self.indexed_strings);
+            for (id, value) in self.strings.iter().enumerate().skip(self.indexed_strings) {
+                self.interned.entry(value.clone()).or_insert(id as u32);
+            }
+            self.indexed_strings = self.strings.len();
+        }
         if let Some(id) = self.interned.get(text) {
             return Ok(*id);
         }
         let id = u32::try_from(self.strings.len())
             .ok()
             .filter(|id| *id != u32::MAX)
-            .ok_or(Error::invalid("string identifier exhaustion"))?;
+            .ok_or_else(|| Error::invalid("string identifier exhaustion"))?;
         self.strings.push(text.into());
         self.interned.insert(text.into(), id);
+        self.indexed_strings = self.strings.len();
         Ok(id)
     }
 
@@ -197,7 +207,7 @@ impl Declarations {
         let strings = self
             .strings
             .get(first as usize..)
-            .ok_or(Error::invalid("invalid string chunk start"))?;
+            .ok_or_else(|| Error::invalid("invalid string chunk start"))?;
         let mut out = Vec::new();
         put_u64(&mut out, u64::from(first));
         put_u64(&mut out, strings.len() as u64);
@@ -225,9 +235,8 @@ impl Declarations {
             return Err(Error::Corrupt("first string is not empty"));
         }
         for text in strings {
-            let id = u32::try_from(self.strings.len())
+            u32::try_from(self.strings.len())
                 .map_err(|_| Error::Corrupt("string identifier exhaustion"))?;
-            self.interned.entry(text.clone()).or_insert(id);
             self.strings.push(text);
         }
         Ok(())
@@ -237,7 +246,7 @@ impl Declarations {
         let nodes = self
             .nodes
             .get(first as usize..)
-            .ok_or(Error::invalid("invalid hierarchy chunk start"))?;
+            .ok_or_else(|| Error::invalid("invalid hierarchy chunk start"))?;
         let mut signals = self.nodes[..first as usize]
             .iter()
             .filter(|node| matches!(node.data, NodeData::Signal { alias: false, .. }))
@@ -310,7 +319,7 @@ impl Declarations {
                         let kind = *self
                             .signals
                             .get(signal.0 as usize)
-                            .ok_or(Error::invalid("unknown signal"))?;
+                            .ok_or_else(|| Error::invalid("unknown signal"))?;
                         encode_signal_kind(&mut out, kind)?;
                         signals += 1;
                     }
@@ -505,7 +514,7 @@ impl Declarations {
         }
         Ok((
             declarations,
-            metadata.ok_or(Error::Corrupt("missing metadata"))?,
+            metadata.ok_or_else(|| Error::corrupt("missing metadata"))?,
         ))
     }
 }

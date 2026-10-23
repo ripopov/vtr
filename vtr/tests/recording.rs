@@ -21,6 +21,64 @@ fn options(mode: ExecutionMode, compression: Compression) -> WriterOptions {
 }
 
 #[test]
+fn impossible_capture_ring_budgets_fail_before_creating_an_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oversized-ring.vtr");
+    for bytes in [usize::MAX, isize::MAX as usize, isize::MAX as usize / 2] {
+        let mut config = options(ExecutionMode::Threaded, Compression::LZ4);
+        config.buffer.queue_bytes = bytes;
+        assert!(Writer::create_with(&path, config).is_err());
+        assert!(!path.exists());
+    }
+}
+
+#[test]
+fn stale_handles_cannot_address_a_new_recording_with_the_same_source_and_record_ids() {
+    let directory = tempfile::tempdir().unwrap();
+    for mode in [ExecutionMode::Inline, ExecutionMode::Threaded] {
+        let path = directory.path().join(format!("stale-{mode:?}.vtr"));
+        let (stale_source, stale_record) = {
+            let mut writer = Writer::create_with(&path, options(mode, Compression::LZ4)).unwrap();
+            let source = writer
+                .transactions::<u64>(SourceOptions::new("requests", None), "request")
+                .unwrap();
+            let record = writer.begin(source, &1, None).unwrap();
+            writer.end(record, Status::Ok).unwrap();
+            writer.close().unwrap();
+            (source, record)
+        };
+        let mut writer = Writer::create_with(&path, options(mode, Compression::LZ4)).unwrap();
+        let source = writer
+            .transactions::<u64>(SourceOptions::new("requests", None), "request")
+            .unwrap();
+        assert_eq!(source.id(), stale_source.id());
+        let record = writer.begin(source, &2, None).unwrap();
+        assert_eq!(record.id(), stale_record.id());
+        assert!(writer.begin(stale_source, &3, None).is_err());
+        assert!(
+            writer
+                .begin(source, &3, Some(stale_record.owner()))
+                .is_err()
+        );
+        assert!(writer.end(stale_record, Status::Ok).is_err());
+        writer.end(record, Status::Ok).unwrap();
+        let identity = writer.identity();
+        writer.close().unwrap();
+        let reader = Reader::open(&path).unwrap();
+        reader.validate().unwrap();
+        assert_eq!(reader.identity(), identity);
+        let mut values = Vec::new();
+        reader
+            .transactions(TransactionQuery::default(), |record| {
+                values.push(record.decode::<u64>().unwrap());
+                true
+            })
+            .unwrap();
+        assert_eq!(values, [2]);
+    }
+}
+
+#[test]
 fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
     for mode in [ExecutionMode::Inline, ExecutionMode::Threaded] {
         for compression in [Compression::NONE, Compression::LZ4, Compression::ZSTD_FAST] {

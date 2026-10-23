@@ -385,6 +385,7 @@ impl SignalKind {
     }
 
     #[must_use]
+    #[inline]
     pub fn packed_len(self) -> Option<usize> {
         match self {
             SignalKind::Bits { width, states } => Some(crate::signal::packed_len(width, states)),

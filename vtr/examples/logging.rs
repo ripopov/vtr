@@ -67,7 +67,7 @@ fn main() -> Result<()> {
         "step 3 completed in 9_000 cycles"
     );
     drop(reader);
-    assert_eq!(retained[3].payload().decode::<Step>()?.phase, "step 3");
+    assert_eq!(retained[3].decode::<Step>()?.phase, "step 3");
     assert_eq!(
         retained[3].payload().field("cycles")?.decode::<u64>()?,
         9000

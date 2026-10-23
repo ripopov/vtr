@@ -13,7 +13,6 @@ categories = ["encoding", "science"]
 [dependencies]
 zstd.workspace = true
 zstd-sys.workspace = true
-lz4_flex.workspace = true
 memmap2.workspace = true
 crc32fast.workspace = true
 thiserror.workspace = true
@@ -23,6 +22,12 @@ unicode-width = "0.2.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.190"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+lz4-sys = "1.11.1"
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+lz4_flex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

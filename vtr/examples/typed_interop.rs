@@ -182,19 +182,13 @@ fn read(path: &str) -> vtr::Result<()> {
     assert_eq!(report.relations, 1);
     assert!(report.missing.is_empty());
     let owner = reader.lookup(2)?.unwrap();
-    assert_eq!(owner.payload().decode::<Packet>()?, packet());
+    assert_eq!(owner.decode::<Packet>()?, packet());
     assert_eq!((owner.begin(), owner.end()), (10, 15));
     assert_eq!(reader.expand(2)?.located.len(), 3);
-    assert_eq!(
-        reader.lookup(3)?.unwrap().payload().decode::<String>()?,
-        "execute Δ"
-    );
+    assert_eq!(reader.lookup(3)?.unwrap().decode::<String>()?, "execute Δ");
     assert_eq!(reader.lookup(5)?.unwrap().end(), 100);
     assert_eq!(reader.lookup(6)?.unwrap().parent(), Some(2));
-    assert_eq!(
-        reader.lookup(9)?.unwrap().payload().decode::<Packet>()?,
-        packet()
-    );
+    assert_eq!(reader.lookup(9)?.unwrap().decode::<Packet>()?, packet());
     assert_eq!(
         reader.format_log(&reader.lookup(9)?.unwrap())?,
         "packet 32768"
@@ -209,7 +203,7 @@ fn read(path: &str) -> vtr::Result<()> {
         |record| {
             let time = record.begin();
             assert_eq!(
-                record.payload().decode::<[u64; 3]>().unwrap(),
+                record.decode::<[u64; 3]>().unwrap(),
                 [time, time * 2, u64::MAX]
             );
             count += 1;

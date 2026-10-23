@@ -7,6 +7,32 @@ use vtr::{
 };
 
 #[test]
+fn interning_after_incremental_reads_preserves_existing_ids_and_duplicate_entries() {
+    use vtr::varint::{put_blob, put_u64};
+    let chunk = |first, strings: &[&str]| {
+        let mut out = Vec::new();
+        put_u64(&mut out, first);
+        put_u64(&mut out, strings.len() as u64);
+        for text in strings {
+            put_blob(&mut out, text.as_bytes());
+        }
+        out
+    };
+    let mut declarations = Declarations::default();
+    declarations
+        .read_strings(&chunk(0, &["", "a", "a"]))
+        .unwrap();
+    assert_eq!(declarations.intern("a").unwrap(), 1);
+    assert_eq!(declarations.intern("b").unwrap(), 3);
+    declarations.read_strings(&chunk(4, &["c", "b"])).unwrap();
+    assert_eq!(declarations.intern("c").unwrap(), 4);
+    assert_eq!(declarations.intern("b").unwrap(), 3);
+    assert_eq!(declarations.intern("d").unwrap(), 6);
+    assert_eq!(declarations.string(2).unwrap(), "a");
+    assert_eq!(declarations.string(5).unwrap(), "b");
+}
+
+#[test]
 fn cpp_declarations_round_trip_incremental_chunks_and_typed_sources() {
     let container =
         Container::from_bytes(include_bytes!("fixtures/typed.vtr").as_slice(), true).unwrap();

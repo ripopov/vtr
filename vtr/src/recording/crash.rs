@@ -15,11 +15,16 @@ pub struct CrashState {
     park: AtomicUsize,
 }
 impl CrashState {
+    #[inline]
     fn enter(&self) -> u32 {
-        let previous = self.busy.swap(1, Ordering::Relaxed);
+        // Only the exclusive frontend updates nesting. Signal handlers and sealers
+        // observe it atomically, but never enter or leave its capture scopes.
+        let previous = self.busy.load(Ordering::Relaxed);
+        self.busy.store(1, Ordering::Relaxed);
         compiler_fence(Ordering::SeqCst);
         previous
     }
+    #[inline]
     fn leave(&self, previous: u32) {
         compiler_fence(Ordering::SeqCst);
         self.busy.store(previous, Ordering::Relaxed);
@@ -54,10 +59,33 @@ impl CrashState {
         self.watched.store(watched, Ordering::Relaxed);
     }
 
+    #[inline]
+    pub(crate) fn scoped(&self) -> Scoped<'_> {
+        Scoped {
+            state: self,
+            previous: self.enter(),
+        }
+    }
+    #[inline]
     pub(crate) fn guard(self: &Arc<Self>) -> Guarded {
         Guarded {
             state: self.clone(),
             previous: self.enter(),
+        }
+    }
+}
+
+pub(crate) struct Scoped<'a> {
+    state: &'a CrashState,
+    previous: u32,
+}
+impl Drop for Scoped<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.state.poison();
+        } else {
+            self.state.leave(self.previous);
         }
     }
 }
@@ -67,6 +95,7 @@ pub struct Guarded {
     previous: u32,
 }
 impl Drop for Guarded {
+    #[inline]
     fn drop(&mut self) {
         if std::thread::panicking() {
             self.state.poison();

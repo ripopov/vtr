@@ -11,7 +11,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct PayloadView {
     pub(crate) types: Arc<Types>,
-    pub(crate) bytes: Arc<[u8]>,
+    pub(super) storage: Arc<super::RecordData>,
     pub(crate) datatype: TypeId,
     pub(crate) range: Range<usize>,
     pub(crate) allocation_limit: usize,
@@ -24,7 +24,7 @@ impl PayloadView {
     }
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes[self.range.clone()]
+        &self.storage.raw.payload[self.range.clone()]
     }
     #[must_use]
     pub fn schema(&self) -> &Types {
@@ -32,21 +32,19 @@ impl PayloadView {
     }
 
     pub fn decode<T: Payload>(&self) -> Result<T> {
-        let mut expected = Types::new();
-        let datatype = T::bind(&mut expected)?;
-        if !self.types.equivalent(self.datatype, &expected, datatype)? {
-            return Err(Error::invalid(
-                "payload datatype does not match the requested Rust type",
-            ));
-        }
-        schema::decode(self.bytes(), self.allocation_limit)
+        decode_payload(
+            &self.types,
+            self.datatype,
+            self.bytes(),
+            self.allocation_limit,
+        )
     }
 
     fn child(&self, datatype: TypeId, offset: usize) -> Result<Self> {
         let tail = self
             .bytes()
             .get(offset..)
-            .ok_or(Error::Corrupt("payload field exceeds storage"))?;
+            .ok_or_else(|| Error::corrupt("payload field exceeds storage"))?;
         let length = self.types.canonical_len(datatype, tail)?;
         Ok(Self {
             datatype,
@@ -110,7 +108,7 @@ impl PayloadView {
         if let TypeKind::Struct(fields) = &self.types.get(self.datatype)?.kind {
             let field = fields
                 .get(index)
-                .ok_or(Error::invalid("payload field index is out of range"))?;
+                .ok_or_else(|| Error::invalid("payload field index is out of range"))?;
             let mut offset = 0;
             for previous in &fields[..index] {
                 offset += self
@@ -132,7 +130,7 @@ impl PayloadView {
         if let Some(size) = self.types.get(element)?.fixed_size {
             offset += index
                 .checked_mul(size as usize)
-                .ok_or(Error::Corrupt("payload offset overflow"))?;
+                .ok_or_else(|| Error::corrupt("payload offset overflow"))?;
         } else {
             for _ in 0..index {
                 offset += self.types.canonical_len(element, &self.bytes()[offset..])?;
@@ -210,4 +208,18 @@ impl PayloadView {
         cursor.done()?;
         Ok(value)
     }
+}
+
+pub(super) fn decode_payload<T: Payload>(
+    types: &Types,
+    datatype: TypeId,
+    bytes: &[u8],
+    allocation_limit: usize,
+) -> Result<T> {
+    if !T::matches(types, datatype)? {
+        return Err(Error::invalid(
+            "payload datatype does not match the requested Rust type",
+        ));
+    }
+    schema::decode(bytes, allocation_limit)
 }

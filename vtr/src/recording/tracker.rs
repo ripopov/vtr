@@ -5,8 +5,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use super::{OwnerRef, Recorder, Source, Status, Transaction, Writer};
-use crate::{Attribute, Error, RecordingId, Result, Value};
+use super::{Origin, OwnerRef, Recorder, Source, Status, Transaction, Writer};
+use crate::{Attribute, Error, Result, Value};
 
 static NEXT_TRACKER: AtomicU64 = AtomicU64::new(1);
 
@@ -84,7 +84,7 @@ impl Space {
 /// their pending attributes. Dropping a tracker does not end its records.
 pub struct Tracker {
     id: u64,
-    origin: RecordingId,
+    origin: Origin,
     source: Source<()>,
     name: String,
     label: u32,
@@ -117,7 +117,7 @@ impl Tracker {
             .map_err(|_| Error::invalid("tracker identifiers exhausted"))?;
         Ok(Self {
             id,
-            origin: writer.identity(),
+            origin: writer.front.origin,
             source,
             name: name.into(),
             label: writer.intern("vtr.label")?,
@@ -470,7 +470,7 @@ impl Tracker {
         let count = from
             .len()
             .checked_mul(to.len())
-            .ok_or(Error::invalid("relation count overflow"))?;
+            .ok_or_else(|| Error::invalid("relation count overflow"))?;
         for &from in from {
             for &to in to {
                 writer.relate(kind, from, to, vec![])?;

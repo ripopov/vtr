@@ -126,7 +126,7 @@ impl<W: Write> FramedWriter<W> {
             .position
             .checked_add(SECTION_BYTES as u64)
             .and_then(|n| n.checked_add(payload.len() as u64))
-            .ok_or(Error::invalid("container length overflow"))?;
+            .ok_or_else(|| Error::invalid("container length overflow"))?;
         self.output.write_all(&section_header(
             kind,
             flags,
@@ -181,7 +181,7 @@ impl<W: Write> FramedWriter<W> {
             .position
             .checked_add(directory.len() as u64)
             .and_then(|n| n.checked_add(48))
-            .ok_or(Error::invalid("container length overflow"))?;
+            .ok_or_else(|| Error::invalid("container length overflow"))?;
         self.output.write_all(&section_header(
             7,
             if incomplete { 2 } else { 0 },

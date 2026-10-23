@@ -67,6 +67,46 @@ fn rows(view: &RecordBlockView<'_>, query: RecordQuery) -> Vec<LocatedRecord> {
 }
 
 #[test]
+fn sparse_generator_ids_roundtrip_and_failed_redeclarations_preserve_schema() {
+    let types = Types::new();
+    let mut generators = Generators::default();
+    let mut records = Vec::new();
+    for (index, id) in [0, 7, 255, 256, u32::MAX - 1].into_iter().enumerate() {
+        let generator = Generator {
+            id,
+            kind: RecordKind::Log,
+            payload_type: vtr::schema::Primitive::U64.id(),
+        };
+        generators.declare(generator).unwrap();
+        assert!(
+            generators
+                .declare(Generator {
+                    kind: RecordKind::Stage,
+                    ..generator
+                })
+                .is_err()
+        );
+        assert_eq!(*generators.get(id).unwrap(), generator);
+        records.push(LocatedRecord {
+            id: index as u64 + 1,
+            generator: id,
+            begin: index as u64,
+            end: index as u64,
+            parent: 0,
+            payload: (index as u64).to_le_bytes().to_vec(),
+        });
+    }
+    assert!(generators.get(254).is_err());
+    assert!(generators.get(u32::MAX).is_err());
+    let generators = generators.clone();
+    let block =
+        encode_record_block(1, &types, &generators, &records, RecordPolicy::default(), 0).unwrap();
+    let view = RecordBlockView::with_defaults(&block, &types, &generators).unwrap();
+    view.validate().unwrap();
+    assert_eq!(rows(&view, RecordQuery::default()), records);
+}
+
+#[test]
 fn decode_cpp_record_pages_with_every_codec_and_exact_queries() {
     for source in [
         include_str!("fixtures/records-0.json"),

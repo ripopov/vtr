@@ -311,6 +311,7 @@ impl SignalValue<'_> {
     }
 
     #[must_use]
+    #[inline]
     pub fn as_u64(&self) -> Option<u64> {
         match *self {
             SignalValue::Bits {
@@ -318,7 +319,30 @@ impl SignalValue<'_> {
                 states,
                 data,
             } if width <= 64 => {
-                if states != 2 && !is_two_state(data, width, states) {
+                if states == 2 {
+                    let length = (width as usize).div_ceil(8);
+                    let bytes = data.get(..length)?;
+                    let value = match length {
+                        0 => 0,
+                        1 => u64::from(bytes[0]),
+                        2 => u64::from(u16::from_le_bytes(bytes.try_into().unwrap())),
+                        3 => {
+                            u64::from(u16::from_le_bytes(bytes[..2].try_into().unwrap()))
+                                | (u64::from(bytes[2]) << 16)
+                        }
+                        4 => u64::from(u32::from_le_bytes(bytes.try_into().unwrap())),
+                        8 => u64::from_le_bytes(bytes.try_into().unwrap()),
+                        _ => {
+                            let low = u64::from(u32::from_le_bytes(bytes[..4].try_into().unwrap()));
+                            bytes[4..].iter().enumerate().fold(low, |word, (i, &byte)| {
+                                word | (u64::from(byte) << (32 + i * 8))
+                            })
+                        }
+                    };
+                    let mask = u64::MAX.checked_shr(64 - width).unwrap_or(0);
+                    return Some(value & mask);
+                }
+                if !is_two_state(data, width, states) {
                     return None;
                 }
                 let mut v = 0u64;
@@ -363,6 +387,34 @@ pub enum OwnedSignalValue {
 }
 
 impl OwnedSignalValue {
+    pub(crate) fn copy_from(&mut self, value: SignalValue<'_>) {
+        match (self, value) {
+            (
+                Self::Bits {
+                    width,
+                    states,
+                    data,
+                },
+                SignalValue::Bits {
+                    width: w,
+                    states: s,
+                    data: bytes,
+                },
+            ) => {
+                *width = w;
+                *states = s;
+                data.clear();
+                data.extend_from_slice(bytes);
+            }
+            (Self::Real(value), SignalValue::Real(next)) => *value = next,
+            (Self::VarLen(value), SignalValue::VarLen(next)) => {
+                value.clear();
+                value.extend_from_slice(next);
+            }
+            (target, value) => *target = value.to_owned(),
+        }
+    }
+
     #[must_use]
     pub fn borrow(&self) -> SignalValue<'_> {
         match self {

@@ -60,6 +60,70 @@ pub struct Frag {
     pub vlen: u32,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ColumnFragment<'a> {
+    signal: u32,
+    headers: &'a [u8],
+    values: &'a [u8],
+}
+
+pub(crate) trait ColumnFragments {
+    fn len(&self) -> usize;
+    fn fragment(&self, index: usize) -> ColumnFragment<'_>;
+
+    fn seek(&self, signal: u32, cursor: &mut usize) -> Option<ColumnFragment<'_>> {
+        while *cursor < self.len() {
+            let fragment = self.fragment(*cursor);
+            if fragment.signal >= signal {
+                return (fragment.signal == signal).then_some(fragment);
+            }
+            *cursor += 1;
+        }
+        None
+    }
+    fn find(&self, signal: u32) -> Option<ColumnFragment<'_>> {
+        let (mut first, mut last) = (0, self.len());
+        while first < last {
+            let middle = first + (last - first) / 2;
+            let fragment = self.fragment(middle);
+            match fragment.signal.cmp(&signal) {
+                std::cmp::Ordering::Less => first = middle + 1,
+                std::cmp::Ordering::Greater => last = middle,
+                std::cmp::Ordering::Equal => return Some(fragment),
+            }
+        }
+        None
+    }
+}
+impl ColumnFragments for ChunkEnc {
+    fn len(&self) -> usize {
+        self.frags.len()
+    }
+    fn fragment(&self, index: usize) -> ColumnFragment<'_> {
+        let f = self.frags[index];
+        ColumnFragment {
+            signal: f.sig,
+            headers: &self.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize],
+            values: &self.val[f.voff as usize..(f.voff + f.vlen) as usize],
+        }
+    }
+}
+
+pub(crate) struct EncodedColumns(pub Vec<(u32, u32, Vec<u8>, Vec<u8>)>);
+impl ColumnFragments for EncodedColumns {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+    fn fragment(&self, index: usize) -> ColumnFragment<'_> {
+        let (signal, _, headers, values) = &self.0[index];
+        ColumnFragment {
+            signal: *signal,
+            headers,
+            values,
+        }
+    }
+}
+
 pub struct BlockInput {
     pub block_index: u32,
     pub times: Vec<u64>,
@@ -128,6 +192,13 @@ struct ColInfo {
 }
 
 impl EncoderScratch {
+    pub(crate) fn encoded_columns(&mut self, columns: &EncodedColumns, signals: usize) {
+        self.entry_counts.clear();
+        self.entry_counts.resize(signals, 0);
+        for &(signal, count, _, _) in &columns.0 {
+            self.entry_counts[signal as usize] = count;
+        }
+    }
     pub fn begin_block(&mut self) {
         for t in &mut self.last {
             *t = ColState::default();
@@ -252,6 +323,17 @@ pub fn finish_block(
     scratch: &mut EncoderScratch,
     out: &mut Vec<u8>,
 ) -> Result<usize> {
+    finish_fragments(input, chunks, comp, compressor, scratch, out)
+}
+
+pub(crate) fn finish_fragments<C: ColumnFragments>(
+    input: &BlockInput,
+    chunks: &[C],
+    comp: Compression,
+    compressor: &mut Compressor,
+    scratch: &mut EncoderScratch,
+    out: &mut Vec<u8>,
+) -> Result<usize> {
     let n_sig = input.n_signals as usize;
     let g = input.group_size as usize;
     let n_groups = n_sig.div_ceil(g.max(1));
@@ -288,12 +370,8 @@ pub fn finish_block(
                 let mut n_parts = 0usize;
                 for (ci, ch) in chunks.iter().enumerate() {
                     let c = &mut cursors[ci];
-                    while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
-                        *c += 1;
-                    }
-                    if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
-                        let f = ch.frags[*c];
-                        total += (f.hlen + f.vlen) as usize;
+                    if let Some(f) = ch.seek(s as u32, c) {
+                        total += f.headers.len() + f.values.len();
                         if n_parts == 0 {
                             parts[0] = (ci, *c);
                         }
@@ -305,9 +383,8 @@ pub fn finish_block(
                     continue;
                 }
                 for (ci, fi) in parts {
-                    let (ch, f) = (&chunks[ci], chunks[ci].frags[fi]);
-                    let hd = &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize];
-                    let vl = &ch.val[f.voff as usize..(f.voff + f.vlen) as usize];
+                    let f = chunks[ci].fragment(fi);
+                    let (hd, vl) = (f.headers, f.values);
                     h = hash_bytes(h, &hd[..hd.len().min(HASH_SAMPLE)]);
                     h = hash_bytes(h, &hd[hd.len() - hd.len().min(HASH_SAMPLE)..]);
                     h = hash_bytes(h, &vl[..vl.len().min(HASH_SAMPLE)]);
@@ -385,12 +462,9 @@ pub fn finish_block(
             let (mut hlen, mut vlen) = (0u64, 0u64);
             for (ci, ch) in chunks.iter().enumerate() {
                 let c = &mut cursors[ci];
-                while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
-                    *c += 1;
-                }
-                if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
-                    hlen += u64::from(ch.frags[*c].hlen);
-                    vlen += u64::from(ch.frags[*c].vlen);
+                if let Some(f) = ch.seek(s as u32, c) {
+                    hlen += f.headers.len() as u64;
+                    vlen += f.values.len() as u64;
                 }
             }
             let one_bit = matches!(input.kinds[s], SignalKind::Bits { width: 1, .. });
@@ -467,20 +541,8 @@ pub fn finish_block(
                     }
                     for (ci, ch) in chunks.iter().enumerate() {
                         let c = &mut cursors[ci];
-                        while *c < ch.frags.len() && (ch.frags[*c].sig as usize) < s {
-                            *c += 1;
-                        }
-                        if *c < ch.frags.len() && ch.frags[*c].sig as usize == s {
-                            let f = ch.frags[*c];
-                            if pass == 0 {
-                                raw.extend_from_slice(
-                                    &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize],
-                                );
-                            } else {
-                                raw.extend_from_slice(
-                                    &ch.val[f.voff as usize..(f.voff + f.vlen) as usize],
-                                );
-                            }
+                        if let Some(f) = ch.seek(s as u32, c) {
+                            raw.extend_from_slice(if pass == 0 { f.headers } else { f.values });
                         }
                     }
                 }
@@ -846,17 +908,15 @@ fn hash_bytes(mut h: u64, bytes: &[u8]) -> u64 {
     h
 }
 
-fn columns_equal(chunks: &[ChunkEnc], a: u32, b: u32) -> bool {
-    fn parts(chunks: &[ChunkEnc], s: u32, pass: usize) -> impl Iterator<Item = &[u8]> + '_ {
+fn columns_equal<C: ColumnFragments>(chunks: &[C], a: u32, b: u32) -> bool {
+    fn parts<C: ColumnFragments>(
+        chunks: &[C],
+        s: u32,
+        pass: usize,
+    ) -> impl Iterator<Item = &[u8]> + '_ {
         chunks.iter().filter_map(move |ch| {
-            ch.frags.binary_search_by_key(&s, |f| f.sig).ok().map(|i| {
-                let f = ch.frags[i];
-                if pass == 0 {
-                    &ch.hdr[f.hoff as usize..(f.hoff + f.hlen) as usize]
-                } else {
-                    &ch.val[f.voff as usize..(f.voff + f.vlen) as usize]
-                }
-            })
+            ch.find(s)
+                .map(|f| if pass == 0 { f.headers } else { f.values })
         })
     }
     for pass in 0..2 {
@@ -1140,7 +1200,8 @@ impl<'a> GroupView<'a> {
         let mut sizes = Vec::with_capacity(n_runs);
         for _ in 0..n_runs {
             let rn = r.u32()?;
-            let x = Xform::from_u8(r.u8()?).ok_or(Error::Corrupt("unknown value transform"))?;
+            let x =
+                Xform::from_u8(r.u8()?).ok_or_else(|| Error::corrupt("unknown value transform"))?;
             let clen = r.usize()?;
             sizes.push((rn, x, clen));
         }

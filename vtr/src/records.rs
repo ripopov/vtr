@@ -113,12 +113,14 @@ pub struct Generator {
 
 #[derive(Clone, Default, Debug)]
 pub struct Generators {
+    prefix: Vec<Option<Generator>>,
     generators: BTreeMap<GeneratorId, Generator>,
 }
 
 impl Generators {
     pub(crate) fn memory_charge(&self) -> usize {
         std::mem::size_of::<Self>()
+            + self.prefix.capacity() * std::mem::size_of::<Option<Generator>>()
             + self.generators.len() * std::mem::size_of::<(GeneratorId, Generator)>()
     }
     pub fn declare(&mut self, generator: Generator) -> Result<()> {
@@ -128,17 +130,39 @@ impl Generators {
         {
             return Err(Error::Corrupt("invalid generator declaration"));
         }
-        if self.generators.contains_key(&generator.id) {
-            return Err(Error::Corrupt("generator redeclared"));
+        if generator.id < 256 {
+            self.prefix
+                .resize(self.prefix.len().max(generator.id as usize + 1), None);
+            let slot = &mut self.prefix[generator.id as usize];
+            if slot.is_some() {
+                return Err(Error::Corrupt("generator redeclared"));
+            }
+            *slot = Some(generator);
+        } else {
+            match self.generators.entry(generator.id) {
+                std::collections::btree_map::Entry::Occupied(_) => {
+                    return Err(Error::Corrupt("generator redeclared"));
+                }
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(generator);
+                }
+            }
         }
-        self.generators.insert(generator.id, generator);
         Ok(())
     }
 
+    #[inline]
     pub fn get(&self, id: GeneratorId) -> Result<&Generator> {
+        if id < 256 {
+            return self
+                .prefix
+                .get(id as usize)
+                .and_then(Option::as_ref)
+                .ok_or_else(|| Error::corrupt("undeclared generator"));
+        }
         self.generators
             .get(&id)
-            .ok_or(Error::Corrupt("undeclared generator"))
+            .ok_or_else(|| Error::corrupt("undeclared generator"))
     }
 }
 
@@ -753,7 +777,7 @@ impl<'a> RecordBlockView<'a> {
                 };
                 let end = begin
                     .checked_add(duration)
-                    .ok_or(Error::Corrupt("stage end overflow"))?;
+                    .ok_or_else(|| Error::corrupt("stage end overflow"))?;
                 let record = LocatedRecord {
                     id,
                     generator: generator.id,

@@ -37,10 +37,11 @@ pub(super) fn encode(
     let words = types
         .get(datatype)?
         .unsigned_words()
-        .ok_or(Error::Corrupt("invalid scalar page datatype"))?;
+        .ok_or_else(|| Error::corrupt("invalid scalar page datatype"))?;
     let mut out = vec![2];
     out.extend_from_slice(&datatype.to_le_bytes());
     out.extend_from_slice(&super::checked_u32(rows.len())?.to_le_bytes());
+    let mut values = Vec::with_capacity(rows.len());
     for column in 0..6 + words {
         let value = |tx: &Transaction| -> u64 {
             match column {
@@ -57,12 +58,16 @@ pub(super) fn encode(
                 ),
             }
         };
-        let used = rows.iter().fold(0, |used, tx| used | value(tx));
-        let width = (64 - used.leading_zeros()).div_ceil(8) as u8;
-        out.push(width);
-        for byte in 0..width {
-            for row in rows {
-                out.push((value(row) >> (byte * 8)) as u8);
+        values.clear();
+        values.extend(rows.iter().map(|row| value(row)));
+        let used = values.iter().fold(0, |used, value| used | value);
+        let width = (64 - used.leading_zeros()).div_ceil(8) as usize;
+        out.push(width as u8);
+        let start = out.len();
+        out.resize(start + width * rows.len(), 0);
+        for (byte, plane) in out[start..].chunks_mut(rows.len()).enumerate() {
+            for (destination, value) in plane.iter_mut().zip(&values) {
+                *destination = (value >> (byte * 8)) as u8;
             }
         }
     }
@@ -87,7 +92,7 @@ pub(super) fn decode(
     let words = types
         .get(datatype)?
         .unsigned_words()
-        .ok_or(Error::Corrupt("invalid scalar page datatype"))?;
+        .ok_or_else(|| Error::corrupt("invalid scalar page datatype"))?;
     if count == 0
         || count as u64 != expected
         || words > 256
@@ -106,7 +111,7 @@ pub(super) fn decode(
         let data = cursor.take(
             width
                 .checked_mul(count)
-                .ok_or(Error::Corrupt("scalar plane size overflow"))?,
+                .ok_or_else(|| Error::corrupt("scalar plane size overflow"))?,
         )?;
         if width != 0 && data[data.len() - count..].iter().all(|byte| *byte == 0) {
             return Err(Error::Corrupt("noncanonical scalar column width"));
@@ -115,19 +120,23 @@ pub(super) fn decode(
         widths.push(width);
     }
     cursor.done()?;
+    let declarations = ids
+        .iter()
+        .map(|&id| generators.get(id))
+        .collect::<Result<Vec<_>>>()?;
     for row in 0..count {
         let value = |column: usize| -> u64 {
             (0..widths[column]).fold(0, |value, byte| {
                 value | u64::from(planes[column][byte * count + row]) << (byte * 8)
             })
         };
-        let generator = *ids
+        let declaration = *declarations
             .get(
                 usize::try_from(value(1))
                     .map_err(|_| Error::Corrupt("invalid scalar generator index"))?,
             )
-            .ok_or(Error::Corrupt("invalid scalar generator index"))?;
-        let declaration = generators.get(generator)?;
+            .ok_or_else(|| Error::corrupt("invalid scalar generator index"))?;
+        let generator = declaration.id;
         if declaration.kind != RecordKind::Transaction || declaration.payload_type != datatype {
             return Err(Error::Corrupt("scalar generator schema mismatch"));
         }
@@ -138,7 +147,7 @@ pub(super) fn decode(
         let begin = value(2);
         let end = begin
             .checked_add(value(3))
-            .ok_or(Error::Corrupt("scalar interval overflows"))?;
+            .ok_or_else(|| Error::corrupt("scalar interval overflows"))?;
         let mut tx = Transaction {
             id: value(0),
             parent: value(4),
@@ -147,6 +156,7 @@ pub(super) fn decode(
             end,
             status: classification as u8 & 15,
             span_kind: classification as u8 >> 4,
+            payload: Vec::with_capacity(words * 8),
             ..Transaction::default()
         };
         for column in 6..6 + words {

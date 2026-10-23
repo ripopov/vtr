@@ -685,7 +685,7 @@ impl Reader {
         }
         let generator = record
             .generator()
-            .ok_or(Error::invalid("log has no source"))?;
+            .ok_or_else(|| Error::invalid("log has no source"))?;
         let node = self.node(crate::NodeId(generator))?;
         if !matches!(node.data, NodeData::Generator { .. }) {
             return Err(Error::invalid(

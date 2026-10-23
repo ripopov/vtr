@@ -1,14 +1,19 @@
 use std::{
     any::TypeId as RustType,
     collections::{BTreeMap, HashMap},
+    hash::{BuildHasherDefault, Hasher},
     io::Write,
     sync::Arc,
 };
 
+mod owners;
+use owners::Owners;
+
 use super::{
     EncodingOptions, Operation, ProducerId, SourceOptions, WriterOptions,
+    capture::{PayloadOperation, SignalRef},
     output::{Output, Section},
-    waveform::Waveform,
+    waveform::{self, Waveform},
 };
 use crate::{
     Error, Result,
@@ -23,6 +28,32 @@ use crate::{
     transactions::{Relation, Transaction, TransactionPolicy, encode_transaction_block},
     wire,
 };
+
+// These maps contain generated numeric identifiers, rather than user-supplied strings.
+#[derive(Default)]
+struct IdHasher(u64);
+impl Hasher for IdHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
+        }
+    }
+}
+type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
 
 struct ActiveOwner {
     value: Transaction,
@@ -57,8 +88,8 @@ pub(super) struct Backend {
     written_types: u32,
     metadata_written: bool,
     bindings: HashMap<RustType, u32>,
-    owners: BTreeMap<u64, ActiveOwner>,
-    stages: BTreeMap<u64, ActiveStage>,
+    owners: Owners,
+    stages: IdMap<u64, ActiveStage>,
     records: Vec<LocatedRecord>,
     transactions: Vec<Transaction>,
     relations: Vec<Relation>,
@@ -72,12 +103,16 @@ pub(super) struct Backend {
     pub captured_time: u64,
     clocks: BTreeMap<u32, Clock>,
     waveform: Waveform,
+    wave_encoder: super::waveform::Encoder,
     blackout: Vec<(u64, bool)>,
     last_blackout: Option<u64>,
     dump_active: bool,
     pub finished: bool,
-    ownership: HashMap<Resource, (ProducerId, u64)>,
+    mode: super::ExecutionMode,
+    ownership: IdMap<Resource, (ProducerId, u64)>,
+    signal_ownership: Vec<Option<(ProducerId, u64)>>,
     snapshot: Option<SchemaSnapshot>,
+    payload_pool: super::payload_pool::Pool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -94,14 +129,15 @@ impl Backend {
             output: Output::new(output, &options.encoding)?,
             declarations: Declarations::new(),
             metadata: options.metadata,
+            payload_pool: super::payload_pool::Pool::new(options.encoding.payload_pool_bytes),
             encoding: options.encoding,
             written_strings: 0,
             written_nodes: 0,
             written_types: FIRST_DECLARED_TYPE,
             metadata_written: false,
             bindings: HashMap::new(),
-            owners: BTreeMap::new(),
-            stages: BTreeMap::new(),
+            owners: Owners::default(),
+            stages: IdMap::default(),
             records: vec![],
             transactions: vec![],
             relations: vec![],
@@ -115,11 +151,14 @@ impl Backend {
             captured_time: 0,
             clocks: BTreeMap::new(),
             waveform: Waveform::default(),
+            wave_encoder: super::waveform::Encoder::default(),
             blackout: vec![],
             last_blackout: None,
             dump_active: true,
             finished: false,
-            ownership: HashMap::new(),
+            mode: options.mode,
+            ownership: IdMap::default(),
+            signal_ownership: Vec::new(),
             snapshot: None,
         })
     }
@@ -174,7 +213,7 @@ impl Backend {
         let id = u32::try_from(self.declarations.nodes.len())
             .ok()
             .filter(|id| *id != u32::MAX)
-            .ok_or(Error::invalid("node identifier exhausted"))?;
+            .ok_or_else(|| Error::invalid("node identifier exhausted"))?;
         self.declarations.nodes.push(Node {
             parent: options.parent,
             name,
@@ -268,6 +307,7 @@ impl Backend {
         self.flush_waves()?;
         let signal = SignalId(self.waveform.add_signal(kind, var_type == VarType::Event)?);
         self.declarations.signals.push(kind);
+        self.signal_ownership.push(None);
         self.node(
             options,
             NodeData::Signal {
@@ -289,7 +329,7 @@ impl Backend {
         if signal.0 as usize >= self.declarations.signals.len() {
             return Err(Error::invalid("unknown aliased signal"));
         }
-        if self.waveform.event[signal.0 as usize] != (var_type == VarType::Event) {
+        if self.waveform.event(signal.0) != (var_type == VarType::Event) {
             return Err(Error::invalid(
                 "event aliases must retain event classification",
             ));
@@ -339,7 +379,7 @@ impl Backend {
             .declarations
             .nodes
             .get_mut(node.0 as usize)
-            .ok_or(Error::invalid("unknown node"))?;
+            .ok_or_else(|| Error::invalid("unknown node"))?;
         if node.attributes.iter().any(|a| a.key == attribute.key) {
             return Err(Error::invalid("duplicate node attribute"));
         }
@@ -385,16 +425,51 @@ impl Backend {
         Ok(())
     }
     fn claim(&mut self, resource: Resource, producer: ProducerId, stamp: u64) -> Result<()> {
-        self.check_claim(resource, producer, stamp)?;
-        self.ownership.insert(resource, (producer, stamp));
+        if self.mode == super::ExecutionMode::Inline {
+            return Ok(());
+        }
+        if let Resource::Signal(signal) = resource {
+            let claim = self
+                .signal_ownership
+                .get_mut(signal as usize)
+                .ok_or_else(|| Error::invalid("unknown signal"))?;
+            if claim.is_some_and(|(owner, time)| time == stamp && owner != producer) {
+                return Err(Error::invalid(
+                    "resource has multiple tracing owners at one producer timestamp",
+                ));
+            }
+            *claim = Some((producer, stamp));
+        } else {
+            match self.ownership.entry(resource) {
+                std::collections::hash_map::Entry::Occupied(mut claim) => {
+                    let &(owner, time) = claim.get();
+                    if time == stamp && owner != producer {
+                        return Err(Error::invalid(
+                            "resource has multiple tracing owners at one producer timestamp",
+                        ));
+                    }
+                    claim.insert((producer, stamp));
+                }
+                std::collections::hash_map::Entry::Vacant(claim) => {
+                    claim.insert((producer, stamp));
+                }
+            }
+        }
         Ok(())
     }
     fn check_claim(&self, resource: Resource, producer: ProducerId, stamp: u64) -> Result<()> {
-        if self
-            .ownership
-            .get(&resource)
-            .is_some_and(|(owner, time)| *time == stamp && *owner != producer)
-        {
+        if self.mode == super::ExecutionMode::Inline {
+            return Ok(());
+        }
+        let claim = match resource {
+            Resource::Signal(signal) => self
+                .signal_ownership
+                .get(signal as usize)
+                .ok_or_else(|| Error::invalid("unknown signal"))?
+                .as_ref(),
+            _ => self.ownership.get(&resource),
+        };
+        if claim.is_some_and(|(owner, time)| *time == stamp && *owner != producer) {
             return Err(Error::invalid(
                 "resource has multiple tracing owners at one producer timestamp",
             ));
@@ -440,9 +515,9 @@ impl Backend {
         Ok(self.declarations.types.get(source.payload_type)?.fixed_size == Some(0))
     }
     fn replace_payload(&mut self, id: u64, payload: Vec<u8>) -> Result<()> {
-        if let Some(owner) = self.owners.get(&id) {
+        if let Some(owner) = self.owners.get(id) {
             self.payload(owner.value.generator, RecordKind::Transaction, &payload)?;
-            let owner = self.owners.get_mut(&id).unwrap();
+            let owner = self.owners.get_mut(id).unwrap();
             owner.value.payload = payload;
             owner.payload_ready = true;
         } else if let Some(stage) = self.stages.get(&id) {
@@ -466,77 +541,68 @@ impl Backend {
         }
         Ok(())
     }
-    pub fn apply(&mut self, producer: ProducerId, stamp: u64, operation: Operation) -> Result<()> {
+    pub(super) fn payload_buffer(&mut self, length: usize) -> Vec<u8> {
+        self.payload_pool.take(length)
+    }
+    pub(super) fn apply_payload(
+        &mut self,
+        producer: ProducerId,
+        stamp: u64,
+        action: PayloadOperation,
+        id: u64,
+        payload: Option<&[u8]>,
+    ) -> Result<()> {
+        let payload = payload.map(|bytes| {
+            let mut buffer = self.payload_pool.take(bytes.len());
+            buffer.extend_from_slice(bytes);
+            buffer
+        });
+        self.apply_owned_payload(producer, stamp, action, id, payload)
+    }
+    #[inline]
+    pub(super) fn apply_owned_payload(
+        &mut self,
+        producer: ProducerId,
+        stamp: u64,
+        action: PayloadOperation,
+        id: u64,
+        payload: Option<Vec<u8>>,
+    ) -> Result<()> {
         self.alive()?;
         self.captured_time = self.captured_time.max(stamp);
-        match operation {
-            Operation::Progress(time) => self.waveform.advance(time)?,
-            Operation::Emit { signal, value } => {
-                self.emit(producer, stamp, signal, value)?;
-            }
-            Operation::EmitBatch(updates) => {
-                for update in &updates {
-                    self.waveform.validate_unsigned(update.signal.0)?;
-                    self.check_claim(Resource::Signal(update.signal.0), producer, stamp)?;
-                }
-                for update in updates {
-                    self.emit(
-                        producer,
-                        stamp,
-                        update.signal,
-                        super::SignalInput::Unsigned(update.value),
-                    )?;
-                }
-            }
-            Operation::Begin {
-                id,
+        match action {
+            PayloadOperation::Begin {
                 generator,
                 time,
                 parent,
-                payload,
             } => {
                 let payload_ready =
                     self.begin_payload(generator, RecordKind::Transaction, payload.as_deref())?;
-                if parent != 0 && !self.owners.contains_key(&parent) {
+                if parent != 0 && !self.owners.contains_key(parent) {
                     return Err(Error::invalid("parent owner is not active"));
                 }
                 self.created(id)?;
                 self.claim(Resource::Record(id), producer, stamp)?;
-                if self
-                    .owners
-                    .insert(
-                        id,
-                        ActiveOwner {
-                            value: Transaction {
-                                id,
-                                generator,
-                                begin: time,
-                                parent,
-                                payload: payload.unwrap_or_default(),
-                                ..Transaction::default()
-                            },
-                            stages: vec![],
-                            payload_ready,
-                        },
-                    )
-                    .is_some()
-                {
-                    return Err(Error::invalid("record identifier reused"));
-                }
+                self.owners.begin(
+                    id,
+                    generator,
+                    time,
+                    parent,
+                    payload.unwrap_or_default(),
+                    payload_ready,
+                )?;
             }
-            Operation::BeginStage {
-                id,
+            PayloadOperation::BeginStage {
                 generator,
                 time,
                 parent,
-                payload,
             } => {
                 let payload_ready =
                     self.begin_payload(generator, RecordKind::Stage, payload.as_deref())?;
                 let owner = self
                     .owners
-                    .get_mut(&parent)
-                    .ok_or(Error::invalid("stage owner is not active"))?;
+                    .get_mut(parent)
+                    .ok_or_else(|| Error::invalid("stage owner is not active"))?;
                 owner.stages.push(id);
                 self.created(id)?;
                 self.claim(Resource::Record(id), producer, stamp)?;
@@ -555,14 +621,13 @@ impl Backend {
                     },
                 );
             }
-            Operation::Point {
-                id,
+            PayloadOperation::Point {
                 generator,
                 time,
                 parent,
-                payload,
                 log,
             } => {
+                let payload = payload.expect("point payload");
                 self.payload(
                     generator,
                     if log {
@@ -572,7 +637,7 @@ impl Backend {
                     },
                     &payload,
                 )?;
-                if parent != 0 && !self.owners.contains_key(&parent) {
+                if parent != 0 && !self.owners.contains_key(parent) {
                     return Err(Error::invalid("point owner is not active"));
                 }
                 if !log && parent == 0 {
@@ -588,30 +653,141 @@ impl Backend {
                     payload,
                 })?;
             }
+            PayloadOperation::End { id, time, status } => {
+                self.claim(Resource::Record(id), producer, stamp)?;
+                self.end_owner(id, time, status, payload)?;
+            }
+            PayloadOperation::EndStage { id, time } => {
+                self.claim(Resource::Record(id), producer, stamp)?;
+                self.end_stage(id, time, payload)?;
+            }
+            PayloadOperation::Replace { id } => {
+                self.claim(Resource::Record(id), producer, stamp)?;
+                self.replace_payload(id, payload.expect("replacement payload"))?;
+            }
+        }
+        Ok(())
+    }
+    pub fn apply(&mut self, producer: ProducerId, stamp: u64, operation: Operation) -> Result<()> {
+        self.alive()?;
+        self.captured_time = self.captured_time.max(stamp);
+        match operation {
+            Operation::Progress(time) => self.waveform.advance(time)?,
+            Operation::Emit { signal, value } => {
+                self.emit(producer, stamp, signal, value.borrow())?;
+            }
+            Operation::EmitBatch(updates) => {
+                for update in &updates {
+                    self.waveform.validate_unsigned(update.signal.0)?;
+                    self.check_claim(Resource::Signal(update.signal.0), producer, stamp)?;
+                }
+                for update in updates {
+                    self.emit(
+                        producer,
+                        stamp,
+                        update.signal,
+                        SignalRef::Unsigned(update.value),
+                    )?;
+                }
+            }
+            Operation::Begin {
+                id,
+                generator,
+                time,
+                parent,
+                payload,
+            } => {
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::Begin {
+                        generator,
+                        time,
+                        parent,
+                    },
+                    id,
+                    payload,
+                )?;
+            }
+            Operation::BeginStage {
+                id,
+                generator,
+                time,
+                parent,
+                payload,
+            } => {
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::BeginStage {
+                        generator,
+                        time,
+                        parent,
+                    },
+                    id,
+                    payload,
+                )?;
+            }
+            Operation::Point {
+                id,
+                generator,
+                time,
+                parent,
+                payload,
+                log,
+            } => {
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::Point {
+                        generator,
+                        time,
+                        parent,
+                        log,
+                    },
+                    id,
+                    Some(payload),
+                )?;
+            }
             Operation::End {
                 id,
                 time,
                 status,
                 payload,
             } => {
-                self.claim(Resource::Record(id), producer, stamp)?;
-                self.end_owner(id, time, status, payload)?;
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::End { id, time, status },
+                    id,
+                    payload,
+                )?;
             }
             Operation::EndStage { id, time, payload } => {
-                self.claim(Resource::Record(id), producer, stamp)?;
-                self.end_stage(id, time, payload)?;
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::EndStage { id, time },
+                    id,
+                    payload,
+                )?;
             }
             Operation::Payload { id, payload } => {
-                self.claim(Resource::Record(id), producer, stamp)?;
-                self.replace_payload(id, payload)?;
+                self.apply_owned_payload(
+                    producer,
+                    stamp,
+                    PayloadOperation::Replace { id },
+                    id,
+                    Some(payload),
+                )?;
             }
             Operation::Attribute { id, attribute } => {
                 self.claim(Resource::Record(id), producer, stamp)?;
                 self.attributes(std::slice::from_ref(&attribute))?;
                 let owner = self
                     .owners
-                    .get(&id)
-                    .ok_or(Error::invalid("owner is not active"))?;
+                    .get(id)
+                    .ok_or_else(|| Error::invalid("owner is not active"))?;
                 let name = self.declarations.string(attribute.key)?;
                 if let TypeKind::Struct(fields) = &self
                     .declarations
@@ -636,7 +812,7 @@ impl Backend {
                     return Err(Error::invalid("duplicate record attribute"));
                 }
                 self.owners
-                    .get_mut(&id)
+                    .get_mut(id)
                     .unwrap()
                     .value
                     .attributes
@@ -648,8 +824,8 @@ impl Backend {
                 }
                 self.claim(Resource::Record(id), producer, stamp)?;
                 self.owners
-                    .get_mut(&id)
-                    .ok_or(Error::invalid("owner is not active"))?
+                    .get_mut(id)
+                    .ok_or_else(|| Error::invalid("owner is not active"))?
                     .value
                     .span_kind = kind;
             }
@@ -659,8 +835,8 @@ impl Backend {
                 self.created(event.id)?;
                 self.claim(Resource::Record(owner), producer, stamp)?;
                 self.owners
-                    .get_mut(&owner)
-                    .ok_or(Error::invalid("owner is not active"))?
+                    .get_mut(owner)
+                    .ok_or_else(|| Error::invalid("owner is not active"))?
                     .value
                     .events
                     .push(event);
@@ -675,8 +851,8 @@ impl Backend {
                 self.created(stage.id)?;
                 self.claim(Resource::Record(owner), producer, stamp)?;
                 self.owners
-                    .get_mut(&owner)
-                    .ok_or(Error::invalid("owner is not active"))?
+                    .get_mut(owner)
+                    .ok_or_else(|| Error::invalid("owner is not active"))?
                     .value
                     .stages
                     .push(stage);
@@ -685,13 +861,13 @@ impl Backend {
                 self.claim(Resource::Record(owner), producer, stamp)?;
                 let stage = self
                     .owners
-                    .get_mut(&owner)
-                    .ok_or(Error::invalid("owner is not active"))?
+                    .get_mut(owner)
+                    .ok_or_else(|| Error::invalid("owner is not active"))?
                     .value
                     .stages
                     .iter_mut()
                     .find(|item| item.id == stage)
-                    .ok_or(Error::invalid("unknown embedded stage"))?;
+                    .ok_or_else(|| Error::invalid("unknown embedded stage"))?;
                 stage.end = Some(time.max(stage.begin));
             }
             Operation::Relate(relation) => {
@@ -720,7 +896,7 @@ impl Backend {
                 let clock = self
                     .clocks
                     .get(&generator)
-                    .ok_or(Error::invalid("not a clock generator"))?;
+                    .ok_or_else(|| Error::invalid("not a clock generator"))?;
                 if clock.id != 0 {
                     if first <= clock.begin {
                         return Err(Error::invalid("clock stretches share an edge"));
@@ -753,21 +929,51 @@ impl Backend {
         }
         Ok(())
     }
-    fn emit(
+    #[inline]
+    pub(super) fn advance(&mut self, time: u64) -> Result<()> {
+        self.alive()?;
+        self.captured_time = self.captured_time.max(time);
+        self.waveform.advance(time)
+    }
+    #[inline]
+    pub(super) fn emit_signal(
         &mut self,
         producer: ProducerId,
         stamp: u64,
         signal: SignalId,
         value: super::SignalInput,
     ) -> Result<()> {
+        self.emit_signal_ref(producer, stamp, signal, value.borrow())
+    }
+    #[inline]
+    pub(super) fn emit_signal_ref(
+        &mut self,
+        producer: ProducerId,
+        stamp: u64,
+        signal: SignalId,
+        value: SignalRef<'_>,
+    ) -> Result<()> {
+        self.alive()?;
+        self.captured_time = self.captured_time.max(stamp);
+        self.emit(producer, stamp, signal, value)
+    }
+    fn emit(
+        &mut self,
+        producer: ProducerId,
+        stamp: u64,
+        signal: SignalId,
+        value: SignalRef<'_>,
+    ) -> Result<()> {
         self.claim(Resource::Signal(signal.0), producer, stamp)?;
         self.waveform.emit(
             signal.0,
             stamp,
             value,
-            self.metadata.group_size,
-            self.encoding.waveform_deduplicate,
-            self.dump_active,
+            waveform::Options {
+                group_size: self.metadata.group_size,
+                deduplicate: self.encoding.waveform_deduplicate,
+                enabled: self.dump_active,
+            },
         )?;
         if self
             .waveform
@@ -822,7 +1028,7 @@ impl Backend {
         let id = self.next_block;
         self.next_block = id
             .checked_add(1)
-            .ok_or(Error::invalid("block number exhausted"))?;
+            .ok_or_else(|| Error::invalid("block number exhausted"))?;
         Ok(id)
     }
     fn submit_record(&mut self, record: LocatedRecord) -> Result<()> {
@@ -844,9 +1050,9 @@ impl Backend {
         let number = self.block_number()?;
         for record in &self.records {
             if self.declarations.generators.get(record.generator)?.kind != RecordKind::Log {
-                let owner = self.owners.get_mut(&record.parent).ok_or(Error::invalid(
-                    "located owner was closed before publishing child locators",
-                ))?;
+                let owner = self.owners.get_mut(record.parent).ok_or_else(|| {
+                    Error::invalid("located owner was closed before publishing child locators")
+                })?;
                 if owner.value.child_blocks.last() != Some(&number) {
                     owner.value.child_blocks.push(number);
                 }
@@ -860,18 +1066,46 @@ impl Backend {
                 .iter()
                 .map(|r| r.payload.capacity())
                 .sum::<usize>();
-        let records = std::mem::take(&mut self.records);
+        let mut records = std::mem::take(&mut self.records);
         let (types, generators, schema_bytes) = self.snapshot();
         let policy = self.policy();
         let strings = self.declarations.strings.len() as u64;
+        let recycle = self.payload_pool.return_handle();
+        if self.encoding.workers == 0 {
+            let result = self
+                .output
+                .encode_now(Section::new(9, begin, end, number), || {
+                    encode_record_block(number, &types, &generators, &records, policy, strings)
+                });
+            recycle.recycle(
+                records
+                    .iter_mut()
+                    .map(|record| std::mem::take(&mut record.payload)),
+            );
+            records.clear();
+            self.records = records;
+            result?;
+            self.record_bytes = 0;
+            return Ok(());
+        }
         self.output.encode(
             Section::new(9, begin, end, number),
             bytes + schema_bytes,
-            move || encode_record_block(number, &types, &generators, &records, policy, strings),
+            move || {
+                let result =
+                    encode_record_block(number, &types, &generators, &records, policy, strings);
+                recycle.recycle(
+                    records
+                        .iter_mut()
+                        .map(|record| std::mem::take(&mut record.payload)),
+                );
+                result
+            },
         )?;
         self.record_bytes = 0;
         Ok(())
     }
+    #[inline]
     fn submit_transaction(&mut self, transaction: Transaction) -> Result<()> {
         self.tx_bytes +=
             std::mem::size_of::<Transaction>() + Self::transaction_owned_bytes(&transaction);
@@ -913,16 +1147,48 @@ impl Backend {
                 .iter()
                 .map(|relation| super::transport::attributes_charge(&relation.attributes))
                 .sum::<usize>();
-        let transactions = std::mem::take(&mut self.transactions);
+        let mut transactions = std::mem::take(&mut self.transactions);
         let relations = std::mem::take(&mut self.relations);
         let (types, generators, schema_bytes) = self.snapshot();
         let policy = self.policy();
         let strings = self.declarations.strings.len() as u64;
+        let recycle = self.payload_pool.return_handle();
+        if self.encoding.workers == 0 {
+            let result = self
+                .output
+                .encode_now(Section::new(5, begin, end, number), || {
+                    encode_transaction_block(
+                        number,
+                        &types,
+                        &generators,
+                        &transactions,
+                        &relations,
+                        TransactionPolicy {
+                            pages: policy,
+                            string_count: strings,
+                            shared_text: None,
+                        },
+                    )
+                });
+            recycle.recycle(
+                transactions
+                    .iter_mut()
+                    .map(|record| std::mem::take(&mut record.payload)),
+            );
+            transactions.clear();
+            self.transactions = transactions;
+            let mut relations = relations;
+            relations.clear();
+            self.relations = relations;
+            result?;
+            self.tx_bytes = 0;
+            return Ok(());
+        }
         self.output.encode(
             Section::new(5, begin, end, number),
             bytes + schema_bytes,
             move || {
-                encode_transaction_block(
+                let result = encode_transaction_block(
                     number,
                     &types,
                     &generators,
@@ -933,7 +1199,13 @@ impl Backend {
                         string_count: strings,
                         shared_text: None,
                     },
-                )
+                );
+                recycle.recycle(
+                    transactions
+                        .iter_mut()
+                        .map(|record| std::mem::take(&mut record.payload)),
+                );
+                result
             },
         )?;
         self.tx_bytes = 0;
@@ -946,7 +1218,7 @@ impl Backend {
         if !self
             .stages
             .get(&id)
-            .ok_or(Error::invalid("stage is not active"))?
+            .ok_or_else(|| Error::invalid("stage is not active"))?
             .payload_ready
         {
             return Err(Error::invalid("missing mandatory stage payload"));
@@ -954,12 +1226,12 @@ impl Backend {
         let mut stage = self
             .stages
             .remove(&id)
-            .ok_or(Error::invalid("stage is not active"))?
+            .ok_or_else(|| Error::invalid("stage is not active"))?
             .value;
         stage.end = time.max(stage.begin);
         self.owners
-            .get_mut(&stage.parent)
-            .ok_or(Error::invalid("stage owner is not active"))?
+            .get_mut(stage.parent)
+            .ok_or_else(|| Error::invalid("stage owner is not active"))?
             .stages
             .retain(|stage| *stage != id);
         self.ownership.remove(&Resource::Record(id));
@@ -977,8 +1249,8 @@ impl Backend {
         }
         let owner = self
             .owners
-            .get(&id)
-            .ok_or(Error::invalid("owner is not active"))?;
+            .get(id)
+            .ok_or_else(|| Error::invalid("owner is not active"))?;
         if !owner.payload_ready && payload.is_none() {
             return Err(Error::invalid("missing mandatory transaction payload"));
         }
@@ -994,18 +1266,21 @@ impl Backend {
             self.end_stage(stage, end, None)?;
         }
         self.flush_records()?;
-        let mut owner = self.owners.remove(&id).unwrap().value;
+        let owner = &mut self.owners.get_mut(id).unwrap().value;
         owner.end = end;
         owner.status = status;
+        self.tx_bytes += std::mem::size_of::<Transaction>() + Self::transaction_owned_bytes(owner);
+        self.peak_transaction_bytes = self.peak_transaction_bytes.max(self.tx_bytes);
+        self.owners.finish_into(id, &mut self.transactions);
         self.ownership.remove(&Resource::Record(id));
-        self.submit_transaction(owner)
+        self.maybe_flush_transactions()
     }
     fn stop_clock(&mut self, generator: u32, time: u64, status: u8) -> Result<()> {
         let clock = self
             .clocks
             .get(&generator)
             .filter(|clock| clock.id != 0)
-            .ok_or(Error::invalid("clock is not running"))?;
+            .ok_or_else(|| Error::invalid("clock is not running"))?;
         let last =
             clock.begin + (time.max(clock.begin) - clock.begin) / clock.period * clock.period;
         let (id, begin, period) = (clock.id, clock.begin, clock.period);
@@ -1041,10 +1316,18 @@ impl Backend {
         if let Some((begin, end, job)) = self.waveform.prepare(self.metadata.group_size)? {
             self.publish()?;
             let compression = self.encoding.compression;
-            self.output
-                .encode(Section::new(4, begin, end, 0), job.bytes(), move || {
-                    job.encode(compression)
-                })?;
+            let bytes = job.bytes();
+            if self.encoding.workers == 0 {
+                let encoded = self.wave_encoder.encode(&job, compression);
+                self.waveform.reclaim(job);
+                self.output
+                    .encode(Section::new(4, begin, end, 0), bytes, move || encoded)?;
+            } else {
+                self.output
+                    .encode(Section::new(4, begin, end, 0), bytes, move || {
+                        job.encode(compression)
+                    })?;
+            }
         }
         Ok(())
     }
@@ -1137,7 +1420,8 @@ impl Backend {
         if incomplete {
             self.discard_missing_payloads()?;
         }
-        let owners: Vec<_> = self.owners.keys().copied().collect();
+        let mut owners: Vec<_> = self.owners.keys().copied().collect();
+        owners.sort_unstable();
         for id in owners {
             self.end_owner(id, self.captured_time, 4, None)?;
         }
@@ -1156,29 +1440,31 @@ impl Backend {
         Ok(fingerprint)
     }
     fn discard_missing_payloads(&mut self) -> Result<()> {
-        let stages: Vec<_> = self
+        let mut stages: Vec<_> = self
             .stages
             .iter()
             .filter(|(_, stage)| !stage.payload_ready)
             .map(|(id, _)| *id)
             .collect();
+        stages.sort_unstable();
         for id in stages {
             let stage = self.stages.remove(&id).unwrap();
             self.owners
-                .get_mut(&stage.value.parent)
+                .get_mut(stage.value.parent)
                 .unwrap()
                 .stages
                 .retain(|stage| *stage != id);
             self.ownership.remove(&Resource::Record(id));
         }
-        let owners: Vec<_> = self
+        let mut owners: Vec<_> = self
             .owners
             .iter()
             .filter(|(_, owner)| !owner.payload_ready)
             .map(|(id, _)| *id)
             .collect();
+        owners.sort_unstable();
         for id in &owners {
-            let stages = self.owners[id].stages.clone();
+            let stages = self.owners.get(*id).unwrap().stages.clone();
             for stage in stages {
                 self.end_stage(stage, self.captured_time, None)?;
             }
@@ -1186,7 +1472,7 @@ impl Backend {
         // Surviving stages need their owners present while collecting child-block locators.
         self.flush_records()?;
         for id in owners {
-            self.owners.remove(&id);
+            self.owners.remove(id);
             self.ownership.remove(&Resource::Record(id));
         }
         Ok(())
@@ -1218,6 +1504,7 @@ impl Backend {
             max_created_id: self.max_created,
             output_bytes: self.output.position(),
             encoding: self.output.stats(),
+            payload_pool_bytes: self.payload_pool.retained_bytes(),
             active_payload_bytes: self
                 .owners
                 .values()

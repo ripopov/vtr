@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::{Payload, PayloadReader, Primitive, TypeId, Types};
+use super::{Payload, PayloadReader, Primitive, TypeId, TypeKind, Types};
 use crate::{Error, Result};
 
 macro_rules! scalar {
@@ -12,6 +12,10 @@ macro_rules! scalar {
 
         impl Payload for $name {
             fn bind(_: &mut Types) -> Result<TypeId> { Ok(Primitive::$primitive.id()) }
+            fn fixed_size() -> Option<usize> { Some(size_of::<$inner>()) }
+            fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+                Ok(matches!(types.get(datatype)?.kind, TypeKind::Scalar(Primitive::$primitive)))
+            }
             fn encode(&self, out: &mut Vec<u8>) -> Result<()> { self.0.encode(out) }
             fn decode(reader: &mut PayloadReader<'_>) -> Result<Self> {
                 <$inner>::decode(reader).map(Self)
@@ -33,6 +37,15 @@ macro_rules! fixed {
         impl Payload for $name {
             fn bind(_: &mut Types) -> Result<TypeId> {
                 Ok(Primitive::$primitive.id())
+            }
+            fn fixed_size() -> Option<usize> {
+                Some(16)
+            }
+            fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+                Ok(matches!(
+                    types.get(datatype)?.kind,
+                    TypeKind::Scalar(Primitive::$primitive)
+                ))
             }
             fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
                 self.raw.encode(out)?;
@@ -58,6 +71,12 @@ pub struct Bytes<T = Vec<u8>>(pub T);
 impl<T: AsRef<[u8]> + From<Vec<u8>>> Payload for Bytes<T> {
     fn bind(_: &mut Types) -> Result<TypeId> {
         Ok(Primitive::Bytes.id())
+    }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Ok(matches!(
+            types.get(datatype)?.kind,
+            TypeKind::Scalar(Primitive::Bytes)
+        ))
     }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         let bytes = self.0.as_ref();
@@ -103,6 +122,9 @@ impl<const STATES: u8> Payload for PackedVector<STATES> {
     fn bind(_: &mut Types) -> Result<TypeId> {
         Self::primitive().map(Primitive::id)
     }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Ok(matches!(types.get(datatype)?.kind, TypeKind::Scalar(p) if p == Self::primitive()?))
+    }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         let primitive = Self::primitive()?;
         if self.packed.len() != primitive.packed_bytes(self.width)? {
@@ -134,6 +156,9 @@ impl Payload for Cow<'_, str> {
     fn bind(types: &mut Types) -> Result<TypeId> {
         String::bind(types)
     }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        String::matches(types, datatype)
+    }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         super::encode_text(self, out)
     }
@@ -146,6 +171,9 @@ impl Payload for Cow<'_, str> {
 impl<T: Payload + Clone> Payload for Cow<'_, [T]> {
     fn bind(types: &mut Types) -> Result<TypeId> {
         Vec::<T>::bind(types)
+    }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Vec::<T>::matches(types, datatype)
     }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         super::encode_sequence(self, out)

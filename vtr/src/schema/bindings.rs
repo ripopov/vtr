@@ -9,6 +9,22 @@ pub fn field_type<O, T: Payload>(types: &mut Types, _: fn(&O) -> &T) -> Result<T
 }
 
 #[doc(hidden)]
+#[inline]
+#[must_use]
+pub fn field_fixed_size<O, T: Payload>(_: fn(&O) -> &T) -> Option<usize> {
+    T::fixed_size()
+}
+
+#[doc(hidden)]
+pub fn field_matches<O, T: Payload>(
+    types: &Types,
+    datatype: TypeId,
+    _: fn(&O) -> &T,
+) -> Result<bool> {
+    T::matches(types, datatype)
+}
+
+#[doc(hidden)]
 pub fn enum_bits<O, T: Into<i128>>(_: fn(&O) -> &T, value: T) -> u64 {
     value.into() as u64
 }
@@ -45,6 +61,25 @@ macro_rules! impl_payload {
                     )
                 ),*];
                 $crate::schema::binding_type(types, $name, $crate::schema::TypeKind::Struct(fields))
+            }
+            fn fixed_size() -> Option<usize> {
+                let mut size = 0usize;
+                $(size = size.checked_add($crate::schema::field_fixed_size(|value: &Self| &value.$field)?)?;)*
+                Some(size)
+            }
+            fn matches(types: &$crate::Types, datatype: $crate::TypeId) -> $crate::Result<bool> {
+                let actual = types.get(datatype)?;
+                if actual.name != $name { return Ok(false); }
+                let $crate::schema::TypeKind::Struct(fields) = &actual.kind else { return Ok(false); };
+                let mut fields = fields.iter();
+                $(
+                    let Some(field) = fields.next() else { return Ok(false); };
+                    if field.name != ::core::stringify!($field).strip_prefix("r#").unwrap_or(::core::stringify!($field))
+                        || !$crate::schema::field_matches(types, field.datatype, |value: &Self| &value.$field)? {
+                        return Ok(false);
+                    }
+                )*
+                Ok(fields.next().is_none())
             }
             fn encode(&self, out: &mut ::std::vec::Vec<u8>) -> $crate::Result<()> {
                 $($crate::Payload::encode(&self.$field, out)?;)*
@@ -87,6 +122,23 @@ macro_rules! impl_payload_enum {
                     }
                 ),*];
                 $crate::schema::binding_type(types, $name, $crate::schema::TypeKind::Enum { underlying, values })
+            }
+            fn fixed_size() -> Option<usize> {
+                $crate::schema::field_fixed_size(|value: &Self| &value.0)
+            }
+            fn matches(types: &$crate::Types, datatype: $crate::TypeId) -> $crate::Result<bool> {
+                let actual = types.get(datatype)?;
+                if actual.name != $name { return Ok(false); }
+                let $crate::schema::TypeKind::Enum { underlying, values } = &actual.kind else { return Ok(false); };
+                if !$crate::schema::field_matches(types, *underlying, |value: &Self| &value.0)? { return Ok(false); }
+                let mut values = values.iter();
+                $(
+                    let Some(value) = values.next() else { return Ok(false); };
+                    if value.name != $label || value.value != $crate::schema::enum_bits(|value: &Self| &value.0, $value) {
+                        return Ok(false);
+                    }
+                )*
+                Ok(values.next().is_none())
             }
             fn encode(&self, out: &mut ::std::vec::Vec<u8>) -> $crate::Result<()> {
                 $crate::Payload::encode(&self.0, out)

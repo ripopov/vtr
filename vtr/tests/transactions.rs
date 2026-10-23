@@ -407,3 +407,54 @@ fn transaction_blocks_reject_truncation_bounds_duplicate_ids_and_invalid_shapes(
         );
     }
 }
+
+#[test]
+fn transaction_blocks_order_dense_and_sparse_ids_and_reject_duplicates() {
+    let (types, generators, mut rows) = scalar_source();
+    rows.truncate(3);
+    for ids in [
+        [19, 17, 18],
+        [u64::MAX - 1, 1, 1 << 48],
+        [u64::MAX - 1, u64::MAX - 3, u64::MAX - 2],
+    ] {
+        for (row, id) in rows.iter_mut().zip(ids) {
+            row.id = id;
+            row.parent = 0;
+        }
+        let encoded = encode_transaction_block(
+            1,
+            &types,
+            &generators,
+            &rows,
+            &[],
+            TransactionPolicy::default(),
+        )
+        .unwrap();
+        let view = TransactionBlockView::with_defaults(&encoded, &types, &generators).unwrap();
+        view.validate().unwrap();
+        let mut actual = Vec::new();
+        view.scan(
+            |tx| {
+                actual.push((tx.id, tx.payload));
+                true
+            },
+            |_| true,
+        )
+        .unwrap();
+        let mut expected: Vec<_> = rows.iter().map(|tx| (tx.id, tx.payload.clone())).collect();
+        expected.sort_unstable_by_key(|row| row.0);
+        assert_eq!(actual, expected);
+        rows[2].id = rows[0].id;
+        assert!(
+            encode_transaction_block(
+                1,
+                &types,
+                &generators,
+                &rows,
+                &[],
+                TransactionPolicy::default(),
+            )
+            .is_err()
+        );
+    }
+}

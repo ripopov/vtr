@@ -96,11 +96,14 @@ that an earlier producer operation could invalidate. Pending future work can
 spill to temporary storage instead of consuming unbounded RAM when a producer
 stalls. Encoding jobs own declaration snapshots and publish in submission order.
 
-C++ uses SPSC capture rings; Rust uses bounded MPSC handoff with per-producer
-byte admission. Their internal transport differs, while payload ownership,
-ordering, handle origins, and completion contracts agree. Queue admission,
-pending assembly, encoding jobs, and page targets are separate budgets with
-separate purposes. None is a promise that total process RSS equals one option.
+C++ and Rust use bounded SPSC capture rings for each producer. Rust copies
+scalar, typed payload, packed-bit, and variable-byte captures into ring packets;
+oversized captures use owned storage. Borrowed input remains valid only for the
+capture call. Buffered spill streams amortize I/O while retaining each producer's
+FIFO order. Payload ownership, ordering, handle origins, and completion contracts
+agree. Queue admission, pending assembly, encoding jobs, payload reuse, and page
+targets are separate budgets with separate purposes. None is a promise that total
+process RSS equals one option.
 
 ## Completion is explicit and recoverable
 

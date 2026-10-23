@@ -2,12 +2,15 @@
 
 mod backend;
 mod capture;
+mod channel;
 mod cpu;
 mod crash;
 pub mod ending;
 pub use crash::{CrashState, Guarded, Sealer};
 pub use ending::Ending;
 mod output;
+mod payload_pool;
+mod session;
 mod spool;
 mod tracker;
 mod transport;
@@ -29,12 +32,33 @@ use crate::{
 };
 use backend::Backend;
 use std::{
+    cell::Cell,
     io::{BufWriter, Write},
     marker::PhantomData,
+    num::NonZeroU64,
     path::Path,
-    sync::{Arc, atomic::AtomicU64},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 use transport::Transport;
+
+// Process-local IDs keep handles compact and reject stale handles when allocation addresses are reused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Origin(NonZeroU64);
+
+impl Origin {
+    fn new() -> Result<Self> {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let id = NEXT
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| Error::invalid("recording identities exhausted"))?;
+        Ok(Self(
+            NonZeroU64::new(id).expect("recording identities start at one"),
+        ))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionMode {
@@ -68,6 +92,7 @@ pub struct EncodingOptions {
     pub separate_logs: bool,
     pub separate_clocks: bool,
     pub workers: usize,
+    pub payload_pool_bytes: usize,
     pub queue_jobs: usize,
     pub queue_bytes: usize,
 }
@@ -84,6 +109,7 @@ impl Default for EncodingOptions {
             separate_logs: true,
             separate_clocks: true,
             workers: 0,
+            payload_pool_bytes: 16 << 20,
             queue_jobs: 8,
             queue_bytes: 256 << 20,
         }
@@ -107,7 +133,7 @@ pub struct QueueStats {
     /// Backpressure waits, excluding explicit final drains.
     pub waits: u64,
     pub wait_nanoseconds: u64,
-    /// Maximum simultaneously admitted byte charge, not process memory usage.
+    /// Peak admission byte charge; capture sums conservative per-producer bounds.
     pub peak_bytes: usize,
 }
 
@@ -123,6 +149,7 @@ pub struct WriterStats {
     pub encoding: QueueStats,
     /// Owned active payload capacity and attribute/child data, excluding map overhead.
     pub active_payload_bytes: usize,
+    pub payload_pool_bytes: usize,
     pub peak_transaction_bytes: usize,
     pub peak_record_bytes: usize,
     pub peak_waveform_bytes: usize,
@@ -158,6 +185,10 @@ impl WriterOptions {
             && (self.buffer.queue_bytes == 0 || self.buffer.pending_bytes == 0)
         {
             return Err(Error::invalid("threaded capture budgets must be positive"));
+        }
+        if self.mode == ExecutionMode::Threaded && self.buffer.queue_bytes > isize::MAX as usize / 4
+        {
+            return Err(Error::invalid("capture ring exceeds addressable storage"));
         }
         if self.encoding.page_bytes == 0
             || self.encoding.page_bytes >= crate::wire::MAX_BLOCK_BYTES
@@ -212,7 +243,7 @@ pub mod source {
 /// ```
 pub struct Source<T, K = source::Transaction> {
     id: u32,
-    origin: RecordingId,
+    origin: Origin,
     marker: PhantomData<fn() -> (T, K)>,
 }
 impl<T, K> Copy for Source<T, K> {}
@@ -230,7 +261,7 @@ impl<T, K> Source<T, K> {
 
 pub struct ActiveRecord<T, K = source::Transaction> {
     id: u64,
-    origin: RecordingId,
+    origin: Origin,
     marker: PhantomData<fn() -> (T, K)>,
 }
 impl<T, K> Copy for ActiveRecord<T, K> {}
@@ -260,7 +291,7 @@ pub type Stage<T = ()> = ActiveRecord<T, source::Stage>;
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerRef {
     id: u64,
-    origin: RecordingId,
+    origin: Origin,
 }
 impl OwnerRef {
     #[must_use]
@@ -272,7 +303,7 @@ impl OwnerRef {
 #[derive(Clone, Copy, Debug)]
 pub struct ClockSource {
     id: u32,
-    origin: RecordingId,
+    origin: Origin,
 }
 impl ClockSource {
     #[must_use]
@@ -296,6 +327,7 @@ enum Dispatch {
 }
 
 pub struct Writer {
+    identity: RecordingId,
     dispatch: Dispatch,
     front: Frontend,
     failure: Option<String>,
@@ -319,24 +351,33 @@ impl Writer {
         options.validate()?;
         let backend = Backend::new(output, options.clone())?;
         let mut worker_cpu = backend.worker_cpu();
-        let origin = backend.identity();
-        let ids = Arc::new(AtomicU64::new(1));
+        let identity = backend.identity();
+        let origin = Origin::new()?;
+        let (dispatch, ids) = match options.mode {
+            ExecutionMode::Inline => (
+                Dispatch::Inline(Box::new(backend)),
+                capture::RecordIds::Local(Cell::new(1)),
+            ),
+            ExecutionMode::Threaded => {
+                let ids = Arc::new(AtomicU64::new(1));
+                let transport = Transport::new(backend, &options, ids.clone())?;
+                worker_cpu.push(transport.worker_cpu());
+                (
+                    Dispatch::Threaded(transport),
+                    capture::RecordIds::Shared(ids),
+                )
+            }
+        };
         let front = Frontend {
             origin,
-            ids: ids.clone(),
+            ids,
             time: 0,
             producer: ProducerId(0),
             finished: false,
-        };
-        let dispatch = match options.mode {
-            ExecutionMode::Inline => Dispatch::Inline(Box::new(backend)),
-            ExecutionMode::Threaded => {
-                let transport = Transport::new(backend, &options, origin, ids)?;
-                worker_cpu.push(transport.worker_cpu());
-                Dispatch::Threaded(transport)
-            }
+            payload: Vec::new(),
         };
         Ok(Self {
+            identity,
             dispatch,
             front,
             failure: None,
@@ -348,7 +389,7 @@ impl Writer {
     #[must_use]
     pub fn identity(&self) -> RecordingId {
         let _guard = self.crash.guard();
-        self.front.origin
+        self.identity
     }
     fn control<R: Send + 'static>(
         &mut self,
@@ -365,6 +406,7 @@ impl Writer {
         }
         result
     }
+    #[inline]
     fn usable(&self) -> Result<()> {
         if self.finished {
             return Err(Error::State("recording is finalized"));
@@ -379,6 +421,34 @@ impl Writer {
             return Err(Error::Recording(failure.clone()));
         }
         Ok(())
+    }
+    #[inline]
+    fn capture_signal(&mut self, signal: SignalId, value: SignalInput) -> Result<()> {
+        let _guard = self.crash.scoped();
+        self.usable()?;
+        if self.front.finished {
+            return Err(Error::State("producer is finished"));
+        }
+        let result = match &mut self.dispatch {
+            Dispatch::Inline(backend) => {
+                backend.emit_signal(self.front.producer, self.front.time, signal, value)
+            }
+            Dispatch::Threaded(transport) => {
+                let (sender, shared) = transport.capture_parts();
+                sender
+                    .publish_signal(signal, value, || shared.error())
+                    .map(|()| shared.captured())
+            }
+        };
+        if let Err(error) = &result {
+            Self::capture_failure(&mut self.failure, error);
+        }
+        result
+    }
+    #[cold]
+    #[inline(never)]
+    fn capture_failure(failure: &mut Option<String>, error: &Error) {
+        *failure = Some(error.to_string());
     }
     pub fn metadata(&mut self) -> Result<Metadata> {
         let _guard = self.crash.guard();
@@ -526,9 +596,7 @@ impl Writer {
             Dispatch::Inline(_) => {
                 Err(Error::invalid("inline recording has one implicit producer"))
             }
-            Dispatch::Threaded(transport) => {
-                transport.add_producer(self.front.origin, self.front.ids.clone())
-            }
+            Dispatch::Threaded(transport) => transport.add_producer(self.front.origin),
         }
     }
     pub fn finish_producer(&mut self) -> Result<()> {
@@ -652,35 +720,64 @@ impl Writer {
 }
 
 impl Capture for Writer {
-    fn guard(&self) -> Option<Guarded> {
-        Some(self.crash.guard())
-    }
+    #[inline]
     fn state(&self) -> &Frontend {
         &self.front
     }
-    fn state_mut(&mut self) -> &mut Frontend {
-        &mut self.front
+    #[inline]
+    fn time(&self) -> u64 {
+        let _guard = self.crash.scoped();
+        self.front.time
     }
-    fn dispatch(&mut self, operation: Operation) -> Result<()> {
+    #[inline]
+    fn session(&mut self) -> session::Session<'_> {
+        session::Session::writer(
+            &mut self.front,
+            &mut self.dispatch,
+            &mut self.failure,
+            self.finished,
+            &self.crash,
+        )
+    }
+}
+impl Recorder for Writer {
+    #[inline]
+    fn advance_time(&mut self, time: u64) -> Result<()> {
+        let _guard = self.crash.scoped();
+        if time < self.front.time {
+            return Err(Error::invalid("producer time moved backwards"));
+        }
         self.usable()?;
         if self.front.finished {
             return Err(Error::State("producer is finished"));
         }
+        if time == self.front.time {
+            return Ok(());
+        }
+        self.front.time = time;
         let result = match &mut self.dispatch {
-            Dispatch::Inline(backend) => {
-                backend.apply(self.front.producer, self.front.time, operation)
-            }
+            Dispatch::Inline(backend) => backend.advance(time),
             Dispatch::Threaded(transport) => {
-                transport.publish(self.front.producer, self.front.time, operation)
+                let (sender, shared) = transport.capture_parts();
+                sender
+                    .publish_progress(time, || shared.error())
+                    .map(|()| shared.captured())
             }
         };
         if let Err(error) = &result {
-            self.failure = Some(error.to_string());
+            Self::capture_failure(&mut self.failure, error);
         }
         result
     }
-}
-impl Recorder for Writer {
+
+    #[inline]
+    fn emit_u64(&mut self, signal: SignalId, value: u64) -> Result<()> {
+        self.capture_signal(signal, SignalInput::Unsigned(value))
+    }
+    #[inline]
+    fn emit_real(&mut self, signal: SignalId, value: f64) -> Result<()> {
+        self.capture_signal(signal, SignalInput::Real(value.to_bits()))
+    }
     fn intern(&mut self, name: &str) -> Result<u32> {
         Writer::intern(self, name)
     }

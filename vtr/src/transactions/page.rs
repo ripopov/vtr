@@ -235,11 +235,11 @@ pub(super) fn decode(
                 usize::try_from(local)
                     .map_err(|_| Error::Corrupt("invalid local generator index"))?,
             )
-            .ok_or(Error::Corrupt("invalid local generator index"))?;
+            .ok_or_else(|| Error::corrupt("invalid local generator index"))?;
         let begin = previous_begin.wrapping_add(unzigzag(metadata[2].var()?) as u64);
         let end = begin
             .checked_add(metadata[3].var()?)
-            .ok_or(Error::Corrupt("transaction end overflow"))?;
+            .ok_or_else(|| Error::corrupt("transaction end overflow"))?;
         let classification = metadata[4].byte()?;
         let distance = metadata[5].var()?;
         if distance != 0 && distance >= id {
@@ -305,7 +305,7 @@ pub(super) fn decode(
             }
             block = block
                 .checked_add(delta)
-                .ok_or(Error::Corrupt("located block delta overflow"))?;
+                .ok_or_else(|| Error::corrupt("located block delta overflow"))?;
             tx.child_blocks.push(block);
         }
         validate_transaction(&tx, view.generators.get(generator)?, view.strings)?;

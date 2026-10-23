@@ -56,6 +56,69 @@ impl Default for Compression {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+fn lz4_bound(length: usize) -> Result<usize> {
+    let length = i32::try_from(length).map_err(|_| Error::Corrupt("LZ4 input exceeds i32"))?;
+    // SAFETY: LZ4_compressBound accepts any integer and reports unsupported lengths with zero.
+    let bound = unsafe { lz4_sys::LZ4_compressBound(length) };
+    if bound <= 0 {
+        return Err(Error::Corrupt("LZ4 input exceeds codec limit"));
+    }
+    Ok(bound as usize)
+}
+#[cfg(target_family = "wasm")]
+fn lz4_bound(length: usize) -> Result<usize> {
+    Ok(lz4_flex::block::get_maximum_output_size(length))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn lz4_compress(input: &[u8], output: &mut [u8]) -> Result<usize> {
+    let length = i32::try_from(input.len()).map_err(|_| Error::Corrupt("LZ4 input exceeds i32"))?;
+    let capacity =
+        i32::try_from(output.len()).map_err(|_| Error::Corrupt("LZ4 output exceeds i32"))?;
+    // SAFETY: Both slices are live and disjoint, with lengths passed to the bounded C encoder.
+    let size = unsafe {
+        lz4_sys::LZ4_compress_default(
+            input.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            length,
+            capacity,
+        )
+    };
+    if size <= 0 {
+        return Err(Error::Corrupt("LZ4 compression failed"));
+    }
+    Ok(size as usize)
+}
+#[cfg(target_family = "wasm")]
+fn lz4_compress(input: &[u8], output: &mut [u8]) -> Result<usize> {
+    lz4_flex::block::compress_into(input, output).map_err(|e| Error::Codec(e.to_string()))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn lz4_decompress(input: &[u8], output: &mut [u8]) -> Result<usize> {
+    let length = i32::try_from(input.len()).map_err(|_| Error::Corrupt("LZ4 input exceeds i32"))?;
+    let capacity =
+        i32::try_from(output.len()).map_err(|_| Error::Corrupt("LZ4 output exceeds i32"))?;
+    // SAFETY: The decoder receives exact readable and writable slice bounds and rejects malformed input.
+    let size = unsafe {
+        lz4_sys::LZ4_decompress_safe(
+            input.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            length,
+            capacity,
+        )
+    };
+    if size < 0 {
+        return Err(Error::Corrupt("invalid LZ4 block"));
+    }
+    Ok(size as usize)
+}
+#[cfg(target_family = "wasm")]
+fn lz4_decompress(input: &[u8], output: &mut [u8]) -> Result<usize> {
+    lz4_flex::block::decompress_into(input, output).map_err(|e| Error::Codec(e.to_string()))
+}
+
 pub struct Compressor {
     zstd: Option<ZstdContext>,
     level: i32,
@@ -243,10 +306,9 @@ impl Compressor {
                 return Ok(());
             }
             Codec::Lz4 => {
-                let bound = lz4_flex::block::get_maximum_output_size(input.len());
+                let bound = lz4_bound(input.len())?;
                 out.resize(payload_pos + bound, 0);
-                let n = lz4_flex::block::compress_into(input, &mut out[payload_pos..])
-                    .map_err(|e| Error::Codec(e.to_string()))?;
+                let n = lz4_compress(input, &mut out[payload_pos..])?;
                 out.truncate(payload_pos + n);
             }
             Codec::Zstd => {
@@ -305,8 +367,7 @@ impl Decompressor {
             }
             Codec::Lz4 => {
                 out.resize(start + raw_len, 0);
-                let n = lz4_flex::block::decompress_into(payload, &mut out[start..])
-                    .map_err(|e| Error::Codec(e.to_string()))?;
+                let n = lz4_decompress(payload, &mut out[start..])?;
                 if n != raw_len {
                     return Err(Error::Corrupt("lz4 length mismatch"));
                 }

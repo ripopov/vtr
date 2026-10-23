@@ -184,7 +184,7 @@ impl TransactionBounds {
             self.transactions = self
                 .transactions
                 .checked_add(other.transactions)
-                .ok_or(Error::Corrupt("transaction count overflow"))?;
+                .ok_or_else(|| Error::corrupt("transaction count overflow"))?;
         }
         if other.relations != 0 {
             let first = self.relations == 0;
@@ -200,7 +200,7 @@ impl TransactionBounds {
             self.relations = self
                 .relations
                 .checked_add(other.relations)
-                .ok_or(Error::Corrupt("relation count overflow"))?;
+                .ok_or_else(|| Error::corrupt("relation count overflow"))?;
         }
         Ok(())
     }
@@ -374,6 +374,36 @@ impl Default for TransactionPolicy<'_> {
     }
 }
 
+fn sorted_transactions(transactions: &[Transaction]) -> Result<Vec<&Transaction>> {
+    let mut sorted = Vec::with_capacity(transactions.len());
+    let Some(first) = transactions.first() else {
+        return Ok(sorted);
+    };
+    let (minimum, maximum) = transactions
+        .iter()
+        .fold((first.id, first.id), |(min, max), tx| {
+            (min.min(tx.id), max.max(tx.id))
+        });
+    if let Ok(span) = usize::try_from(maximum - minimum)
+        && span < transactions.len().saturating_mul(4)
+    {
+        let mut slots = vec![None; span + 1];
+        for tx in transactions {
+            if slots[(tx.id - minimum) as usize].replace(tx).is_some() {
+                return Err(Error::invalid("duplicate owner identifier"));
+            }
+        }
+        sorted.extend(slots.into_iter().flatten());
+    } else {
+        sorted.extend(transactions);
+        sorted.sort_unstable_by_key(|tx| tx.id);
+        if sorted.windows(2).any(|w| w[0].id == w[1].id) {
+            return Err(Error::invalid("duplicate owner identifier"));
+        }
+    }
+    Ok(sorted)
+}
+
 pub fn encode_transaction_block(
     number: u64,
     types: &Types,
@@ -394,11 +424,7 @@ pub fn encode_transaction_block(
     {
         return Err(Error::invalid("invalid transaction block or page policy"));
     }
-    let mut sorted: Vec<_> = transactions.iter().collect();
-    sorted.sort_unstable_by_key(|tx| tx.id);
-    if sorted.windows(2).any(|w| w[0].id == w[1].id) {
-        return Err(Error::invalid("duplicate owner identifier"));
-    }
+    let sorted = sorted_transactions(transactions)?;
     let ids: Vec<_> = transactions
         .iter()
         .map(|tx| tx.generator)
@@ -670,19 +696,8 @@ impl<'a> TransactionBlockView<'a> {
                 page.bounds.transactions,
                 self.max_payload_bytes,
                 |record| {
-                    if let Err(failure) = validate_transaction(
-                        &record,
-                        self.generators.get(record.generator).unwrap(),
-                        self.strings,
-                    )
-                    .and({
-                        if record.id > previous {
-                            Ok(())
-                        } else {
-                            Err(Error::Corrupt("unordered scalar IDs"))
-                        }
-                    }) {
-                        error = Some(failure);
+                    if record.id <= previous {
+                        error = Some(Error::Corrupt("unordered scalar IDs"));
                         return false;
                     }
                     previous = record.id;

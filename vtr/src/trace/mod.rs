@@ -27,7 +27,7 @@ use crate::{
         GeneratorId, LocatedRecord, RecordBlockView, RecordId, RecordKind, RecordQuery, SpanKind,
         Status,
     },
-    schema::{DEFAULT_PAYLOAD_LIMIT, Types},
+    schema::{DEFAULT_PAYLOAD_LIMIT, Payload, Types},
     transactions::{
         EmbeddedEvent, EmbeddedStage, Relation, Transaction, TransactionBlockView, TransactionQuery,
     },
@@ -57,7 +57,9 @@ struct RecordData {
     origin: RecordingId,
     raw: Transaction,
     kind: RecordKind,
-    payload: PayloadView,
+    types: Arc<Types>,
+    datatype: crate::schema::TypeId,
+    allocation_limit: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -74,6 +76,7 @@ pub struct Record {
 
 impl Record {
     #[must_use]
+    #[inline]
     pub fn id(&self) -> RecordId {
         match self.embedded {
             None => self.data.raw.id,
@@ -82,6 +85,7 @@ impl Record {
         }
     }
     #[must_use]
+    #[inline]
     pub fn kind(&self) -> RecordKind {
         match self.embedded {
             None => self.data.kind,
@@ -90,6 +94,7 @@ impl Record {
         }
     }
     #[must_use]
+    #[inline]
     pub fn parent(&self) -> Option<RecordId> {
         let parent = if self.embedded.is_some() {
             self.data.raw.id
@@ -99,10 +104,12 @@ impl Record {
         (parent != 0).then_some(parent)
     }
     #[must_use]
+    #[inline]
     pub fn generator(&self) -> Option<GeneratorId> {
         self.embedded.is_none().then_some(self.data.raw.generator)
     }
     #[must_use]
+    #[inline]
     pub fn begin(&self) -> u64 {
         match self.embedded {
             None => self.data.raw.begin,
@@ -111,6 +118,7 @@ impl Record {
         }
     }
     #[must_use]
+    #[inline]
     pub fn end(&self) -> u64 {
         match self.embedded {
             None => self.data.raw.end,
@@ -122,6 +130,7 @@ impl Record {
         }
     }
     #[must_use]
+    #[inline]
     pub fn status(&self) -> Status {
         if self.embedded.is_none() {
             Status::try_from(self.data.raw.status).expect("validated record status")
@@ -145,14 +154,35 @@ impl Record {
             Some(Embedded::Stage(i)) => &self.data.raw.stages[i].attributes,
         }
     }
+    /// Decode the payload without retaining a separate payload view.
+    pub fn decode<T: Payload>(&self) -> Result<T> {
+        let (datatype, bytes) = if self.embedded.is_some() {
+            (0, &[][..])
+        } else {
+            (self.data.datatype, self.data.raw.payload.as_slice())
+        };
+        payload::decode_payload(
+            &self.data.types,
+            datatype,
+            bytes,
+            self.data.allocation_limit,
+        )
+    }
     #[must_use]
+    #[inline]
     pub fn payload(&self) -> PayloadView {
-        let mut payload = self.data.payload.clone();
-        if self.embedded.is_some() {
-            payload.datatype = 0;
-            payload.range = 0..0;
+        let (datatype, length) = if self.embedded.is_some() {
+            (0, 0)
+        } else {
+            (self.data.datatype, self.data.raw.payload.len())
+        };
+        PayloadView {
+            types: self.data.types.clone(),
+            storage: self.data.clone(),
+            datatype,
+            range: 0..length,
+            allocation_limit: self.data.allocation_limit,
         }
-        payload
     }
     #[must_use]
     pub fn events(&self) -> &[EmbeddedEvent] {
@@ -282,7 +312,7 @@ impl Reader {
                     available.strings = section
                         .aux0
                         .checked_add(section.aux1)
-                        .ok_or(Error::Corrupt("string count overflow"))?;
+                        .ok_or_else(|| Error::corrupt("string count overflow"))?;
                 }
                 3 => {
                     available.nodes = usize::try_from(section.aux0 + section.aux1)
@@ -322,7 +352,7 @@ impl Reader {
                 };
                 time = time
                     .checked_add(cursor.var()?)
-                    .ok_or(Error::Corrupt("blackout time overflow"))?;
+                    .ok_or_else(|| Error::corrupt("blackout time overflow"))?;
                 if blackouts
                     .last()
                     .is_some_and(|last: &Blackout| last.time > time)
@@ -558,26 +588,20 @@ impl Reader {
         Ok(view)
     }
 
-    fn retain(&self, mut raw: Transaction, kind: RecordKind) -> Record {
-        let bytes: Arc<[u8]> = std::mem::take(&mut raw.payload).into();
-        let payload = PayloadView {
-            types: self.types.clone(),
-            datatype: self
-                .declarations
-                .generators
-                .get(raw.generator)
-                .unwrap()
-                .payload_type,
-            range: 0..bytes.len(),
-            bytes,
-            allocation_limit: self.options.max_payload_bytes,
+    fn retain(&self, raw: Transaction, kind: RecordKind) -> Record {
+        let NodeData::Generator { payload_type, .. } =
+            self.declarations.nodes[raw.generator as usize].data
+        else {
+            unreachable!("validated record generator");
         };
         Record {
             data: Arc::new(RecordData {
                 origin: self.identity(),
                 raw,
                 kind,
-                payload,
+                types: self.types.clone(),
+                datatype: payload_type,
+                allocation_limit: self.options.max_payload_bytes,
             }),
             embedded: None,
         }
@@ -618,12 +642,16 @@ impl Reader {
             }
             self.transaction_block(section)?
                 .transactions(query, |raw| {
-                    let kind = self
-                        .declarations
-                        .generators
-                        .get(raw.generator)
-                        .unwrap()
-                        .kind;
+                    let NodeData::Generator { kind, .. } =
+                        self.declarations.nodes[raw.generator as usize].data
+                    else {
+                        unreachable!("validated transaction generator");
+                    };
+                    let kind = if self.declarations.strings[kind as usize] == "CLOCK" {
+                        RecordKind::Clock
+                    } else {
+                        RecordKind::Transaction
+                    };
                     running = visit(self.retain(raw, kind));
                     running
                 })?;
@@ -725,7 +753,7 @@ impl Reader {
     }
 
     fn cache_owner(&self, record: Record) {
-        let bytes = record.data.payload.bytes.len()
+        let bytes = record.data.raw.payload.capacity()
             + std::mem::size_of::<RecordData>()
             + record.child_blocks().len() * 8
             + std::mem::size_of_val(record.events())
@@ -842,7 +870,7 @@ impl Reader {
         let owner = self
             .lookup(id)?
             .filter(|record| record.kind() == RecordKind::Transaction)
-            .ok_or(Error::invalid("expansion requires an ordinary owner"))?;
+            .ok_or_else(|| Error::invalid("expansion requires an ordinary owner"))?;
         let mut located = Vec::new();
         let mut missing_blocks = Vec::new();
         for number in owner.child_blocks() {
@@ -929,12 +957,13 @@ impl Reader {
             if previous_end.is_some_and(|end| stretch.begin() <= end) {
                 return Err(Error::Corrupt("clock stretches overlap"));
             }
-            let next_cycle_value = next_cycle.ok_or(Error::Corrupt("clock cycle exhaustion"))?;
+            let next_cycle_value =
+                next_cycle.ok_or_else(|| Error::corrupt("clock cycle exhaustion"))?;
             let period = self.clock_period(&stretch.data.raw)?;
             let count = (stretch.end() - stretch.begin()) / period;
             let last = next_cycle_value
                 .checked_add(count)
-                .ok_or(Error::Corrupt("clock cycle overflow"))?;
+                .ok_or_else(|| Error::corrupt("clock cycle overflow"))?;
             if time >= stretch.begin() {
                 answer =
                     Some(next_cycle_value + (time.min(stretch.end()) - stretch.begin()) / period);
@@ -963,7 +992,7 @@ impl Reader {
             }
             return Ok(1);
         }
-        let period = period.ok_or(Error::Corrupt("missing clock period"))?;
+        let period = period.ok_or_else(|| Error::corrupt("missing clock period"))?;
         if !(tx.end - tx.begin).is_multiple_of(period) {
             return Err(Error::Corrupt("clock stretch does not match period"));
         }

@@ -292,17 +292,10 @@ impl Output {
         bytes: usize,
         encode: impl FnOnce() -> Result<Vec<u8>> + Send + 'static,
     ) -> Result<()> {
-        self.usable()?;
         if self.pool.is_none() {
-            let payload = match encode() {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.failure = Some((error.to_string(), true));
-                    return Err(error);
-                }
-            };
-            return self.write(section, payload);
+            return self.encode_now(section, encode);
         }
+        self.usable()?;
         while self.pool.as_ref().is_some_and(|pool| {
             pool.pending() != 0
                 && (pool.pending() >= pool.max_jobs as u64
@@ -333,13 +326,29 @@ impl Output {
         pool.next = pool
             .next
             .checked_add(1)
-            .ok_or(Error::invalid("encoding sequence exhausted"))?;
+            .ok_or_else(|| Error::invalid("encoding sequence exhausted"))?;
         pool.pending_bytes = pool
             .pending_bytes
             .checked_add(bytes)
-            .ok_or(Error::invalid("encoding byte count overflow"))?;
+            .ok_or_else(|| Error::invalid("encoding byte count overflow"))?;
         pool.peak_bytes = pool.peak_bytes.max(pool.pending_bytes);
         self.poll()
+    }
+    pub fn encode_now(
+        &mut self,
+        section: Section,
+        encode: impl FnOnce() -> Result<Vec<u8>>,
+    ) -> Result<()> {
+        assert!(self.pool.is_none());
+        self.usable()?;
+        let payload = match encode() {
+            Ok(payload) => payload,
+            Err(error) => {
+                self.failure = Some((error.to_string(), true));
+                return Err(error);
+            }
+        };
+        self.write(section, payload)
     }
     pub fn section(&mut self, section: Section, payload: Vec<u8>) -> Result<()> {
         self.encode(section, payload.capacity(), move || Ok(payload))

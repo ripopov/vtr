@@ -1,11 +1,14 @@
 //! File-local datatype declarations and padding-free canonical payloads.
 
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::{Arc, OnceLock},
+};
 
 mod bindings;
 mod values;
 #[doc(hidden)]
-pub use bindings::{binding_type, enum_bits, field_type};
+pub use bindings::{binding_type, enum_bits, field_fixed_size, field_matches, field_type};
 pub use values::{
     Address, Bits, Bytes, Fixed, Logic4, Logic9, PackedVector, StringId, TimeValue, UFixed,
 };
@@ -74,6 +77,7 @@ impl Primitive {
         self.signed() || matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::U64)
     }
 
+    #[inline]
     pub(crate) fn packed_bytes(self, bits: u64) -> Result<usize> {
         let per_byte = match self {
             Self::Bits => 8,
@@ -88,6 +92,7 @@ impl Primitive {
         Ok(bytes as usize)
     }
 
+    #[inline]
     pub(crate) fn validate_packed(self, bytes: &[u8], bits: u64) -> Result<()> {
         let stride = match self {
             Self::Bits => 1,
@@ -185,60 +190,78 @@ pub struct Datatype {
     pub depth: u8,
     pub contains_text: bool,
     pub(crate) scalars: Option<Vec<Primitive>>,
+    unsigned_words: Option<usize>,
+    validates_by_size: bool,
 }
 
 impl Datatype {
     /// Eligible scalar pages contain at most 256 unsigned 64-bit leaves.
     #[must_use]
     pub fn unsigned_words(&self) -> Option<usize> {
-        let scalars = self.scalars.as_ref()?;
+        self.unsigned_words
+    }
+
+    fn compile_validation(mut self) -> Self {
         if self.fixed_size.is_some()
-            && scalars
+            && let Some(scalars) = &self.scalars
+        {
+            self.unsigned_words = scalars
                 .iter()
                 .all(|p| matches!(p, Primitive::U64 | Primitive::Time | Primitive::Pointer))
-        {
-            Some(scalars.len())
-        } else {
-            None
+                .then_some(scalars.len());
+            self.validates_by_size = scalars
+                .iter()
+                .all(|p| p.width().is_some() && !matches!(p, Primitive::Bool | Primitive::Str));
         }
+        self
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Types {
-    types: Vec<Datatype>,
+    types: Arc<Vec<Datatype>>,
     binding_depth: u8,
 }
 
 impl Default for Types {
     fn default() -> Self {
+        static PRIMITIVE_TYPES: OnceLock<Arc<Vec<Datatype>>> = OnceLock::new();
         Self {
             binding_depth: 0,
-            types: PRIMITIVES
-                .into_iter()
-                .map(|primitive| {
-                    let fixed_size = primitive.width().map(|n| n as u32);
-                    Datatype {
-                        name: String::new(),
-                        kind: TypeKind::Scalar(primitive),
-                        minimum_size: fixed_size.unwrap_or(
-                            if matches!(primitive, Primitive::Text | Primitive::Bytes) {
-                                4
-                            } else {
-                                8
-                            },
-                        ),
-                        fixed_size,
-                        depth: 1,
-                        contains_text: primitive == Primitive::Text,
-                        scalars: Some(if primitive == Primitive::Unit {
-                            vec![]
-                        } else {
-                            vec![primitive]
-                        }),
-                    }
+            types: PRIMITIVE_TYPES
+                .get_or_init(|| {
+                    Arc::new(
+                        PRIMITIVES
+                            .into_iter()
+                            .map(|primitive| {
+                                let fixed_size = primitive.width().map(|n| n as u32);
+                                Datatype {
+                                    name: String::new(),
+                                    kind: TypeKind::Scalar(primitive),
+                                    minimum_size: fixed_size.unwrap_or(
+                                        if matches!(primitive, Primitive::Text | Primitive::Bytes) {
+                                            4
+                                        } else {
+                                            8
+                                        },
+                                    ),
+                                    fixed_size,
+                                    depth: 1,
+                                    contains_text: primitive == Primitive::Text,
+                                    unsigned_words: None,
+                                    validates_by_size: false,
+                                    scalars: Some(if primitive == Primitive::Unit {
+                                        vec![]
+                                    } else {
+                                        vec![primitive]
+                                    }),
+                                }
+                                .compile_validation()
+                            })
+                            .collect(),
+                    )
                 })
-                .collect(),
+                .clone(),
         }
     }
 }
@@ -362,11 +385,12 @@ impl Types {
         self.types.is_empty()
     }
 
+    #[inline]
     pub fn get(&self, id: TypeId) -> Result<&Datatype> {
         self.types
             .get(id as usize)
             .filter(|_| id != Primitive::Enum.id())
-            .ok_or(Error::Corrupt("unknown payload datatype"))
+            .ok_or_else(|| Error::corrupt("unknown payload datatype"))
     }
 
     pub fn structure(&mut self, name: impl Into<String>, fields: Vec<Field>) -> Result<TypeId> {
@@ -404,6 +428,8 @@ impl Types {
             depth: 1,
             contains_text: false,
             scalars: Some(vec![]),
+            unsigned_words: None,
+            validates_by_size: false,
         };
         let mut children = Vec::new();
         match &datatype.kind {
@@ -434,12 +460,12 @@ impl Types {
                 .minimum_size
                 .checked_mul(count)
                 .and_then(|size| datatype.minimum_size.checked_add(size))
-                .ok_or(Error::Corrupt("datatype minimum size exceeds u32"))?;
+                .ok_or_else(|| Error::corrupt("datatype minimum size exceeds u32"))?;
             datatype.fixed_size = match (datatype.fixed_size, child.fixed_size) {
                 (Some(total), Some(size)) => Some(
                     size.checked_mul(count)
                         .and_then(|size| total.checked_add(size))
-                        .ok_or(Error::Corrupt("fixed datatype size exceeds u32"))?,
+                        .ok_or_else(|| Error::corrupt("fixed datatype size exceeds u32"))?,
                 ),
                 _ => None,
             };
@@ -472,8 +498,8 @@ impl Types {
         let id = u32::try_from(self.types.len())
             .ok()
             .filter(|id| *id != u32::MAX)
-            .ok_or(Error::Corrupt("datatype identifier exhaustion"))?;
-        self.types.push(datatype);
+            .ok_or_else(|| Error::corrupt("datatype identifier exhaustion"))?;
+        Arc::make_mut(&mut self.types).push(datatype.compile_validation());
         Ok(id)
     }
 
@@ -594,6 +620,14 @@ impl Types {
         if payload.len() > u32::MAX as usize {
             return Err(Error::Corrupt("payload exceeds u32"));
         }
+        let layout = self.get(datatype)?;
+        if layout.validates_by_size {
+            return if Some(payload.len() as u32) == layout.fixed_size {
+                Ok(())
+            } else {
+                Err(Error::Corrupt("fixed typed payload size mismatch"))
+            };
+        }
         let mut cursor = Cursor::new(payload);
         self.walk(datatype, &mut cursor, &mut Validator(string_count))?;
         cursor.done()
@@ -672,7 +706,7 @@ fn unique_names<'a>(names: impl Iterator<Item = &'a str>) -> Result<()> {
 pub(crate) fn integer_range(primitive: Primitive, value: u64) -> Result<()> {
     let width = primitive
         .width()
-        .ok_or(Error::Corrupt("invalid integer primitive"))?;
+        .ok_or_else(|| Error::corrupt("invalid integer primitive"))?;
     if width == 8 {
         return Ok(());
     }
@@ -721,7 +755,7 @@ pub(crate) fn validate_scalar(
             row.take(
                 primitive
                     .width()
-                    .ok_or(Error::Corrupt("enum requires a declaration"))?,
+                    .ok_or_else(|| Error::corrupt("enum requires a declaration"))?,
             )?;
         }
     }
@@ -731,7 +765,27 @@ pub(crate) fn validate_scalar(
 /// A typed binding writes fields in declaration order, excluding native padding.
 pub trait Payload: Sized {
     fn bind(types: &mut Types) -> Result<TypeId>;
+    /// Encoded byte count when it is independent of the payload value.
+    #[must_use]
+    #[inline]
+    fn fixed_size() -> Option<usize> {
+        None
+    }
+    /// Compare against existing declarations without constructing a second schema.
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        let mut expected = Types::new();
+        let expected_id = Self::bind(&mut expected)?;
+        types.equivalent(datatype, &expected, expected_id)
+    }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()>;
+    /// Append consecutive canonical values without an array or sequence prefix.
+    #[inline]
+    fn encode_slice(values: &[Self], out: &mut Vec<u8>) -> Result<()> {
+        for value in values {
+            value.encode(out)?;
+        }
+        Ok(())
+    }
     fn decode(data: &mut PayloadReader<'_>) -> Result<Self>;
 }
 
@@ -749,25 +803,32 @@ impl<'a> PayloadReader<'a> {
         }
     }
 
+    #[inline]
     pub fn take(&mut self, size: usize) -> Result<&'a [u8]> {
         self.cursor.take(size)
     }
 
+    #[inline]
     pub fn spend(&mut self, bytes: usize) -> Result<()> {
         self.allocation_budget = self
             .allocation_budget
             .checked_sub(bytes)
-            .ok_or(Error::Corrupt("payload allocation budget exceeded"))?;
+            .ok_or_else(|| Error::corrupt("payload allocation budget exceeded"))?;
         Ok(())
     }
 
+    #[inline]
     pub fn done(self) -> Result<()> {
         self.cursor.done()
     }
 }
 
 pub fn capture<T: Payload>(value: &T) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
+    let size = T::fixed_size().unwrap_or(0);
+    if size > u32::MAX as usize {
+        return Err(Error::invalid("payload exceeds u32"));
+    }
+    let mut out = Vec::with_capacity(size);
     value.encode(&mut out)?;
     if out.len() > u32::MAX as usize {
         return Err(Error::invalid("payload exceeds u32"));
@@ -786,9 +847,32 @@ macro_rules! scalar_payload {
     ($($ty:ty => $primitive:ident),* $(,)?) => { $(
         impl Payload for $ty {
             fn bind(_: &mut Types) -> Result<TypeId> { Ok(Primitive::$primitive.id()) }
+            #[inline]
+            fn fixed_size() -> Option<usize> { Some(size_of::<Self>()) }
+            #[inline]
+            fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+                Ok(matches!(types.get(datatype)?.kind, TypeKind::Scalar(Primitive::$primitive)))
+            }
+            #[inline]
             fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
                 out.extend_from_slice(&self.to_le_bytes()); Ok(())
             }
+            #[inline]
+            fn encode_slice(values: &[Self], out: &mut Vec<u8>) -> Result<()> {
+                #[cfg(target_endian = "little")]
+                {
+                    // SAFETY: Numeric primitives have no padding; on little-endian targets
+                    // their initialized object bytes are the canonical wire bytes.
+                    let bytes = unsafe { std::slice::from_raw_parts(
+                        values.as_ptr().cast::<u8>(), std::mem::size_of_val(values),
+                    ) };
+                    out.extend_from_slice(bytes);
+                }
+                #[cfg(target_endian = "big")]
+                for value in values { value.encode(out)?; }
+                Ok(())
+            }
+            #[inline]
             fn decode(reader: &mut PayloadReader<'_>) -> Result<Self> {
                 Ok(Self::from_le_bytes(reader.take(size_of::<Self>())?.try_into().unwrap()))
             }
@@ -802,6 +886,16 @@ impl Payload for () {
     fn bind(_: &mut Types) -> Result<TypeId> {
         Ok(Primitive::Unit.id())
     }
+    #[inline]
+    fn fixed_size() -> Option<usize> {
+        Some(0)
+    }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Ok(matches!(
+            types.get(datatype)?.kind,
+            TypeKind::Scalar(Primitive::Unit)
+        ))
+    }
     fn encode(&self, _: &mut Vec<u8>) -> Result<()> {
         Ok(())
     }
@@ -813,6 +907,16 @@ impl Payload for () {
 impl Payload for bool {
     fn bind(_: &mut Types) -> Result<TypeId> {
         Ok(Primitive::Bool.id())
+    }
+    #[inline]
+    fn fixed_size() -> Option<usize> {
+        Some(1)
+    }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Ok(matches!(
+            types.get(datatype)?.kind,
+            TypeKind::Scalar(Primitive::Bool)
+        ))
     }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         out.push(u8::from(*self));
@@ -831,6 +935,12 @@ impl Payload for String {
     fn bind(_: &mut Types) -> Result<TypeId> {
         Ok(Primitive::Text.id())
     }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        Ok(matches!(
+            types.get(datatype)?.kind,
+            TypeKind::Scalar(Primitive::Text)
+        ))
+    }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         encode_text(self, out)
     }
@@ -848,6 +958,12 @@ impl<T: Payload> Payload for Vec<T> {
         let element = types.bind::<T>()?;
         types.intern(String::new(), TypeKind::Sequence { element })
     }
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        match types.get(datatype)?.kind {
+            TypeKind::Sequence { element } => T::matches(types, element),
+            _ => Ok(false),
+        }
+    }
     fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
         encode_sequence(self, out)
     }
@@ -856,7 +972,7 @@ impl<T: Payload> Payload for Vec<T> {
         // Zero-sized members still require bounded iteration and owned capacity.
         reader.spend(
             size.checked_mul(size_of::<T>().max(1))
-                .ok_or(Error::Corrupt("payload allocation budget exceeded"))?,
+                .ok_or_else(|| Error::corrupt("payload allocation budget exceeded"))?,
         )?;
         let mut out = Vec::with_capacity(size);
         for _ in 0..size {
@@ -878,10 +994,7 @@ fn encode_sequence<T: Payload>(items: &[T], out: &mut Vec<u8>) -> Result<()> {
     u32::try_from(items.len())
         .map_err(|_| Error::invalid("sequence exceeds u32"))?
         .encode(out)?;
-    for value in items {
-        value.encode(out)?;
-    }
-    Ok(())
+    T::encode_slice(items, out)
 }
 
 impl<T: Payload, const N: usize> Payload for [T; N] {
@@ -890,23 +1003,31 @@ impl<T: Payload, const N: usize> Payload for [T; N] {
         let count = u32::try_from(N).map_err(|_| Error::invalid("array exceeds u32"))?;
         types.intern(String::new(), TypeKind::Array { element, count })
     }
-    fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
-        for value in self {
-            value.encode(out)?;
-        }
-        Ok(())
+    #[inline]
+    fn fixed_size() -> Option<usize> {
+        T::fixed_size()?.checked_mul(N)
     }
+    #[inline]
+    fn matches(types: &Types, datatype: TypeId) -> Result<bool> {
+        match types.get(datatype)?.kind {
+            TypeKind::Array { element, count } if count as usize == N => T::matches(types, element),
+            _ => Ok(false),
+        }
+    }
+    #[inline]
+    fn encode(&self, out: &mut Vec<u8>) -> Result<()> {
+        T::encode_slice(self, out)
+    }
+    #[inline]
     fn decode(reader: &mut PayloadReader<'_>) -> Result<Self> {
         reader.spend(
             N.checked_mul(size_of::<T>().max(1))
-                .ok_or(Error::Corrupt("payload allocation budget exceeded"))?,
+                .ok_or_else(|| Error::corrupt("payload allocation budget exceeded"))?,
         )?;
-        let mut values = Vec::with_capacity(N);
-        for _ in 0..N {
-            values.push(T::decode(reader)?);
+        let mut values = std::array::from_fn(|_| None);
+        for value in &mut values {
+            *value = Some(T::decode(reader)?);
         }
-        values
-            .try_into()
-            .map_err(|_| Error::Corrupt("array size mismatch"))
+        Ok(values.map(Option::unwrap))
     }
 }

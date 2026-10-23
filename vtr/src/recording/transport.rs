@@ -2,12 +2,12 @@ use std::{
     cell::Cell,
     collections::VecDeque,
     fs::File,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     marker::PhantomData,
     path::PathBuf,
     sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -15,9 +15,9 @@ use std::{
 };
 
 use super::{
-    Backend, Ending, Operation, ProducerId, Recorder, WriterOptions, WriterStats,
+    Backend, Ending, Operation, Origin, ProducerId, Recorder, WriterOptions, WriterStats,
     capture::{Capture, Frontend},
-    spool,
+    channel, spool,
 };
 use crate::{
     Error, Result,
@@ -25,71 +25,10 @@ use crate::{
     framing::{Fingerprint, RecordingId},
 };
 
-#[derive(Default)]
-struct Admission {
-    bytes: usize,
-    failed: bool,
-}
-struct Budget {
-    capacity: usize,
-    state: Mutex<Admission>,
-    changed: Condvar,
-    waits: AtomicU64,
-    wait_nanoseconds: AtomicU64,
-}
-impl Budget {
-    fn new(capacity: usize) -> Self {
-        Self {
-            capacity,
-            state: Mutex::default(),
-            changed: Condvar::new(),
-            waits: AtomicU64::new(0),
-            wait_nanoseconds: AtomicU64::new(0),
-        }
-    }
-    fn acquire(&self, bytes: usize) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        while !state.failed && state.bytes != 0 && bytes > self.capacity.saturating_sub(state.bytes)
-        {
-            self.waits.fetch_add(1, Ordering::Relaxed);
-            let began = std::time::Instant::now();
-            state = self.changed.wait(state).unwrap();
-            self.wait_nanoseconds.fetch_add(
-                u64::try_from(began.elapsed().as_nanos()).unwrap_or(u64::MAX),
-                Ordering::Relaxed,
-            );
-        }
-        if state.failed {
-            return Err(Error::State("recording worker failed"));
-        }
-        state.bytes = state
-            .bytes
-            .checked_add(bytes)
-            .ok_or(Error::invalid("capture byte count overflow"))?;
-        Ok(())
-    }
-    fn release(&self, bytes: usize) {
-        let mut state = self.state.lock().unwrap();
-        state.bytes -= bytes;
-        self.changed.notify_all();
-    }
-    fn fail(&self) {
-        self.state.lock().unwrap().failed = true;
-        self.changed.notify_all();
-    }
-}
-
 type Control = Box<dyn FnOnce(&mut Backend, Option<String>) + Send>;
 enum Command {
-    Operation {
-        producer: ProducerId,
-        stamp: u64,
-        operation: Operation,
-        bytes: usize,
-        budget: Arc<Budget>,
-    },
     Control(Control),
-    AddProducer(mpsc::Sender<Result<(ProducerId, u64)>>),
+    AddProducer(mpsc::Sender<Result<(ProducerId, u64, channel::Sender)>>),
     ProducerDone(ProducerId, mpsc::Sender<Result<()>>),
     Flush(mpsc::Sender<Result<()>>),
     Finish {
@@ -102,27 +41,29 @@ enum Command {
     Shutdown,
 }
 
-struct Shared {
+pub(super) struct Shared {
     sender: mpsc::Sender<Command>,
     failure: Mutex<Option<String>>,
-    budgets: Mutex<Vec<Arc<Budget>>>,
+    channels: Mutex<Vec<Arc<channel::Channel>>>,
+    failed: AtomicBool,
+    worker: OnceLock<std::thread::Thread>,
+    sleeping: AtomicBool,
     capacity: usize,
     final_stats: Mutex<WriterStats>,
-    closed: Mutex<bool>,
+    closed: AtomicBool,
     ids: Arc<AtomicU64>,
-    submitted: AtomicU64,
-    completed: AtomicU64,
-    queued_bytes: AtomicUsize,
-    queue_peak_bytes: AtomicUsize,
 }
 impl Shared {
-    fn error(&self) -> Result<()> {
-        if *self.closed.lock().unwrap() {
+    pub(super) fn error(&self) -> Result<()> {
+        if self.closed.load(Ordering::Acquire) {
             return Err(Error::State("recording is finalized"));
         }
         self.failure()
     }
     fn failure(&self) -> Result<()> {
+        if !self.failed.load(Ordering::Acquire) {
+            return Ok(());
+        }
         if let Some(failure) = &*self.failure.lock().unwrap() {
             Err(Error::Recording(failure.clone()))
         } else {
@@ -134,74 +75,58 @@ impl Shared {
             .lock()
             .unwrap()
             .get_or_insert_with(|| error.to_string());
-        for budget in self.budgets.lock().unwrap().iter() {
-            budget.fail();
+        self.failed.store(true, Ordering::Release);
+        self.wake();
+    }
+    fn wake(&self) {
+        if let Some(worker) = self.worker.get() {
+            worker.unpark();
         }
     }
-    fn control<R: Send + 'static>(
+    pub(super) fn captured(&self) {
+        if self.sleeping.load(Ordering::Acquire) {
+            self.wake();
+        }
+    }
+    fn send(&self, command: Command) -> Result<()> {
+        self.sender
+            .send(command)
+            .map_err(|_| Error::State("recording worker stopped"))?;
+        self.wake();
+        Ok(())
+    }
+    fn stop(&self) {
+        self.closed.store(true, Ordering::Release);
+        for channel in self.channels.lock().unwrap().iter() {
+            channel.close();
+        }
+        self.wake();
+    }
+
+    pub(super) fn control<R: Send + 'static>(
         self: &Arc<Self>,
         action: impl FnOnce(&mut Backend) -> Result<R> + Send + 'static,
     ) -> Result<R> {
         self.error()?;
         let (sender, receiver) = mpsc::channel();
         let shared = self.clone();
-        let closed = self.closed.lock().unwrap();
-        if *closed {
+        if self.closed.load(Ordering::Acquire) {
             return Err(Error::State("recording is finalized"));
         }
-        self.sender
-            .send(Command::Control(Box::new(move |backend, failure| {
-                let result = match failure {
-                    Some(error) => Err(Error::Recording(error)),
-                    None => action(backend),
-                };
-                if let Err(error) = &result {
-                    shared.fail(error);
-                }
-                drop(sender.send(result));
-            })))
-            .map_err(|_| Error::State("recording worker stopped"))?;
-        drop(closed);
+        self.send(Command::Control(Box::new(move |backend, failure| {
+            let result = match failure {
+                Some(error) => Err(Error::Recording(error)),
+                None => action(backend),
+            };
+            if let Err(error) = &result {
+                shared.fail(error);
+            }
+            drop(sender.send(result));
+        })))
+        .map_err(|_| Error::State("recording worker stopped"))?;
         receiver
             .recv()
             .map_err(|_| Error::State("recording control call failed"))?
-    }
-    fn publish(
-        &self,
-        producer: ProducerId,
-        stamp: u64,
-        operation: Operation,
-        budget: &Arc<Budget>,
-    ) -> Result<()> {
-        self.error()?;
-        let bytes = charge(&operation);
-        budget.acquire(bytes)?;
-        let closed = self.closed.lock().unwrap();
-        if *closed {
-            budget.release(bytes);
-            return Err(Error::State("recording is finalized"));
-        }
-        let queued = self.queued_bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
-        self.queue_peak_bytes.fetch_max(queued, Ordering::Relaxed);
-        self.submitted.fetch_add(1, Ordering::Relaxed);
-        if self
-            .sender
-            .send(Command::Operation {
-                producer,
-                stamp,
-                operation,
-                bytes,
-                budget: budget.clone(),
-            })
-            .is_err()
-        {
-            self.submitted.fetch_sub(1, Ordering::Relaxed);
-            self.queued_bytes.fetch_sub(bytes, Ordering::Relaxed);
-            budget.release(bytes);
-            return Err(Error::State("recording worker stopped"));
-        }
-        drop(closed);
-        self.failure()
     }
 }
 
@@ -212,33 +137,23 @@ pub(super) struct Rescue {
 impl Rescue {
     pub fn seal(&self, ending: Ending) -> Result<Fingerprint> {
         let (reply, done) = mpsc::channel();
-        {
-            let mut closed = self.shared.closed.lock().unwrap();
-            if *closed {
-                return Err(Error::State("recording is finalized"));
-            }
-            let id = self
-                .shared
-                .ids
-                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
-                    (id != 0).then(|| id.wrapping_add(1))
-                })
-                .map_err(|_| Error::State("record identifiers exhausted"))?;
-            *closed = true;
-            for budget in self.shared.budgets.lock().unwrap().iter() {
-                budget.fail();
-            }
-            // The same gate orders accepted captures before this finalization command.
-            self.shared
-                .sender
-                .send(Command::Finish {
-                    incomplete: true,
-                    ending: (ending != Ending::Closed).then_some((ending, id)),
-                    rescue: true,
-                    reply,
-                })
-                .map_err(|_| Error::State("recording worker stopped"))?;
+        if self.shared.closed.swap(true, Ordering::AcqRel) {
+            return Err(Error::State("recording is finalized"));
         }
+        let id = self
+            .shared
+            .ids
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+                (id != 0).then(|| id.wrapping_add(1))
+            })
+            .map_err(|_| Error::State("record identifiers exhausted"))?;
+        self.shared.stop();
+        self.shared.send(Command::Finish {
+            incomplete: true,
+            ending: (ending != Ending::Closed).then_some((ending, id)),
+            rescue: true,
+            reply,
+        })?;
         done.recv()
             .map_err(|_| Error::State("recording rescue failed"))?
     }
@@ -246,37 +161,31 @@ impl Rescue {
 
 pub(super) struct Transport {
     shared: Arc<Shared>,
-    implicit: Arc<Budget>,
+    implicit: channel::Sender,
     worker: Option<JoinHandle<()>>,
     cpu: super::cpu::WorkerCpu,
 }
 
 impl Transport {
-    pub fn new(
-        backend: Backend,
-        options: &WriterOptions,
-        _: RecordingId,
-        ids: Arc<AtomicU64>,
-    ) -> Result<Self> {
+    pub fn new(backend: Backend, options: &WriterOptions, ids: Arc<AtomicU64>) -> Result<Self> {
         if cfg!(target_family = "wasm") {
             return Err(Error::invalid(
                 "threaded recording is unavailable on this target",
             ));
         }
         let (sender, receiver) = mpsc::channel();
-        let implicit = Arc::new(Budget::new(options.buffer.queue_bytes));
+        let (implicit, input) = channel::exclusive_channel(options.buffer.queue_bytes, 0);
         let shared = Arc::new(Shared {
             sender,
             failure: Mutex::default(),
-            budgets: Mutex::new(vec![implicit.clone()]),
+            channels: Mutex::new(vec![implicit.channel()]),
+            failed: AtomicBool::new(false),
+            worker: OnceLock::new(),
+            sleeping: AtomicBool::new(false),
             capacity: options.buffer.queue_bytes,
             final_stats: Mutex::default(),
-            closed: Mutex::new(false),
+            closed: AtomicBool::new(false),
             ids,
-            submitted: AtomicU64::new(0),
-            completed: AtomicU64::new(0),
-            queued_bytes: AtomicUsize::new(0),
-            queue_peak_bytes: AtomicUsize::new(0),
         });
         let worker_shared = shared.clone();
         let pending_bytes = options.buffer.pending_bytes;
@@ -286,38 +195,46 @@ impl Transport {
             .name("vtr-recording".into())
             .spawn(move || {
                 let _measurement = worker_cpu.measure();
-                let mut worker = Worker::new(backend, pending_bytes, worker_shared.clone());
+                worker_shared.worker.set(std::thread::current()).ok();
+                let mut worker = Worker::new(backend, pending_bytes, worker_shared.clone(), input);
+                let mut idle_rounds = 0usize;
                 loop {
-                    if worker_shared.failure().is_ok() {
-                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            worker.backend.poll_output()
-                        })) {
-                            Ok(Ok(())) => (),
-                            Ok(Err(error)) => worker_shared.fail(error),
-                            Err(_) => {
-                                worker.panicked = true;
-                                worker_shared.fail("recording output panicked");
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                        || -> Result<(bool, bool)> {
+                            let mut active = worker.ingest(4096)?;
+                            if !worker_shared.failed.load(Ordering::Acquire) {
+                                worker.backend.poll_output()?;
                             }
-                        }
-                    }
-                    let command = match receiver.recv_timeout(Duration::from_millis(10)) {
-                        Ok(command) => command,
-                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    };
-                    if matches!(command, Command::Shutdown) {
-                        worker_shared.fail("recording owner was dropped");
-                        break;
-                    }
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        worker.command(command)
-                    }));
+                            match receiver.try_recv() {
+                                Ok(command) => {
+                                    worker.ingest(usize::MAX)?;
+                                    active = true;
+                                    if matches!(command, Command::Shutdown) {
+                                        worker_shared.fail("recording owner was dropped");
+                                        return Ok((true, active));
+                                    }
+                                    Ok((worker.command(command)?, active))
+                                }
+                                Err(mpsc::TryRecvError::Empty) => Ok((false, active)),
+                                Err(mpsc::TryRecvError::Disconnected) => Ok((true, active)),
+                            }
+                        },
+                    ));
                     match result {
-                        Ok(Ok(finished)) => {
-                            if finished {
-                                break;
+                        Ok(Ok((true, _))) => break,
+                        Ok(Ok((false, false))) => {
+                            idle_rounds = idle_rounds.saturating_add(1);
+                            if idle_rounds < 64 {
+                                std::thread::yield_now();
+                                continue;
                             }
+                            worker_shared.sleeping.store(true, Ordering::Release);
+                            if !worker.inputs.iter_mut().any(|input| input.available() != 0) {
+                                std::thread::park_timeout(Duration::from_micros(10));
+                            }
+                            worker_shared.sleeping.store(false, Ordering::Release);
                         }
+                        Ok(Ok((false, true))) => idle_rounds = 0,
                         Ok(Err(error)) => worker_shared.fail(error),
                         Err(_) => {
                             worker.panicked = true;
@@ -333,6 +250,9 @@ impl Transport {
             cpu,
         })
     }
+    pub(super) fn capture_parts(&mut self) -> (&mut channel::Sender, &Arc<Shared>) {
+        (&mut self.implicit, &self.shared)
+    }
     pub fn worker_cpu(&self) -> super::cpu::WorkerCpu {
         self.cpu.clone()
     }
@@ -340,13 +260,10 @@ impl Transport {
         self.shared.error()
     }
     pub fn rescue(&self) -> Rescue {
+        self.implicit.enable_independent_stop();
         Rescue {
             shared: self.shared.clone(),
         }
-    }
-    pub fn publish(&self, producer: ProducerId, stamp: u64, operation: Operation) -> Result<()> {
-        self.shared
-            .publish(producer, stamp, operation, &self.implicit)
     }
     pub fn control<R: Send + 'static>(
         &self,
@@ -354,26 +271,25 @@ impl Transport {
     ) -> Result<R> {
         self.shared.control(action)
     }
-    pub fn add_producer(&self, origin: RecordingId, ids: Arc<AtomicU64>) -> Result<Producer> {
+    pub fn add_producer(&self, origin: Origin) -> Result<Producer> {
         self.shared.error()?;
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::AddProducer(sender))
             .map_err(|_| Error::State("recording worker stopped"))?;
-        let (producer, time) = receiver
+        let (producer, time, sender) = receiver
             .recv()
             .map_err(|_| Error::State("producer registration failed"))??;
-        let budget = self.shared.budgets.lock().unwrap()[producer.0 as usize].clone();
         Ok(Producer {
             shared: self.shared.clone(),
-            budget,
+            sender,
             front: Frontend {
                 origin,
-                ids,
+                ids: super::capture::RecordIds::Shared(self.shared.ids.clone()),
                 time,
                 producer,
                 finished: false,
+                payload: Vec::new(),
             },
             marker: PhantomData,
         })
@@ -382,7 +298,6 @@ impl Transport {
         self.shared.error()?;
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::Flush(sender))
             .map_err(|_| Error::State("recording worker stopped"))?;
         receiver
@@ -392,7 +307,6 @@ impl Transport {
     pub fn finish_producer(&self, id: ProducerId) -> Result<()> {
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::ProducerDone(id, sender))
             .map_err(|_| Error::State("recording worker stopped"))?;
         receiver
@@ -400,12 +314,11 @@ impl Transport {
             .map_err(|_| Error::State("producer finalization failed"))?
     }
     pub fn stats(&self) -> Result<WriterStats> {
-        if self.worker.is_none() || *self.shared.closed.lock().unwrap() {
+        if self.worker.is_none() || self.shared.closed.load(Ordering::Acquire) {
             return Ok(*self.shared.final_stats.lock().unwrap());
         }
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::Stats(sender))
             .map_err(|_| Error::State("recording worker stopped"))?;
         receiver
@@ -417,12 +330,11 @@ impl Transport {
         incomplete: bool,
         ending: Option<(Ending, u64)>,
     ) -> Result<Fingerprint> {
-        if *self.shared.closed.lock().unwrap() {
+        if self.shared.closed.load(Ordering::Acquire) {
             return Err(Error::State("recording is finalized"));
         }
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::Finish {
                 incomplete,
                 ending,
@@ -446,7 +358,7 @@ impl Transport {
 impl Drop for Transport {
     fn drop(&mut self) {
         if let Some(worker) = self.worker.take() {
-            drop(self.shared.sender.send(Command::Shutdown));
+            drop(self.shared.send(Command::Shutdown));
             drop(worker.join());
         }
     }
@@ -455,7 +367,7 @@ impl Drop for Transport {
 /// Exclusive logical producer: it may move between threads, but cannot be shared concurrently.
 pub struct Producer {
     shared: Arc<Shared>,
-    budget: Arc<Budget>,
+    sender: channel::Sender,
     front: Frontend,
     marker: PhantomData<Cell<()>>,
 }
@@ -470,7 +382,6 @@ impl Producer {
         }
         let (sender, receiver) = mpsc::channel();
         self.shared
-            .sender
             .send(Command::ProducerDone(self.front.producer, sender))
             .map_err(|_| Error::State("recording worker stopped"))?;
         let result = receiver
@@ -481,22 +392,13 @@ impl Producer {
     }
 }
 impl Capture for Producer {
+    #[inline]
     fn state(&self) -> &Frontend {
         &self.front
     }
-    fn state_mut(&mut self) -> &mut Frontend {
-        &mut self.front
-    }
-    fn dispatch(&mut self, operation: Operation) -> Result<()> {
-        if self.front.finished {
-            return Err(Error::State("producer is finished"));
-        }
-        self.shared.publish(
-            self.front.producer,
-            self.front.time,
-            operation,
-            &self.budget,
-        )
+    #[inline]
+    fn session(&mut self) -> super::session::Session<'_> {
+        super::session::Session::producer(&mut self.front, &mut self.sender, &self.shared)
     }
 }
 impl Recorder for Producer {
@@ -522,8 +424,6 @@ struct Pending {
 }
 #[derive(Clone, Copy)]
 struct SpillHead {
-    offset: u64,
-    next: u64,
     stamp: u64,
     sequence: u64,
     length: u64,
@@ -532,8 +432,7 @@ struct SpillHead {
 #[derive(Default)]
 struct Queue {
     memory: VecDeque<Pending>,
-    spill: Option<SpillHead>,
-    tail: u64,
+    spill: Option<SpillFile>,
 }
 struct ProducerState {
     time: u64,
@@ -541,84 +440,101 @@ struct ProducerState {
     queue: Queue,
 }
 struct SpillFile {
-    file: File,
+    reader: Option<BufReader<File>>,
+    writer: Option<BufWriter<File>>,
     path: PathBuf,
     length: u64,
+    visible: u64,
+    read: u64,
+    head: Option<SpillHead>,
 }
 impl SpillFile {
     fn new() -> Result<Self> {
         let id = RecordingId::generate()?;
-        let name = id.to_string();
-        let path = std::env::temp_dir().join(format!("vtr-pending-{name}"));
+        let path = std::env::temp_dir().join(format!("vtr-pending-{id}"));
         let file = File::options()
             .read(true)
             .write(true)
             .create_new(true)
             .open(&path)?;
-        Ok(Self {
-            file,
+        let mut spool = Self {
+            reader: None,
+            writer: Some(BufWriter::with_capacity(64 << 10, file)),
             path,
             length: 0,
-        })
+            visible: 0,
+            read: 32,
+            head: None,
+        };
+        // A separate open gives the buffered reader its own file position.
+        let mut reader = File::open(&spool.path)?;
+        reader.seek(SeekFrom::Start(32))?;
+        spool.reader = Some(BufReader::with_capacity(64 << 10, reader));
+        Ok(spool)
     }
-    fn append(&mut self, queue: &mut Queue, pending: Pending) -> Result<()> {
+    fn append(&mut self, pending: Pending) -> Result<()> {
         let payload = spool::encode(&pending.operation)?;
-        let offset = self.length;
-        self.file.seek(SeekFrom::Start(offset))?;
-        for value in [
-            0,
-            pending.stamp,
-            pending.sequence,
-            payload.len() as u64,
-            pending.bytes as u64,
-        ] {
-            self.file.write_all(&value.to_le_bytes())?;
-        }
-        self.file.write_all(&payload)?;
-        self.length += 40 + payload.len() as u64;
         let head = SpillHead {
-            offset,
-            next: 0,
             stamp: pending.stamp,
             sequence: pending.sequence,
             length: payload.len() as u64,
             bytes: pending.bytes as u64,
         };
-        if let Some(first) = &mut queue.spill {
-            self.file.seek(SeekFrom::Start(queue.tail))?;
-            self.file.write_all(&offset.to_le_bytes())?;
-            if first.offset == queue.tail {
-                first.next = offset;
-            }
-        } else {
-            queue.spill = Some(head);
+        let mut header = [0u8; 32];
+        for (field, value) in header.as_chunks_mut::<8>().0.iter_mut().zip([
+            head.stamp,
+            head.sequence,
+            head.length,
+            head.bytes,
+        ]) {
+            field.copy_from_slice(&value.to_le_bytes());
         }
-        queue.tail = offset;
+        let writer = self.writer.as_mut().unwrap();
+        writer.write_all(&header)?;
+        writer.write_all(&payload)?;
+        self.length += 32 + payload.len() as u64;
+        if self.head.is_none() {
+            self.head = Some(head);
+        }
         Ok(())
     }
-    fn pop(&mut self, queue: &mut Queue) -> Result<Pending> {
-        let head = queue.spill.take().unwrap();
-        self.file.seek(SeekFrom::Start(head.offset + 40))?;
+    fn flush_through(&mut self, end: u64) -> Result<()> {
+        if end > self.visible {
+            self.writer.as_mut().unwrap().flush()?;
+            self.visible = self.length;
+        }
+        Ok(())
+    }
+    fn pop(&mut self) -> Result<Pending> {
+        let head = self.head.take().unwrap();
         let length = usize::try_from(head.length)
             .map_err(|_| Error::Corrupt("spool length exceeds usize"))?;
-        if head.length > self.length - head.offset - 40 {
-            return Err(Error::Corrupt("spool record exceeds file"));
-        }
+        let end = self
+            .read
+            .checked_add(head.length)
+            .filter(|end| *end <= self.length)
+            .ok_or_else(|| Error::corrupt("spool record exceeds file"))?;
+        self.flush_through(end)?;
         let mut bytes = vec![0; length];
-        self.file.read_exact(&mut bytes)?;
-        if head.next != 0 {
-            self.file.seek(SeekFrom::Start(head.next))?;
-            let mut header = [0u8; 40];
-            self.file.read_exact(&mut header)?;
+        self.reader.as_mut().unwrap().read_exact(&mut bytes)?;
+        self.read = end;
+        if self.read < self.length {
+            let end = self
+                .read
+                .checked_add(32)
+                .filter(|end| *end <= self.length)
+                .ok_or_else(|| Error::corrupt("spool header exceeds file"))?;
+            self.flush_through(end)?;
+            let mut header = [0; 32];
+            self.reader.as_mut().unwrap().read_exact(&mut header)?;
             let mut cursor = crate::wire::Cursor::new(&header);
-            queue.spill = Some(SpillHead {
-                offset: head.next,
-                next: cursor.u64()?,
+            self.head = Some(SpillHead {
                 stamp: cursor.u64()?,
                 sequence: cursor.u64()?,
                 length: cursor.u64()?,
                 bytes: cursor.u64()?,
             });
+            self.read = end;
         }
         Ok(Pending {
             stamp: head.stamp,
@@ -630,6 +546,8 @@ impl SpillFile {
 }
 impl Drop for SpillFile {
     fn drop(&mut self) {
+        drop(self.reader.take());
+        drop(self.writer.take());
         drop(std::fs::remove_file(&self.path));
     }
 }
@@ -641,13 +559,13 @@ struct Worker {
     memory: usize,
     limit: usize,
     sequence: u64,
-    spill: Option<SpillFile>,
     memory_peak: usize,
     spilled_bytes: u64,
     panicked: bool,
+    inputs: Vec<channel::Receiver>,
 }
 impl Worker {
-    fn new(backend: Backend, limit: usize, shared: Arc<Shared>) -> Self {
+    fn new(backend: Backend, limit: usize, shared: Arc<Shared>, input: channel::Receiver) -> Self {
         Self {
             backend,
             shared,
@@ -659,14 +577,68 @@ impl Worker {
             memory: 0,
             limit,
             sequence: 0,
-            spill: None,
             memory_peak: 0,
             spilled_bytes: 0,
             panicked: false,
+            inputs: vec![input],
         }
     }
+    fn ingest(&mut self, limit: usize) -> Result<bool> {
+        let mut active = false;
+        for id in 0..self.inputs.len() {
+            let quota = self.inputs[id].available().min(limit);
+            let mut consumed = 0;
+            while consumed < quota {
+                let Some(capture) = self.inputs[id].next() else {
+                    break;
+                };
+                consumed += capture.cells();
+                let stamp = capture.stamp();
+                active = true;
+                if self.shared.failed.load(Ordering::Acquire) {
+                    continue;
+                }
+                if self.producers.len() == 1 {
+                    self.producers[0].time = stamp;
+                    if let Some(time) = capture.progress() {
+                        self.backend.advance(time)?;
+                    } else if let Some((action, record, payload)) = capture.payload() {
+                        self.backend.apply_payload(
+                            ProducerId(0),
+                            stamp,
+                            action,
+                            record,
+                            payload,
+                        )?;
+                    } else if let Some((signal, value)) = capture.scalar() {
+                        self.backend
+                            .emit_signal(ProducerId(0), stamp, signal, value)?;
+                    } else if let Some((signal, value)) = capture.signal_ref() {
+                        self.backend
+                            .emit_signal_ref(ProducerId(0), stamp, signal, value)?;
+                    } else {
+                        self.backend
+                            .apply(ProducerId(0), stamp, capture.into_operation())?;
+                    }
+                } else {
+                    let operation = capture.into_operation();
+                    let bytes = charge(&operation);
+                    self.push(ProducerId(id as u32), stamp, operation, bytes)?;
+                }
+            }
+            self.inputs[id].release();
+        }
+        if active && self.producers.len() > 1 && !self.shared.failed.load(Ordering::Acquire) {
+            self.drain(false)?;
+        }
+        Ok(active)
+    }
     fn failure(&self) -> Option<String> {
-        self.shared.failure.lock().unwrap().clone()
+        if self.shared.failed.load(Ordering::Acquire) {
+            self.shared.failure.lock().unwrap().clone()
+        } else {
+            None
+        }
     }
     fn push(
         &mut self,
@@ -678,7 +650,7 @@ impl Worker {
         let state = self
             .producers
             .get_mut(producer.0 as usize)
-            .ok_or(Error::invalid("unknown producer"))?;
+            .ok_or_else(|| Error::invalid("unknown producer"))?;
         if state.finished || stamp < state.time {
             return Err(Error::invalid("invalid producer timestamp or lifetime"));
         }
@@ -697,28 +669,34 @@ impl Worker {
         self.sequence = self
             .sequence
             .checked_add(1)
-            .ok_or(Error::invalid("capture sequence exhausted"))?;
+            .ok_or_else(|| Error::invalid("capture sequence exhausted"))?;
         if state.queue.spill.is_none() && bytes <= self.limit.saturating_sub(self.memory) {
             self.memory += bytes;
             self.memory_peak = self.memory_peak.max(self.memory);
             state.queue.memory.push_back(pending);
         } else {
-            if self.spill.is_none() {
-                self.spill = Some(SpillFile::new()?);
+            if state.queue.spill.is_none() {
+                state.queue.spill = Some(SpillFile::new()?);
             }
-            let spool = self.spill.as_mut().unwrap();
+            let spool = state.queue.spill.as_mut().unwrap();
             let before = spool.length;
-            spool.append(&mut state.queue, pending)?;
+            spool.append(pending)?;
             self.spilled_bytes += spool.length - before;
         }
-        self.drain(false)
+        Ok(())
     }
     fn drain(&mut self, all: bool) -> Result<()> {
-        let mut active = self.producers.iter().filter(|producer| !producer.finished);
-        let first = active.next().map(|producer| producer.time);
-        let other: Vec<_> = active.map(|producer| producer.time).collect();
-        let frontier = first.map(|first| other.iter().copied().fold(first, u64::min));
-        let single = other.is_empty();
+        let (frontier, active) = self
+            .producers
+            .iter()
+            .filter(|producer| !producer.finished)
+            .fold((None, 0usize), |(frontier, count), producer| {
+                (
+                    Some(frontier.map_or(producer.time, |time: u64| time.min(producer.time))),
+                    count + 1,
+                )
+            });
+        let single = active <= 1;
         loop {
             let selected = self
                 .producers
@@ -734,6 +712,8 @@ impl Worker {
                             producer
                                 .queue
                                 .spill
+                                .as_ref()
+                                .and_then(|spool| spool.head)
                                 .map(|head| (head.stamp, head.sequence, id))
                         })
                 })
@@ -752,35 +732,19 @@ impl Worker {
                 self.memory -= pending.bytes;
                 pending
             } else {
-                self.spill.as_mut().unwrap().pop(queue)?
+                let spool = queue.spill.as_mut().unwrap();
+                let pending = spool.pop()?;
+                if spool.head.is_none() {
+                    queue.spill.take();
+                }
+                pending
             };
-            if self
-                .producers
-                .iter()
-                .all(|producer| producer.queue.spill.is_none())
-            {
-                self.spill.take();
-            }
             self.backend
                 .apply(ProducerId(id as u32), pending.stamp, pending.operation)?;
         }
     }
     fn command(&mut self, command: Command) -> Result<bool> {
         match command {
-            Command::Operation {
-                producer,
-                stamp,
-                operation,
-                bytes,
-                budget,
-            } => {
-                self.shared.completed.fetch_add(1, Ordering::Relaxed);
-                self.shared.queued_bytes.fetch_sub(bytes, Ordering::Relaxed);
-                budget.release(bytes);
-                if self.failure().is_none() {
-                    self.push(producer, stamp, operation, bytes)?;
-                }
-            }
             Command::Control(action) => {
                 let failure = self.failure();
                 action(&mut self.backend, failure);
@@ -797,19 +761,17 @@ impl Worker {
                         finished: false,
                         queue: Queue::default(),
                     });
-                    self.shared
-                        .budgets
-                        .lock()
-                        .unwrap()
-                        .push(Arc::new(Budget::new(self.shared.capacity)));
-                    Ok((ProducerId(id), time))
+                    let (sender, receiver) = channel::channel(self.shared.capacity, time);
+                    self.shared.channels.lock().unwrap().push(sender.channel());
+                    self.inputs.push(receiver);
+                    Ok((ProducerId(id), time, sender))
                 };
                 drop(reply.send(result));
             }
             Command::ProducerDone(id, reply) => {
                 self.producers
                     .get_mut(id.0 as usize)
-                    .ok_or(Error::invalid("unknown producer"))?
+                    .ok_or_else(|| Error::invalid("unknown producer"))?
                     .finished = true;
                 let result = if let Some(error) = self.failure() {
                     Err(Error::Recording(error))
@@ -872,10 +834,7 @@ impl Worker {
                     self.shared.fail(error);
                 }
                 if finished || rescue {
-                    *self.shared.closed.lock().unwrap() = true;
-                    for budget in self.shared.budgets.lock().unwrap().iter() {
-                        budget.fail();
-                    }
+                    self.shared.stop();
                 }
                 *self.shared.final_stats.lock().unwrap() = self.stats();
                 drop(reply.send(result));
@@ -892,12 +851,13 @@ impl Worker {
         let mut stats = self.backend.stats();
         stats.pending_peak_bytes = self.memory_peak;
         stats.spilled_bytes = self.spilled_bytes;
-        stats.transport.submitted = self.shared.submitted.load(Ordering::Relaxed);
-        stats.transport.completed = self.shared.completed.load(Ordering::Relaxed);
-        stats.transport.peak_bytes = self.shared.queue_peak_bytes.load(Ordering::Relaxed);
-        for budget in self.shared.budgets.lock().unwrap().iter() {
-            stats.transport.waits += budget.waits.load(Ordering::Relaxed);
-            stats.transport.wait_nanoseconds += budget.wait_nanoseconds.load(Ordering::Relaxed);
+        for channel in self.shared.channels.lock().unwrap().iter() {
+            let current = channel.stats();
+            stats.transport.submitted += current.submitted;
+            stats.transport.completed += current.completed;
+            stats.transport.peak_bytes += current.peak_bytes;
+            stats.transport.waits += current.waits;
+            stats.transport.wait_nanoseconds += current.wait_nanoseconds;
         }
         stats
     }
@@ -926,7 +886,7 @@ pub(super) fn attributes_charge(attributes: &crate::attributes::Attributes) -> u
             .map(|attr| value_charge(&attr.value))
             .sum::<usize>()
 }
-fn charge(operation: &Operation) -> usize {
+pub(super) fn charge(operation: &Operation) -> usize {
     std::mem::size_of::<Operation>()
         + match operation {
             Operation::EmitBatch(updates) => {
@@ -949,4 +909,74 @@ fn charge(operation: &Operation) -> usize {
             Operation::Relate(relation) => attributes_charge(&relation.attributes),
             _ => 0,
         }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending(index: u64) -> Pending {
+        let length = [0, 31, 65_503, 65_504, 65_535, 65_536, 65_537][index as usize % 7];
+        let operation = Operation::Emit {
+            signal: crate::SignalId(17),
+            value: super::super::SignalInput::Bytes(vec![index as u8; length]),
+        };
+        Pending {
+            stamp: index / 3,
+            sequence: index,
+            bytes: charge(&operation),
+            operation,
+        }
+    }
+
+    fn check(actual: Pending, index: u64) {
+        let expected = pending(index);
+        assert_eq!(
+            (actual.stamp, actual.sequence, actual.bytes),
+            (expected.stamp, expected.sequence, expected.bytes)
+        );
+        let Operation::Emit {
+            signal,
+            value: super::super::SignalInput::Bytes(bytes),
+        } = actual.operation
+        else {
+            panic!("spool changed the operation kind");
+        };
+        assert_eq!(signal, crate::SignalId(17));
+        let Operation::Emit {
+            value: super::super::SignalInput::Bytes(expected),
+            ..
+        } = expected.operation
+        else {
+            unreachable!()
+        };
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn spill_replay_crosses_buffer_boundaries_while_producers_append_independently() {
+        let mut a = SpillFile::new().unwrap();
+        let mut b = SpillFile::new().unwrap();
+        let paths = [a.path.clone(), b.path.clone()];
+        for index in 0..16 {
+            a.append(pending(index)).unwrap();
+            b.append(pending(index + 1000)).unwrap();
+        }
+        for index in 0..16 {
+            check(a.pop().unwrap(), index);
+            b.append(pending(index + 1016)).unwrap();
+            check(b.pop().unwrap(), index + 1000);
+            a.append(pending(index + 16)).unwrap();
+        }
+        for index in 16..32 {
+            check(b.pop().unwrap(), index + 1000);
+            check(a.pop().unwrap(), index);
+        }
+        assert!(a.head.is_none());
+        assert!(b.head.is_none());
+        drop((a, b));
+        for path in paths {
+            assert!(!path.exists());
+        }
+    }
 }

@@ -29,6 +29,11 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    // Keep enum cleanup out of successful parsing loops across codegen units.
+    #[cold]
+    pub(crate) fn corrupt(message: &'static str) -> Self {
+        Self::Corrupt(message)
+    }
     pub(crate) fn invalid(msg: impl fmt::Display) -> Self {
         Error::Invalid(msg.to_string())
     }

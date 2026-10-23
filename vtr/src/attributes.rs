@@ -293,7 +293,7 @@ fn string_id(id: u32, strings: u64) -> Result<()> {
 fn spend(budget: &mut usize, size: usize) -> Result<()> {
     *budget = budget
         .checked_sub(size)
-        .ok_or(Error::Corrupt("attribute allocation budget exceeded"))?;
+        .ok_or_else(|| Error::corrupt("attribute allocation budget exceeded"))?;
     Ok(())
 }
 
@@ -307,7 +307,7 @@ fn bounded_count(cursor: &mut Cursor<'_>, size: usize, budget: &mut usize) -> Re
         budget,
         count
             .checked_mul(size)
-            .ok_or(Error::Corrupt("attribute allocation exceeds usize"))?,
+            .ok_or_else(|| Error::corrupt("attribute allocation exceeds usize"))?,
     )?;
     Ok(count)
 }
@@ -425,7 +425,7 @@ impl<'a> AttributeReader<'a> {
             &mut budget,
             (count as usize)
                 .checked_mul(size_of::<Attribute>())
-                .ok_or(Error::Corrupt("attribute allocation exceeds usize"))?,
+                .ok_or_else(|| Error::corrupt("attribute allocation exceeds usize"))?,
         )?;
         let mut out = Vec::with_capacity(count as usize);
         let mut keys = HashSet::new();

@@ -102,7 +102,7 @@ fn parse_header(payload: &[u8]) -> Result<BlockHeader> {
         .checked_add(40)
         .and_then(|n| n.checked_add((header.n_dirty as usize).checked_mul(16)?))
         .and_then(|n| n.checked_add((header.n_groups as usize).checked_mul(4)?))
-        .ok_or(Error::Corrupt("signal block index size overflow"))?;
+        .ok_or_else(|| Error::corrupt("signal block index size overflow"))?;
     if size > payload.len() {
         return Err(Error::Corrupt("signal block index exceeds section"));
     }
@@ -164,7 +164,7 @@ pub(super) fn parse_blocks(
             }
             end = end
                 .checked_add(u64::from(length))
-                .ok_or(Error::Corrupt("wave group length overflow"))?;
+                .ok_or_else(|| Error::corrupt("wave group length overflow"))?;
             last_group = Some(group);
         }
         if end != (payload.len() - header.data_off()) as u64 {
@@ -213,7 +213,7 @@ fn group<'a>(
     let mut cursor = Cursor::new(block::group_container(payload, header, length, offset)?);
     let first = id
         .checked_mul(header.group_size)
-        .ok_or(Error::Corrupt("wave group index overflow"))?;
+        .ok_or_else(|| Error::corrupt("wave group index overflow"))?;
     let count = cursor.id()?;
     if count == 0 || count != header.group_size.min(header.n_signals - first) {
         return Err(Error::Corrupt("invalid wave group signal count"));
@@ -247,8 +247,8 @@ fn group<'a>(
     let mut signal = first;
     for _ in 0..run_count {
         let size = cursor.id()?;
-        let transform =
-            Xform::from_u8(cursor.byte()?).ok_or(Error::Corrupt("unknown wave transform"))?;
+        let transform = Xform::from_u8(cursor.byte()?)
+            .ok_or_else(|| Error::corrupt("unknown wave transform"))?;
         let length = usize::try_from(cursor.var()?)
             .map_err(|_| Error::Corrupt("wave run size exceeds usize"))?;
         if size == 0 || size > first + count - signal {
@@ -294,7 +294,7 @@ fn times(payload: &[u8], header: &BlockHeader) -> Result<Vec<u64>> {
         }
         time = time
             .checked_add(delta)
-            .ok_or(Error::Corrupt("wave timestamp overflow"))?;
+            .ok_or_else(|| Error::corrupt("wave timestamp overflow"))?;
         out.push(time);
     }
     cursor.done()?;
@@ -326,6 +326,7 @@ fn run_columns(run: &Run<'_>) -> Result<(Vec<u8>, Vec<std::ops::Range<usize>>)> 
     Ok((raw, ranges))
 }
 
+#[inline]
 fn packed(kind: SignalKind, states: u8, bytes: &[u8]) -> Result<()> {
     if let SignalKind::Bits {
         width,
@@ -394,15 +395,18 @@ fn column(
             };
             time_index = time_index
                 .checked_add(delta)
-                .ok_or(Error::Corrupt("wave time index overflow"))?;
+                .ok_or_else(|| Error::corrupt("wave time index overflow"))?;
             let time = *times
                 .get(
                     usize::try_from(time_index)
                         .map_err(|_| Error::Corrupt("wave time index exceeds usize"))?,
                 )
-                .ok_or(Error::Corrupt("wave time index exceeds table"))?;
+                .ok_or_else(|| Error::corrupt("wave time index exceeds table"))?;
             if code >= states {
                 return Err(Error::Corrupt("wave logic exceeds alphabet"));
+            }
+            if time > window.last {
+                return Ok(true);
             }
             if time >= window.first
                 && time <= window.last
@@ -420,18 +424,12 @@ fn column(
         }
         return Ok(true);
     }
-    let mut raw = column.to_vec();
+    let mut raw = std::borrow::Cow::Borrowed(column);
     let mut cursor = Cursor::new(&raw);
     let descriptor = cursor.var()?;
     let headers_len = usize::try_from(descriptor >> 2)
         .map_err(|_| Error::Corrupt("wave header length exceeds usize"))?;
     let headers = cursor.take(headers_len)?;
-    let mut header_cursor = Cursor::new(headers);
-    let mut count = 0usize;
-    while header_cursor.remaining() != 0 {
-        header_cursor.var()?;
-        count += 1;
-    }
     if descriptor & 2 != 0 {
         let width = match kind {
             SignalKind::Bits { width, .. } => {
@@ -446,16 +444,31 @@ fn column(
                 return Err(Error::Corrupt("variable column cannot be transformed"));
             }
         };
-        let expected = count
-            .checked_mul(width)
-            .ok_or(Error::Corrupt("wave value length overflow"))?;
+        if width == 0 {
+            return Err(Error::Corrupt("zero-width wave column"));
+        }
+        let expected = if transform == Xform::Dict {
+            let mut header_cursor = Cursor::new(headers);
+            let mut count = 0usize;
+            while header_cursor.remaining() != 0 {
+                header_cursor.var()?;
+                count += 1;
+            }
+            count
+                .checked_mul(width)
+                .ok_or_else(|| Error::corrupt("wave value length overflow"))?
+        } else {
+            if !cursor.remaining().is_multiple_of(width) {
+                return Err(Error::Corrupt("fixed wave value length mismatch"));
+            }
+            cursor.remaining()
+        };
         if expected >= wire::MAX_BLOCK_BYTES {
             return Err(Error::Corrupt("wave values exceed format limit"));
         }
-        if transform != Xform::Dict && cursor.remaining() != expected {
-            return Err(Error::Corrupt("fixed wave value length mismatch"));
+        if transform != Xform::None {
+            block::untransform_column_vec(raw.to_mut(), kind, transform, &mut Vec::new())?;
         }
-        block::untransform_column_vec(&mut raw, kind, transform, &mut Vec::new())?;
         let mut values = Cursor::new(&raw);
         values.var()?;
         values.take(headers_len)?;
@@ -475,13 +488,16 @@ fn column(
         };
         time_index = time_index
             .checked_add(delta)
-            .ok_or(Error::Corrupt("wave time index overflow"))?;
+            .ok_or_else(|| Error::corrupt("wave time index overflow"))?;
         let time = *times
             .get(
                 usize::try_from(time_index)
                     .map_err(|_| Error::Corrupt("wave time index exceeds usize"))?,
             )
-            .ok_or(Error::Corrupt("wave time index exceeds table"))?;
+            .ok_or_else(|| Error::corrupt("wave time index exceeds table"))?;
+        if time > window.last {
+            return Ok(true);
+        }
         let value = match kind {
             SignalKind::Bits { width, states } => {
                 let compact = header & 1 != 0;
@@ -524,7 +540,7 @@ impl Reader {
             .signals
             .get(signal.0 as usize)
             .copied()
-            .ok_or(Error::invalid("unknown signal"))
+            .ok_or_else(|| Error::invalid("unknown signal"))
     }
     pub fn waveform_time_range(&self) -> Option<TimeWindow> {
         Some(TimeWindow {
@@ -543,7 +559,7 @@ impl Reader {
         let wave = self
             .waves
             .get(index)
-            .ok_or(Error::invalid("unknown wave block"))?;
+            .ok_or_else(|| Error::invalid("unknown wave block"))?;
         Ok(Arc::new(times(
             self.container.payload(&wave.section, false)?,
             &wave.header,
@@ -553,7 +569,7 @@ impl Reader {
         let wave = self
             .waves
             .get(index)
-            .ok_or(Error::invalid("unknown wave block"))?;
+            .ok_or_else(|| Error::invalid("unknown wave block"))?;
         Ok((
             self.container.payload(&wave.section, false)?,
             wave.header,
@@ -599,7 +615,7 @@ impl Reader {
                 target / wave.header.group_size,
                 kinds,
             )?
-            .ok_or(Error::Corrupt("wave alias target group missing"))?;
+            .ok_or_else(|| Error::corrupt("wave alias target group missing"))?;
             if target_group.aliases.contains_key(&target) {
                 return Err(Error::Corrupt("wave alias target is aliased"));
             }
@@ -609,7 +625,7 @@ impl Reader {
             .runs
             .iter()
             .find(|run| run.first <= target && target < run.first + run.count)
-            .ok_or(Error::Corrupt("wave alias target column missing"))?;
+            .ok_or_else(|| Error::corrupt("wave alias target column missing"))?;
         let (raw, columns) = run_columns(run)?;
         let range = columns[(target - run.first) as usize].clone();
         column(
@@ -622,7 +638,9 @@ impl Reader {
         )
     }
 
-    /// Change callbacks borrow the current column and follow storage order.
+    /// Callbacks borrow column storage and preserve each signal's sample order.
+    /// Alias callbacks share their owner's decoded values.
+    /// Bit values retain their stored alphabet; compact values use two-state packing.
     pub fn changes(
         &self,
         selected: Option<SignalId>,
@@ -665,38 +683,59 @@ impl Reader {
         let payload = self.container.payload(&wave.section, false)?;
         let times = times(payload, &wave.header)?;
         let kinds = &self.declarations.signals[..wave.header.n_signals as usize];
-        let mut aliases = Vec::new();
-        for (id, _, _) in block::dirty_groups(payload, &wave.header) {
-            let group = group(payload, &wave.header, id, kinds)?.unwrap();
-            aliases.extend(group.aliases.keys().copied());
+        let groups = block::dirty_groups(payload, &wave.header)
+            .map(|(id, _, _)| group(payload, &wave.header, id, kinds).map(Option::unwrap))
+            .collect::<Result<Vec<_>>>()?;
+        let mut aliases: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut aliased = vec![false; wave.header.n_signals as usize];
+        let mut present = vec![false; wave.header.n_groups as usize];
+        for group in &groups {
+            present[(group.first / wave.header.group_size) as usize] = true;
+            for (&signal, &target) in &group.aliases {
+                aliased[signal as usize] = true;
+                aliases.entry(target).or_default().push(signal);
+            }
+        }
+        for &target in aliases.keys() {
+            if aliased[target as usize] || !present[(target / wave.header.group_size) as usize] {
+                return Err(Error::Corrupt(
+                    "wave alias target column missing or aliased",
+                ));
+            }
+        }
+        for group in &groups {
             for run in &group.runs {
                 let (raw, columns) = run_columns(run)?;
                 for (local, range) in columns.into_iter().enumerate() {
                     let signal = run.first + local as u32;
-                    if group.aliases.contains_key(&signal) {
+                    if aliased[signal as usize] {
                         if !range.is_empty() {
                             return Err(Error::Corrupt("aliased wave signal has its own column"));
                         }
                         continue;
                     }
+                    let aliases = aliases.get(&signal).map_or(&[][..], Vec::as_slice);
                     if !column(
                         &raw[range],
                         kinds[signal as usize],
                         run.transform,
                         &times,
                         window,
-                        &mut |time, value| visit(time, SignalId(signal), value),
+                        &mut |time, value| {
+                            if !visit(time, SignalId(signal), value) {
+                                return false;
+                            }
+                            for &alias in aliases {
+                                if !visit(time, SignalId(alias), value) {
+                                    return false;
+                                }
+                            }
+                            true
+                        },
                     )? {
                         return Ok(false);
                     }
                 }
-            }
-        }
-        for signal in aliases {
-            if !self.selected_column(index, SignalId(signal), window, &mut |time, value| {
-                visit(time, SignalId(signal), value)
-            })? {
-                return Ok(false);
             }
         }
         Ok(true)
@@ -756,7 +795,7 @@ impl Reader {
         let wave = &self.waves[index];
         let payload = self.container.payload(&wave.section, false)?;
         let group = group(payload, &wave.header, group_id, &self.declarations.signals)?
-            .ok_or(Error::Corrupt("wave predecessor is not dirty"))?;
+            .ok_or_else(|| Error::corrupt("wave predecessor is not dirty"))?;
         let raw = wire::decompress_any(group.frames)?;
         let mut frames = Cursor::new(&raw);
         let mut value = None;
@@ -767,6 +806,7 @@ impl Reader {
             }
         }
         frames.done()?;
+        let mut value = value.unwrap();
         self.selected_column(
             index,
             signal,
@@ -775,11 +815,11 @@ impl Reader {
                 last: time,
             },
             &mut |_, observed| {
-                value = Some(observed.to_owned());
+                value.copy_from(observed);
                 true
             },
         )?;
-        Ok(value.unwrap())
+        Ok(value)
     }
 
     pub fn load_signal(&self, signal: SignalId) -> Result<SignalData> {

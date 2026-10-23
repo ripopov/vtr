@@ -40,7 +40,7 @@ impl Reader {
         self.declarations
             .nodes
             .get(id.0 as usize)
-            .ok_or(Error::invalid("unknown hierarchy node"))
+            .ok_or_else(|| Error::invalid("unknown hierarchy node"))
     }
     pub fn name(&self, id: NodeId) -> Result<&str> {
         self.string(self.node(id)?.name)

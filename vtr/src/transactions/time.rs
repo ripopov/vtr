@@ -26,7 +26,7 @@ impl<'a> TimeColumns<'a> {
             .wrapping_add(unzigzag(self.columns[0].var()?) as u64);
         let end = begin
             .checked_add(self.columns[1].var()?)
-            .ok_or(Error::Corrupt("transaction end overflow"))?;
+            .ok_or_else(|| Error::corrupt("transaction end overflow"))?;
         self.previous_begin = begin;
         Ok((begin, end))
     }
@@ -82,7 +82,7 @@ pub(super) fn stage_end(cursor: &mut Cursor<'_>, begin: u64) -> Result<Option<u6
     begin
         .checked_add(encoded - 1)
         .map(Some)
-        .ok_or(Error::Corrupt("embedded stage end overflows"))
+        .ok_or_else(|| Error::corrupt("embedded stage end overflows"))
 }
 
 pub(super) fn range(raw: &[u8], expected: TransactionBounds) -> Result<(u64, u64)> {

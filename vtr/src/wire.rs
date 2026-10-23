@@ -12,7 +12,7 @@ pub(crate) fn pack_columns<const N: usize>(columns: &[Vec<u8>; N]) -> Result<Vec
             size.checked_add(column.len())
                 .filter(|size| *size < MAX_BLOCK_BYTES)
         })
-        .ok_or(Error::Corrupt("column block exceeds format limit"))?;
+        .ok_or_else(|| Error::corrupt("column block exceeds format limit"))?;
     let mut out = Vec::with_capacity(size);
     put_u64(&mut out, N as u64);
     for column in columns {
@@ -83,44 +83,59 @@ pub(crate) struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
+    #[inline]
     pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data }
     }
 
+    #[inline]
     pub(crate) fn remaining(&self) -> usize {
         self.data.len()
     }
 
+    #[inline]
     pub(crate) fn starts_with(&self, prefix: &[u8]) -> bool {
         self.data.starts_with(prefix)
     }
 
+    #[inline]
     pub(crate) fn take(&mut self, size: usize) -> Result<&'a [u8]> {
         let (head, tail) = self
             .data
             .split_at_checked(size)
-            .ok_or(Error::Corrupt("truncated VTR data"))?;
+            .ok_or_else(|| Error::corrupt("truncated VTR data"))?;
         self.data = tail;
         Ok(head)
     }
 
+    #[inline]
     pub(crate) fn byte(&mut self) -> Result<u8> {
         Ok(self.take(1)?[0])
     }
 
+    #[inline]
     pub(crate) fn fixed<const N: usize>(&mut self) -> Result<[u8; N]> {
         Ok(self.take(N)?.try_into().unwrap())
     }
 
+    #[inline]
     pub(crate) fn u32(&mut self) -> Result<u32> {
         Ok(u32::from_le_bytes(self.fixed()?))
     }
 
+    #[inline]
     pub(crate) fn u64(&mut self) -> Result<u64> {
         Ok(u64::from_le_bytes(self.fixed()?))
     }
 
+    #[inline]
     pub(crate) fn var(&mut self) -> Result<u64> {
+        if let Some((&byte, tail)) = self.data.split_first()
+            && byte < 128
+        {
+            self.data = tail;
+            return Ok(u64::from(byte));
+        }
         let mut value = 0;
         for shift in (0..70).step_by(7) {
             let byte = self.byte()?;
@@ -138,20 +153,24 @@ impl<'a> Cursor<'a> {
         Err(Error::Corrupt("varint overflow"))
     }
 
+    #[inline]
     pub(crate) fn id(&mut self) -> Result<u32> {
         u32::try_from(self.var()?).map_err(|_| Error::Corrupt("identifier exceeds u32"))
     }
 
+    #[inline]
     pub(crate) fn blob(&mut self) -> Result<&'a [u8]> {
         let size =
             usize::try_from(self.var()?).map_err(|_| Error::Corrupt("blob size exceeds usize"))?;
         self.take(size)
     }
 
+    #[inline]
     pub(crate) fn text(&mut self) -> Result<&'a str> {
         std::str::from_utf8(self.blob()?).map_err(|_| Error::Corrupt("invalid UTF-8"))
     }
 
+    #[inline]
     pub(crate) fn done(self) -> Result<()> {
         if self.data.is_empty() {
             Ok(())

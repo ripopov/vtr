@@ -16,6 +16,27 @@ fn unhex(value: &str) -> Vec<u8> {
 }
 
 #[test]
+fn numeric_slice_encoding_preserves_prefixes_sequence_lengths_and_float_bits() {
+    let words = [0x1234u16, 0xabcd];
+    let mut prefixed = vec![0xaa];
+    u16::encode_slice(&words, &mut prefixed).unwrap();
+    assert_eq!(prefixed, unhex("aa3412cdab"));
+    assert_eq!(schema::capture(&words).unwrap(), unhex("3412cdab"));
+    assert_eq!(
+        schema::capture(&words.to_vec()).unwrap(),
+        unhex("020000003412cdab")
+    );
+    assert_eq!(schema::capture(&Vec::<i64>::new()).unwrap(), [0, 0, 0, 0]);
+    i64::encode_slice(&[], &mut prefixed).unwrap();
+    assert_eq!(prefixed, unhex("aa3412cdab"));
+    let floats = [f64::from_bits(0x7ff8_0012_3456_789a), -0.0];
+    let bytes = schema::capture(&floats).unwrap();
+    assert_eq!(bytes, unhex("9a7856341200f87f0000000000000080"));
+    let decoded = schema::decode::<[f64; 2]>(&bytes, 16).unwrap();
+    assert_eq!(decoded.map(f64::to_bits), floats.map(f64::to_bits));
+}
+
+#[test]
 fn reference_cpp_payloads_match_in_both_directions() {
     for source in [
         include_str!("fixtures/schema-local.json"),
@@ -162,6 +183,45 @@ fn invalid_canonical_values_and_column_values_fail() {
     assert!(reader.done().is_err());
     assert!(ArgumentReader::with_defaults([&[], &[], &[], &[4, 1, b'a', 1, b'a'], &[]]).is_err());
     assert!(ArgumentReader::with_defaults([&[], &[], &[], &[1], &[]]).is_err());
+}
+
+#[test]
+fn fixed_layout_validation_preserves_value_constraints_and_exact_sizes() {
+    let mut types = Types::new();
+    let numbers = types.array("numbers", Primitive::U64.id(), 5).unwrap();
+    let constrained = types
+        .structure(
+            "constrained",
+            vec![
+                Field::new("numbers", numbers),
+                Field::new("enabled", Primitive::Bool.id()),
+                Field::new("name", Primitive::Str.id()),
+            ],
+        )
+        .unwrap();
+    let mut restored = Types::new();
+    restored
+        .read_declarations(&types.declarations(FIRST_DECLARED_TYPE).unwrap())
+        .unwrap();
+    for types in [&types, &restored] {
+        let mut bytes = vec![255; 40];
+        types.validate(numbers, &bytes, 0).unwrap();
+        for length in 0..40 {
+            assert!(types.validate(numbers, &bytes[..length], 0).is_err());
+        }
+        bytes.push(1);
+        assert!(types.validate(numbers, &bytes, 0).is_err());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        types.validate(constrained, &bytes, 1).unwrap();
+        bytes[40] = 2;
+        assert!(types.validate(constrained, &bytes, 1).is_err());
+        bytes[40] = 1;
+        bytes[41] = 1;
+        assert!(types.validate(constrained, &bytes, 1).is_err());
+        bytes[41] = 0;
+        bytes.push(0);
+        assert!(types.validate(constrained, &bytes, 1).is_err());
+    }
 }
 
 #[test]
