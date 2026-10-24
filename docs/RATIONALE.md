@@ -26,18 +26,26 @@ occurrence semantics; repeated messages must survive even when their timestamps
 and arguments match. Verilog event variables (`VCD_EVENT`) likewise preserve
 repeated occurrences rather than applying held-value deduplication.
 
-A **transaction** is a record for a logical unit of work with a lifetime. A GPU
-dispatch can own warps, and each warp can own instructions. An instruction can
-visit fetch, decode, and execute resources before it retires. Its payload
-describes the work; stages and events describe its progress; relations connect
-it to other work.
+A **transaction** is a record for a logical unit of work with a lifetime.
+Transactions can be nested to represent work at different scales. In a GPU
+simulator, for example, a dispatch can own warps, and each warp can own
+instructions. An instruction can visit fetch, decode, and execute resources
+before it retires.
+Its payload describes the work; stages and events describe its progress;
+relations connect it to other work.
 
 ![A held signal value, two identical request occurrences, and an instruction lifetime with fetch, decode, execute, and retire activity.](diagrams/signals-records-transactions.drawio.svg)
 
-Waveforms and records share a recording but retain their own representations.
-Turning every request field into a signal would erase occurrence boundaries and
-identity. Turning every signal update into a general record would discard the
-advantages of held values, aliases, starting frames, and signal-local scans.
+Waveforms and records share a recording, but serve different purposes. A request
+record keeps its fields together and distinguishes one request from another,
+even when their values match. Storing only changes to those fields would lose
+that distinction. A waveform tracks the value each signal holds over time.
+Storing each signal's changes together lets a reader inspect that signal without
+scanning unrelated activity. Saved snapshots of signal values provide starting
+points for reading later parts of the recording without replaying its entire
+history. Signals with identical changes can share stored data. Keeping these
+representations separate preserves request identity while making signal
+histories compact and efficient to read.
 
 ## Design hierarchy and runtime ownership
 
