@@ -2,7 +2,7 @@
 
 // Typed recording with explicit simulation-time lifetimes.
 // Shared values and schema bindings are declared in vtr_common.h.
-// Semantics: vtr/docs/SPEC.md and vtr/docs/TRANSACTIONS.md.
+// Semantics: docs/SPEC.md and docs/TRANSACTIONS.md.
 
 #include "vtr_common.h"
 

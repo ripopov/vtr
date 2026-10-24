@@ -1,7 +1,7 @@
 #pragma once
 
 // Selective queries with immutable retained records and payloads.
-// Semantics: vtr/docs/SPEC.md and vtr/docs/TRANSACTIONS.md.
+// Semantics: docs/SPEC.md and docs/TRANSACTIONS.md.
 
 #include "vtr_common.h"
 

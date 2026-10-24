@@ -1,4 +1,4 @@
-//! Sidecar sections (`vtr/docs/SPEC.md`, "Activity index sidecar").
+//! Sidecar sections (`docs/SPEC.md`, "Activity index sidecar").
 
 pub(super) use super::container::FileWriter;
 use super::{Identity, SourceFormat};

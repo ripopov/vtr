@@ -16,6 +16,11 @@ acknowledgments, and change narration. Before finishing, review added or edited
 comments and documentation: would they still help someone understand or safely
 change the code if the conversation disappeared?
 
+# Documentation layout
+
+Keep project documentation in `README.md` and `docs/`. Component directories
+contain implementation and fixtures; describe each component briefly in the root README.
+
 # Testing
 
 Do not add trivial unit tests that merely mirror static declarations or

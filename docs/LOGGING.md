@@ -8,12 +8,12 @@ specified in [TRANSACTIONS.md](TRANSACTIONS.md).
 
 ## Writing and reading
 
-The runnable [logging example](../examples/logging.rs) defines a Rust `Payload`
+The runnable [logging example](../vtr/examples/logging.rs) defines a Rust `Payload`
 structure with named text and numeric fields, captures messages, renders them,
 and decodes retained payloads after dropping the reader. Its public operations
 are `Writer::logs::<T>`, `Recorder::log`/`log_at`, `Reader::records`, and
 `Reader::format_log`. C++ uses `Schema<T>`, `Writer::logs<T>`, and the corresponding
-recording/reader operations; see the [C++ examples](../../vtr-cpp/README.md#tutorials).
+recording/reader operations; see the [C++ logging example](../vtr-cpp/examples/logging.cpp).
 
 Capture copies borrowed values before returning. It does not format a message on
 the producer thread. A scalar text payload and source name `{}` capture an
@@ -105,7 +105,7 @@ therefore does not imply normal completion. The native C++ SDK currently has no
 process guard; this typed ending convention is used by the Rust guard.
 
 Actual Verilator logging, partial output, fatal exit callbacks, and binary-output
-escaping are covered by [generated fixtures](../tests/fixtures/verilator/README.md).
+escaping are covered by [generated fixtures](../vtr/tests/fixtures/verilator/).
 Run the Rust example with:
 
 ```sh

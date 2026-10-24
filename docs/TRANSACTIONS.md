@@ -539,9 +539,9 @@ RAM without bound. Encoder results are published in submission order.
 
 C++ and Rust use bounded SPSC capture rings with independent producer byte
 admission. They have the same ownership, ordering, and completion
-contracts, without sharing implementation code. Detailed native mechanics are
-in [TRANSPORT.md](../../vtr-cpp/TRANSPORT.md); Rust implementation is in
-[`recording`](../src/recording/mod.rs). Queue budgets and encoding job budgets
+contracts, without sharing implementation code. The implementations live in
+[`vtr-cpp`](../vtr-cpp/src/engine/) and Rust
+[`recording`](../vtr/src/recording/mod.rs). Queue budgets and encoding job budgets
 are distinct from encoded page targets. A single oversized capture can exceed
 its nominal queue byte target while alone; encoded field limits still apply.
 
@@ -553,7 +553,7 @@ record's storage; fields and collection elements share it without copying bytes.
 
 Normal close requires every explicit producer to finish and reports errors.
 It finalizes remaining live owners/stages/clocks as open. Sealing marks the
-recording incomplete. The Rust [process guard](../../vtr-guard/README.md) can
+recording incomplete. The Rust [process guard](../vtr-guard/) can
 independently stop new captures, wake blocked producers, and seal accepted
 operations while producer handles remain live. A panicked mutable backend or
 an inline call interrupted in place retains only a verified file prefix.

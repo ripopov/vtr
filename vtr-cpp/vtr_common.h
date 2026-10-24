@@ -1,7 +1,7 @@
 #pragma once
 
 // Shared values, identities and schema bindings for the VTR library.
-// Semantics: vtr/docs/SPEC.md and vtr/docs/TRANSACTIONS.md.
+// Semantics: docs/SPEC.md and docs/TRANSACTIONS.md.
 
 #include <algorithm>
 #include <array>

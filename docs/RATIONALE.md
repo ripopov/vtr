@@ -23,8 +23,8 @@ A **record** describes an individual occurrence. Two requests issued at the same
 timestamp with identical address, byte-enable, and operation fields are still
 two requests. Each needs its own identity. Logs and events have the same
 occurrence semantics; repeated messages must survive even when their timestamps
-and arguments match. Event variables also preserve repeated occurrences rather
-than applying held-value deduplication.
+and arguments match. Verilog event variables (`VCD_EVENT`) likewise preserve
+repeated occurrences rather than applying held-value deduplication.
 
 A **transaction** is a record for a logical unit of work with a lifetime. A GPU
 dispatch can own warps, and each warp can own instructions. An instruction can
@@ -319,8 +319,6 @@ inside its owner would make resource queries scan unrelated owners or require
 another index. Storing only by location would make owner expansion equally
 expensive without navigation metadata.
 
-![The same execute visit appears under its instruction and under its pipeline resource, retaining stage ID 103, parent 42, and generator 18.](diagrams/transaction-views.drawio.svg)
-
 Located records are grouped by generator into segments with generator, parent,
 ID, and time bounds. Small segments share a compressed page; large groups split
 between records. These bounds prune candidates before decoding, but a range
@@ -328,16 +326,12 @@ match does not prove that a particular owner or ID is present. Exact filtering
 still follows. Keeping LOG payloads on separate pages avoids decompressing them
 while expanding ordinary located stages and events.
 
-![Independently compressed RECORD_BLOCK pages contain segments from several generators, and one generator can span pages.](diagrams/transaction-pages.drawio.svg)
-
 An owner stores distinct child block numbers instead of one locator per child.
 This keeps navigation metadata compact while allowing completed child payloads
 to leave memory before a long-lived owner ends. The tradeoff is additional
 parent filtering and sometimes several page reads. Checksumming a complete
 section can also cost more than decoding one selected page; query measurements
 must include the actual integrity policy.
-
-![Owner 42 references RECORD_BLOCKs 12 and 15; parent-ID filtering locates its stage and event while skipping logs.](diagrams/transaction-child-blocks.drawio.svg)
 
 Ordinary transactions are sorted by ID within a block and split into pages with
 disjoint ID ranges. This supports owner lookup without a persistent exact
@@ -350,8 +344,6 @@ into columns. Payload keys, tags, and fixed aggregate structure come from the
 datatype instead of being repeated in every row. Page-local text dictionaries
 keep decoding independent of other pages. Shared text references can save space
 for repeated large values when their declarations precede the dependent pages.
-
-![A segment stores a column directory followed by time, ID, parent, duration, and five typed argument streams.](diagrams/transaction-columns.drawio.svg)
 
 Small fixed payloads of unsigned 64-bit leaves can use scalar pages. Byte planes
 exploit repeated high bytes without converting each word to a varint. Payloads
@@ -402,8 +394,6 @@ Traces are especially valuable when execution fails. Append-only sections carry
 their own boundaries and integrity checks, and declarations precede dependent
 data. A final directory and trailer accelerate ordinary opening without being
 the only way to discover recorded sections.
-
-![The recording contains a file header, append-only sections, a final directory, and a trailer.](diagrams/transaction-file-structure.drawio.svg)
 
 Successful capture guarantees ownership of the input, not durable storage.
 Asynchronous failures must surface on a later call or completion barrier, and
