@@ -89,7 +89,8 @@ fn scan_cost(reader: &Reader, i: usize) -> Result<u64> {
             run = run.max(length.saturating_mul(2) + u64::from(r.count) * 16);
         }
     }
-    let times = u64::from(h.n_times) * 8 + codec::raw_len(&p[h.tt_off()..h.index_off()])? as u64;
+    let times =
+        u64::from(h.n_times) * 8 + codec::raw_len(&p[block::HEADER_LEN..h.index_off()])? as u64;
     Ok(BlockScan::estimate(rows, points) + times + run)
 }
 

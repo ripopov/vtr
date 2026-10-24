@@ -3,7 +3,7 @@
 pub mod activity;
 pub mod arguments;
 pub mod attributes;
-pub mod block;
+mod block;
 pub mod census;
 pub mod codec;
 pub mod declarations;
@@ -18,7 +18,7 @@ pub mod trace;
 pub mod transactions;
 pub mod varint;
 mod wire;
-pub mod xform;
+mod xform;
 
 pub use attributes::{Attribute, Attributes, Value};
 pub use census::{Census, Contributions, ScopeSizes};

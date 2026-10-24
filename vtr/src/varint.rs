@@ -39,7 +39,7 @@ pub fn len_u64(v: u64) -> usize {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Reader<'a> {
+pub(crate) struct Reader<'a> {
     pub buf: &'a [u8],
     pub pos: usize,
 }
@@ -52,52 +52,34 @@ impl<'a> Reader<'a> {
     }
 
     #[inline]
-    #[must_use]
-    pub fn remaining(&self) -> usize {
-        self.buf.len() - self.pos
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.pos >= self.buf.len()
-    }
-
-    #[inline]
     pub fn u64(&mut self) -> Result<u64> {
-        let buf = self.buf;
-        let mut pos = self.pos;
-        if pos < buf.len() {
-            let b = buf[pos];
-            if b < 0x80 {
-                self.pos = pos + 1;
-                return Ok(u64::from(b));
-            }
+        if let Some(&byte) = self.buf.get(self.pos)
+            && byte < 128
+        {
+            self.pos += 1;
+            return Ok(u64::from(byte));
         }
-        let mut result: u64 = 0;
-        let mut shift = 0u32;
-        loop {
-            if pos >= buf.len() {
-                return Err(Error::Corrupt("truncated varint"));
-            }
-            let b = buf[pos];
+        let mut value = 0;
+        let mut pos = self.pos;
+        for shift in (0..70).step_by(7) {
+            let byte = *self
+                .buf
+                .get(pos)
+                .ok_or_else(|| Error::corrupt("truncated varint"))?;
             pos += 1;
-            if shift >= 64 {
+            if shift == 63 && byte > 1 {
                 return Err(Error::Corrupt("varint overflow"));
             }
-            result |= u64::from(b & 0x7f) << shift;
-            if b < 0x80 {
-                break;
+            value |= u64::from(byte & 127) << shift;
+            if byte < 128 {
+                if shift != 0 && byte == 0 {
+                    return Err(Error::Corrupt("noncanonical varint"));
+                }
+                self.pos = pos;
+                return Ok(value);
             }
-            shift += 7;
         }
-        self.pos = pos;
-        Ok(result)
-    }
-
-    #[inline]
-    pub fn i64(&mut self) -> Result<i64> {
-        Ok(unzigzag(self.u64()?))
+        Err(Error::Corrupt("varint overflow"))
     }
 
     #[inline]
@@ -125,37 +107,19 @@ impl<'a> Reader<'a> {
 
     #[inline]
     pub fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {
-        if self.pos + n <= self.buf.len() {
-            let s = &self.buf[self.pos..self.pos + n];
-            self.pos += n;
-            Ok(s)
-        } else {
-            Err(Error::Corrupt("truncated byte run"))
-        }
+        let bytes = self
+            .buf
+            .get(self.pos..)
+            .and_then(|tail| tail.get(..n))
+            .ok_or_else(|| Error::corrupt("truncated byte run"))?;
+        self.pos += n;
+        Ok(bytes)
     }
 
     #[inline]
     pub fn blob(&mut self) -> Result<&'a [u8]> {
         let n = self.usize()?;
         self.bytes(n)
-    }
-
-    #[inline]
-    pub fn f64(&mut self) -> Result<f64> {
-        let b = self.bytes(8)?;
-        Ok(f64::from_le_bytes(b.try_into().unwrap()))
-    }
-
-    #[inline]
-    pub fn fixed_u32(&mut self) -> Result<u32> {
-        let b = self.bytes(4)?;
-        Ok(u32::from_le_bytes(b.try_into().unwrap()))
-    }
-
-    #[inline]
-    pub fn fixed_u64(&mut self) -> Result<u64> {
-        let b = self.bytes(8)?;
-        Ok(u64::from_le_bytes(b.try_into().unwrap()))
     }
 }
 
@@ -192,15 +156,29 @@ mod tests {
         for v in vals {
             assert_eq!(r.u64().unwrap(), v);
         }
-        assert!(r.is_empty());
+        assert_eq!(r.pos, out.len());
         for v in [0i64, -1, 1, i64::MIN, i64::MAX, -1000, 1000] {
             assert_eq!(unzigzag(zigzag(v)), v);
         }
     }
 
     #[test]
-    fn truncated() {
-        let mut r = Reader::new(&[0x80, 0x80]);
-        assert!(r.u64().is_err());
+    fn malformed_varints_and_lengths_fail_without_advancing() {
+        for bytes in [
+            vec![0x80, 0x80],
+            vec![0x80, 0],
+            vec![0x81, 0],
+            [vec![0xff; 9], vec![2]].concat(),
+            vec![0xff; 11],
+        ] {
+            let mut reader = Reader::new(&bytes);
+            assert!(matches!(reader.u64(), Err(Error::Corrupt(_))));
+            assert_eq!(reader.pos, 0);
+        }
+        let mut reader = Reader::new(&[1, 2]);
+        assert_eq!(reader.u8().unwrap(), 1);
+        assert!(matches!(reader.bytes(usize::MAX), Err(Error::Corrupt(_))));
+        assert_eq!(reader.pos, 1);
+        assert_eq!(reader.bytes(1).unwrap(), &[2]);
     }
 }

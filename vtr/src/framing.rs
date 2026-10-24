@@ -272,9 +272,11 @@ impl Container {
         let minor = u16::from_le_bytes(input.fixed()?);
         if (major, minor) != VERSION {
             return Err(Error::UnsupportedVersion {
+                format: "VTR",
                 major,
                 minor,
-                supported: VERSION.0,
+                supported_major: VERSION.0,
+                supported_minor: VERSION.1,
             });
         }
         if input.u32()? != 0 {

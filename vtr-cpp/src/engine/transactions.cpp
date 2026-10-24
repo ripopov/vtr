@@ -721,7 +721,7 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
         const auto columns = 6 + *types[scalar_type].fixed_size / 8;
         const auto overhead = 9 + columns;
         const auto per_page = std::max<std::size_t>(
-            1, (policy.page_bytes - std::min(policy.page_bytes, overhead)) / (8 * columns));
+            1, (policy.page_bytes - std::min<std::uint64_t>(policy.page_bytes, overhead)) / (8 * columns));
         for (std::size_t first = 0; first < sorted.size(); first += per_page) {
             auto rows = std::span<const Transaction* const>(sorted).subspan(
                 first, std::min(per_page, sorted.size() - first));

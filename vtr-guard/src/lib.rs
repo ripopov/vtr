@@ -55,7 +55,7 @@ pub use linux::{
 
 #[cfg(not(target_os = "linux"))]
 mod other {
-    use super::*;
+    use super::{Error, Options};
     use vtr::recording::{Ending, Writer};
     pub fn install(_: &Options) -> Result<bool, Error> {
         Err(Error::Unsupported)
@@ -67,12 +67,15 @@ mod other {
     }
     pub fn unwatch(_: *mut Writer) {}
     pub fn thread_init() {}
+    #[must_use]
     pub fn stop_requested() -> i32 {
         0
     }
+    #[must_use]
     pub fn ending() -> Ending {
         Ending::Closed
     }
+    #[must_use]
     pub fn add_stop_callback(_: Box<dyn Fn(i32) + Send + Sync>) -> u64 {
         0
     }

@@ -181,9 +181,16 @@ fn recording_identity_binds_sidecars_even_when_sizes_and_directory_crc_match() {
     unfinished.truncate(unfinished.len() - 24);
     let unfinished = Reader::from_bytes(unfinished).unwrap();
     assert!(Identity::of(&unfinished).is_err());
-    let mut legacy = bytes.clone();
-    legacy[8..10].copy_from_slice(&2u16.to_le_bytes());
-    assert!(Index::decode(&legacy, &first).is_err());
+    for (major, minor) in [(2u16, 0u16), (3, 1), (4, 0)] {
+        let mut wrong_version = bytes.clone();
+        wrong_version[8..10].copy_from_slice(&major.to_le_bytes());
+        wrong_version[10..12].copy_from_slice(&minor.to_le_bytes());
+        let error = Index::decode(&wrong_version, &first).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("unsupported VTI version {major}.{minor} (expected 3.0)")
+        );
+    }
     let mut wrong_id = first;
     wrong_id.recording = RecordingId([1; 16]);
     assert!(Index::decode(&bytes, &wrong_id).is_err());

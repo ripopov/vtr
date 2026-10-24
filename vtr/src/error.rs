@@ -6,11 +6,15 @@ use std::fmt;
 pub enum Error {
     #[error("corrupt VTR file: {0}")]
     Corrupt(&'static str),
-    #[error("unsupported VTR version {major}.{minor} (this library requires major {supported})")]
+    #[error(
+        "unsupported {format} version {major}.{minor} (expected {supported_major}.{supported_minor})"
+    )]
     UnsupportedVersion {
+        format: &'static str,
         major: u16,
         minor: u16,
-        supported: u16,
+        supported_major: u16,
+        supported_minor: u16,
     },
     #[error("invalid argument: {0}")]
     Invalid(String),

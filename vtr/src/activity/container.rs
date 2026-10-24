@@ -61,9 +61,11 @@ pub(super) fn parse(bytes: &[u8], mut admit: impl FnMut(u64) -> Result<()>) -> R
     let minor = u16::from_le_bytes(file_header.take(2)?.try_into().unwrap());
     if major != super::VERSION || minor != 0 {
         return Err(Error::UnsupportedVersion {
+            format: "VTI",
             major,
             minor,
-            supported: super::VERSION,
+            supported_major: super::VERSION,
+            supported_minor: 0,
         });
     }
     if file_header.take(20)?.iter().any(|&byte| byte != 0) {

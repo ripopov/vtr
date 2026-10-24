@@ -130,27 +130,10 @@ impl<'a> Cursor<'a> {
 
     #[inline]
     pub(crate) fn var(&mut self) -> Result<u64> {
-        if let Some((&byte, tail)) = self.data.split_first()
-            && byte < 128
-        {
-            self.data = tail;
-            return Ok(u64::from(byte));
-        }
-        let mut value = 0;
-        for shift in (0..70).step_by(7) {
-            let byte = self.byte()?;
-            if shift == 63 && byte > 1 {
-                return Err(Error::Corrupt("varint overflow"));
-            }
-            value |= u64::from(byte & 127) << shift;
-            if byte < 128 {
-                if shift != 0 && byte == 0 {
-                    return Err(Error::Corrupt("noncanonical varint"));
-                }
-                return Ok(value);
-            }
-        }
-        Err(Error::Corrupt("varint overflow"))
+        let mut reader = crate::varint::Reader::new(self.data);
+        let value = reader.u64()?;
+        self.data = &self.data[reader.pos..];
+        Ok(value)
     }
 
     #[inline]

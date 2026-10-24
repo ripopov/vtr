@@ -44,6 +44,13 @@ impl WorkerCpu {
         }
         Measurement(self.clone())
     }
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            clippy::unused_self,
+            reason = "worker clocks are only available on Linux"
+        )
+    )]
     pub fn nanoseconds(&self) -> Option<u64> {
         #[cfg(target_os = "linux")]
         {
@@ -57,6 +64,13 @@ impl WorkerCpu {
         #[cfg(not(target_os = "linux"))]
         None
     }
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(
+            clippy::unused_self,
+            reason = "worker clocks are only available on Linux"
+        )
+    )]
     fn finish(&self) {
         #[cfg(target_os = "linux")]
         {

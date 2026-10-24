@@ -509,7 +509,7 @@ std::uint32_t ArgumentColumns::intern_text(std::string_view text) {
         return i->second;
     require(dictionary.size() < UINT32_MAX, "argument dictionary exceeds u32");
     // Copies share immutable text; appending must not overwrite another copy's views.
-    if (text_chunks.empty() || !text_chunks.back().bytes.unique() ||
+    if (text_chunks.empty() || text_chunks.back().bytes.use_count() != 1 ||
         text.size() > text_chunks.back().bytes->size() - text_chunks.back().used)
         text_chunks.push_back({std::make_shared<Bytes>(std::max<std::size_t>(4096, text.size())), 0});
     auto& chunk = text_chunks.back();

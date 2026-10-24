@@ -467,7 +467,7 @@ fn column(
             return Err(Error::Corrupt("wave values exceed format limit"));
         }
         if transform != Xform::None {
-            block::untransform_column_vec(raw.to_mut(), kind, transform, &mut Vec::new())?;
+            block::untransform_column(raw.to_mut(), kind, transform, &mut Vec::new())?;
         }
         let mut values = Cursor::new(&raw);
         values.var()?;

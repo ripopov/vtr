@@ -212,3 +212,65 @@ fn events_keep_identical_repetitions_while_wires_deduplicate() {
         assert_eq!(reader.find_signal("alias"), Some(event));
     }
 }
+
+#[test]
+fn dynamic_aliases_cross_groups_and_runs_without_reusing_sample_hash_collisions() {
+    for mode in [ExecutionMode::Inline, ExecutionMode::Threaded] {
+        for compression in [Compression::NONE, Compression::LZ4, Compression::ZSTD_FAST] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("aliases.vtr");
+            let mut options = WriterOptions {
+                mode,
+                ..WriterOptions::default()
+            };
+            options.metadata.group_size = 128;
+            options.encoding.compression = compression;
+            let mut writer = Writer::create_with(&path, options).unwrap();
+            let signals: Vec<_> = (0..130)
+                .map(|signal| {
+                    writer
+                        .signal(
+                            SourceOptions::new(format!("s{signal}"), None),
+                            SignalKind::Bits {
+                                width: 16,
+                                states: 2,
+                            },
+                            VarType::Wire,
+                            Direction::Implicit,
+                        )
+                        .unwrap()
+                })
+                .collect();
+            for time in 0..128 {
+                writer.advance_time(time).unwrap();
+                for (index, &signal) in signals.iter().enumerate() {
+                    let value = if index == 129 && time == 64 {
+                        5
+                    } else {
+                        time % 2
+                    };
+                    writer.emit_u64(signal, value).unwrap();
+                }
+            }
+            writer.close().unwrap();
+            let reader = Reader::open(path).unwrap();
+            reader.validate().unwrap();
+            for (index, signal) in signals.into_iter().enumerate() {
+                let history = reader.load_signal(signal).unwrap();
+                assert_eq!(history.len(), 128);
+                for time in 0..128 {
+                    let expected = if index == 129 && time == 64 {
+                        5
+                    } else {
+                        time % 2
+                    };
+                    assert_eq!(history.get(time as usize).as_u64(), Some(expected));
+                    assert_eq!(
+                        reader.value_at(signal, time).unwrap().borrow().as_u64(),
+                        Some(expected)
+                    );
+                }
+            }
+        }
+    }
+}

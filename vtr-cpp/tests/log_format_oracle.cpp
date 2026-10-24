@@ -83,7 +83,16 @@ struct Punctuation : std::numpunct<char> {
           separator(separator) {}
 
     std::string do_grouping() const override {
-        return groups;
+        auto equivalent = groups;
+        // Unlimited groups use CHAR_MAX to keep libc++'s reference formatter progressing.
+        for (std::size_t i = 0; i < equivalent.size(); ++i) {
+            if (equivalent[i] <= 0) {
+                equivalent.resize(i + 1);
+                equivalent[i] = CHAR_MAX;
+                break;
+            }
+        }
+        return equivalent;
     }
 
     char do_decimal_point() const override {

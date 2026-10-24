@@ -4,7 +4,7 @@ use super::capture::SignalRef;
 
 use crate::{
     Compression, Error, Result,
-    block::{self, BlockInput, EncodedColumns, EncoderScratch},
+    block::{self, BlockInput, EncodedColumn, EncodedColumns, EncoderScratch},
     codec::Compressor,
     hierarchy::SignalKind,
     signal,
@@ -473,7 +473,13 @@ impl Waveform {
     }
 
     pub fn reclaim(&mut self, job: WaveJob) {
-        for (signal, _, mut headers, mut values) in job.columns.0 {
+        for EncodedColumn {
+            signal,
+            mut headers,
+            mut values,
+            ..
+        } in job.columns.0
+        {
             headers.clear();
             values.clear();
             self.columns[signal as usize].headers = headers;
@@ -505,12 +511,12 @@ impl Waveform {
                     column.count = 0;
                     column.last_index = 0;
                     column.last_code = 255;
-                    Some((
-                        signal as u32,
+                    Some(EncodedColumn {
+                        signal: signal as u32,
                         count,
-                        std::mem::take(&mut column.headers),
-                        std::mem::take(&mut column.values),
-                    ))
+                        headers: std::mem::take(&mut column.headers),
+                        values: std::mem::take(&mut column.values),
+                    })
                 })
                 .collect(),
         );
@@ -527,10 +533,8 @@ impl Waveform {
         let begin = self.times[0];
         let end = *self.times.last().unwrap();
         let block = BlockInput {
-            block_index: self.blocks,
             times: std::mem::take(&mut self.times),
             kinds,
-            n_signals: self.kinds.len() as u32,
             group_size,
             dirty_groups: dirty_groups.clone(),
             frame,
@@ -559,12 +563,12 @@ pub(super) struct WaveJob {
 }
 impl WaveJob {
     pub fn bytes(&self) -> usize {
-        self.columns.0.capacity() * std::mem::size_of::<(u32, u32, Vec<u8>, Vec<u8>)>()
+        self.columns.0.capacity() * std::mem::size_of::<EncodedColumn>()
             + self
                 .columns
                 .0
                 .iter()
-                .map(|(_, _, headers, values)| headers.capacity() + values.capacity())
+                .map(|column| column.headers.capacity() + column.values.capacity())
                 .sum::<usize>()
             + self.block.times.capacity() * 8
             + self.block.frame.capacity()
@@ -584,18 +588,15 @@ pub(super) struct Encoder {
 }
 impl Encoder {
     pub fn encode(&mut self, job: &WaveJob, compression: Compression) -> Result<Vec<u8>> {
-        self.scratch
-            .encoded_columns(&job.columns, job.block.n_signals as usize);
         let mut output = Vec::new();
-        block::finish_fragments(
+        block::encode(
             &job.block,
-            std::slice::from_ref(&job.columns),
+            &job.columns,
             compression,
             &mut self.compressor,
             &mut self.scratch,
             &mut output,
         )?;
-        output.extend_from_slice(self.scratch.data());
         Ok(output)
     }
 }

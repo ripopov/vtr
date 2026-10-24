@@ -5,6 +5,7 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <climits>
 #include <filesystem>
 #include <format>
 #include <iomanip>
@@ -933,6 +934,14 @@ void log_locale_and_limits(const std::filesystem::path& path) {
         std::locale(std::locale::classic(), new LogPunctuation(std::string("\3\0", 2))));
     check(reader.format_log(*reader.lookup(stop_group_id)) == "****123456_790,*****",
           "alternate fixed formatting repeats a stopped digit group");
+    for (const auto& [groups, text] : std::vector<std::pair<std::string, std::string>>{
+             {"", "1234567"}, {"\3", "1_234_567"}, {std::string("\3\0", 2), "1234_567"},
+             {std::string{3, CHAR_MAX}, "1234_567"}, {std::string(1, 0), "1234567"},
+             {std::string(1, static_cast<char>(-1)), "1234567"}}) {
+        std::locale::global(std::locale(std::locale::classic(), new LogPunctuation(groups)));
+        check(reader.format_log(*reader.lookup(expected[0].first)) == text,
+              "localized integers ignore unlimited-group boundaries");
+    }
 }
 
 void waveform_visitor_kinds(const std::filesystem::path& path, vt::ExecutionMode mode) {

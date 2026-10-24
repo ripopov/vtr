@@ -4,8 +4,14 @@
 #include <cerrno>
 #include <cstdio>
 #include <limits>
+#if defined(__GLIBC__)
 #include <stdio_ext.h>
+#endif
+#if defined(__APPLE__)
+#include <stdlib.h>
+#else
 #include <sys/random.h>
+#endif
 
 namespace vtr::detail::wire {
 using namespace detail;
@@ -380,6 +386,9 @@ struct Writer::Impl {
 
     Impl(const std::string& path, WriterOptions opts) : options(opts) {
         do {
+#if defined(__APPLE__)
+            ::arc4random_buf(recording.data(), recording.size());
+#else
             std::size_t filled = 0;
             while (filled < recording.size()) {
                 auto n = ::getrandom(recording.data() + filled, recording.size() - filled, 0);
@@ -389,6 +398,7 @@ struct Writer::Impl {
                 require(n > 0, "cannot generate recording identity", 3);
                 filled += static_cast<std::size_t>(n);
             }
+#endif
         } while (std::all_of(recording.begin(), recording.end(), [](auto b) { return b == 0; }));
         require(opts.group_size && std::has_single_bit(opts.group_size) &&
                     opts.group_size <= (1u << 20),
@@ -397,8 +407,10 @@ struct Writer::Impl {
         meta.group_size = opts.group_size;
         file = std::fopen(path.c_str(), "wb");
         require(file, "cannot create VTR file", 3);
+#if defined(__GLIBC__)
         // The assembly/output thread owns the file exclusively, including close.
         __fsetlocking(file, FSETLOCKING_BYCALLER);
+#endif
         try {
             Bytes header(magic.begin(), magic.end());
             fixed<std::uint16_t>(header, format_major);

@@ -28,7 +28,8 @@ inline bool eligible(const Types& types, const Generators& generators,
 inline Bytes encode(const Types& types, TypeId type, std::span<const Transaction* const> rows,
                     const std::function<std::uint32_t(GeneratorId)>& local) {
     const auto payload = *types[type].fixed_size;
-    const auto count = rows.size(), columns = 6 + payload / 8;
+    const auto count = rows.size();
+    const auto columns = 6 + payload / 8;
     std::vector<std::uint64_t> values(count * columns);
     for (std::size_t i = 0; i < count; ++i) {
         const auto& tx = *rows[i];

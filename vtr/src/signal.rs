@@ -60,16 +60,6 @@ pub fn code_from_ascii(c: u8) -> u8 {
 
 #[inline]
 #[must_use]
-pub fn states_for_code(code: u8) -> u8 {
-    match code {
-        0 | 1 => 2,
-        2 | 3 => 4,
-        _ => 9,
-    }
-}
-
-#[inline]
-#[must_use]
 pub fn get_code(data: &[u8], states: u8, i: usize) -> u8 {
     match states {
         2 => (data[i >> 3] >> (i & 7)) & 1,
@@ -215,15 +205,6 @@ pub fn pack_words32(words: &[u32], width: u32, out: &mut [u8]) {
     for (i, b) in out[..bytes].iter_mut().enumerate() {
         let w = words.get(i / 4).copied().unwrap_or(0);
         *b = (w >> ((i % 4) * 8)) as u8;
-    }
-    trim_top_bits(out, width);
-}
-
-pub fn pack_words64(words: &[u64], width: u32, out: &mut [u8]) {
-    let bytes = (width as usize).div_ceil(8);
-    for (i, b) in out[..bytes].iter_mut().enumerate() {
-        let w = words.get(i / 8).copied().unwrap_or(0);
-        *b = (w >> ((i % 8) * 8)) as u8;
     }
     trim_top_bits(out, width);
 }

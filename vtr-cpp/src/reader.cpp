@@ -2,7 +2,9 @@
 #include "engine/activity.h"
 #include "vtr_reader.h"
 
+#include <algorithm>
 #include <charconv>
+#include <climits>
 #include <cmath>
 #include <format>
 #include <locale>
@@ -809,6 +811,36 @@ Provenance recover(const std::filesystem::path& source, const std::filesystem::p
 }
 
 namespace {
+class FormatPunctuation : public std::numpunct<char> {
+    std::locale source_;
+    std::string groups_;
+    const std::numpunct<char>& source() const { return std::use_facet<std::numpunct<char>>(source_); }
+
+  public:
+    FormatPunctuation(std::locale source, std::string groups)
+        : source_(std::move(source)), groups_(std::move(groups)) {}
+
+  private:
+    std::string do_grouping() const override { return groups_; }
+    char do_decimal_point() const override { return source().decimal_point(); }
+    char do_thousands_sep() const override { return source().thousands_sep(); }
+    std::string do_truename() const override { return source().truename(); }
+    std::string do_falsename() const override { return source().falsename(); }
+};
+
+std::locale format_locale(std::string_view spec) {
+    auto locale = std::locale();
+    if (spec.find('L') == spec.npos) return locale;
+    auto groups = std::use_facet<std::numpunct<char>>(locale).grouping();
+    const auto stop = std::find_if(groups.begin(), groups.end(), [](char size) { return size <= 0; });
+    if (stop == groups.end()) return locale;
+    const auto end = static_cast<std::size_t>(stop - groups.begin());
+    // libc++ can loop on zero/negative groups; CHAR_MAX has the same unlimited-group meaning.
+    groups.resize(end + 1);
+    groups[end] = CHAR_MAX;
+    return std::locale(locale, new FormatPunctuation(locale, std::move(groups)));
+}
+
 template <std::floating_point T>
 std::optional<std::string> alternate_fixed_zero(T value, std::string_view spec) {
     const auto dot = spec.rfind('.');
@@ -835,7 +867,7 @@ std::optional<std::string> alternate_fixed_zero(T value, std::string_view spec) 
     std::string sign;
     if (!prefix.empty() && (prefix.back() == '+' || prefix.back() == '-' || prefix.back() == ' '))
         sign = prefix.back();
-    const auto locale = std::locale();
+    const auto locale = format_locale(spec);
     auto body = std::vformat(locale, "{:" + sign + std::string(spec.substr(dot)) + "}",
                              std::make_format_args(value));
     body += localized ? std::use_facet<std::numpunct<char>>(locale).decimal_point() : '.';
@@ -879,7 +911,7 @@ template <class T> std::string format_scalar(T value, std::string_view spec) {
             if (auto fixed = alternate_fixed_zero(value, spec))
                 return *fixed;
         }
-        return std::vformat(format, std::make_format_args(value));
+        return std::vformat(format_locale(spec), format, std::make_format_args(value));
     } catch (const std::format_error&) {
         return "{?}";
     }

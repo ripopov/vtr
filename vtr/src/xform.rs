@@ -1,6 +1,4 @@
-//! Value-stream transforms applied to a column run before compression (spec section 6.4):
-//! byte shuffle (Blosc-style transposition) and delta coding of fixed-width entries, alone
-//! or combined.
+//! Byte shuffle, delta, and dictionary transforms for fixed-width waveform values.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[repr(u8)]

@@ -15,9 +15,10 @@ interface and package version are independent of the file-format version.
 
 ## Build and test
 
-Use Linux, CMake 3.20 or newer, a C++20 compiler and standard library supporting
-`std::format`, and development packages for zlib, LZ4, and Zstandard. GCC 15 and
-Clang 21 with libstdc++ are tested. Python 3 runs the independent decoding tests;
+Use Linux or macOS, CMake 3.20 or newer, a C++20 compiler and standard library
+supporting `std::format`, and development packages for zlib, LZ4, and Zstandard.
+GCC 15 and Clang 21 with libstdc++, and Apple Clang 17 with libc++, are tested.
+Python 3 runs the independent decoding tests;
 it is unnecessary when configuring with `-DBUILD_TESTING=OFF`.
 
 ```sh
@@ -25,6 +26,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
+
+`scalar_format_reference` compares the complete scalar-format corpus against
+libstdc++ output. The tested Apple Clang 17/libc++ toolchain differs in 111 of
+its 5,368 cases,
+including alternate general floats, subnormal hexadecimal floats, character
+format flags, and Unicode width. This comparison remains a failing gate on
+macOS; the API, wire-format, and Rust/C++ interoperability checks are independent
+of these presentation differences.
 
 `-DVTR_SANITIZE=ON` enables address and undefined behavior sanitizers.
 `-DVTR_THREAD_SANITIZE=ON` enables ThreadSanitizer instead.
@@ -259,6 +268,10 @@ logical producer around each call. The adapter creates no queue, lock or worker
 of its own. Concurrent simulator instrumentation can use separate logical
 producers through `Writer`; it must not call a shared SDK runtime concurrently.
 An unused SDK does not advance waveform time when the recording closes.
+
+`backend_cpu_nanoseconds()` samples owned collector and encoding workers on Linux
+and retains their totals after exit. Other platforms report `std::nullopt`;
+inline execution reports zero. Queue wait durations measure wall time.
 
 ## Reading
 

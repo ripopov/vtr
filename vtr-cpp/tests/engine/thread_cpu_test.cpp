@@ -4,6 +4,7 @@
 #include <atomic>
 #include <iostream>
 #include <stdexcept>
+#include <time.h>
 
 using namespace vtr::detail::engine::detail;
 
@@ -35,14 +36,20 @@ int main() {
         const auto running = queue.stats();
         queue.stop();
         const auto final = queue.stats();
+        if (final.written != 32) throw std::runtime_error("worker lost submitted jobs");
+#if defined(__linux__)
         if (!running.worker_cpu_nanoseconds || !final.worker_cpu_nanoseconds ||
             !*running.worker_cpu_nanoseconds || *running.worker_cpu_nanoseconds > *final.worker_cpu_nanoseconds ||
-            *final.worker_cpu_nanoseconds < callback_cpu.load() || final.written != 32)
+            *final.worker_cpu_nanoseconds < callback_cpu.load())
             throw std::runtime_error("owned worker CPU does not include callback CPU and shutdown");
+#else
+        if (running.worker_cpu_nanoseconds || final.worker_cpu_nanoseconds)
+            throw std::runtime_error("unsupported worker clock reported CPU time");
+#endif
         const auto checksum = work(output.load());
         if (queue.stats().worker_cpu_nanoseconds != final.worker_cpu_nanoseconds)
             throw std::runtime_error("joined worker CPU changes with coordinator computation");
-        std::cout << checksum << ' ' << *final.worker_cpu_nanoseconds << '\n';
+        std::cout << checksum << ' ' << final.worker_cpu_nanoseconds.value_or(0) << '\n';
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
