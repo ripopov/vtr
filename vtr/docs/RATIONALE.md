@@ -1,152 +1,485 @@
 # VTR design rationale
 
-VTR keeps simulation state, runtime activity, and diagnostics in one recording.
-A useful viewer can follow a request through pipeline stages, inspect the signal
-values around a failure, and resolve a log's owning transaction without deriving
-identity from formatted text. The wire contract is in [SPEC.md](SPEC.md) and
-[TRANSACTIONS.md](TRANSACTIONS.md); this document explains the design choices.
+VTR records what a design did during a run: signal values, requests, resource
+occupancy, instruction lifetimes, and diagnostics. A user investigating a failed
+instruction should be able to follow its stages, inspect the surrounding signal
+values, and find the messages it produced. Those observations need common time
+units and explicit identities so the reader can follow their connections without
+reconstructing them from text.
 
-## State and occurrences have different semantics
+This document sets the direction and targets we aim for in VTR. It explains the
+problems the design should solve, the reasons for its choices, and the tradeoffs
+used to evaluate alternatives. It does not document the current state of the
+codebase or indicate which features are implemented. The models and requirements
+below guide development and provide criteria for judging the result.
 
-A waveform signal represents a held value. Duplicate suppression can remove a
-write that leaves its value unchanged. A transaction, stage, event, or log
-represents an occurrence with identity. Two identical requests at one timestamp
-remain two records. Event variables also preserve repeated occurrences rather
-than deduplicating their payloads as held levels.
+## Signals, records, and transactions
 
-The two representations share a container and clock units, while retaining
-encodings suited to their access patterns. Waveform blocks store per-signal
-columns and starting frames. Runtime records store typed payloads and indexed
-intervals or points. Treating every payload field as a waveform would lose
-record boundaries, parentage, and repeated identical occurrences.
+A **signal** describes a value that persists until it changes, such as a wire or
+register in a VCD waveform. Assigning `0` to a signal already holding `0` adds no
+transition. A history can suppress that assignment while preserving the state.
 
-## One occurrence supports owner and location views
+A **record** describes an individual occurrence. Two requests issued at the same
+timestamp with identical address, byte-enable, and operation fields are still
+two requests. Each needs its own identity. Logs and events have the same
+occurrence semantics; repeated messages must survive even when their timestamps
+and arguments match. Event variables also preserve repeated occurrences rather
+than applying held-value deduplication.
 
-An instruction can own visits to fetch and execute resources. A pipeline view
-loads visits by location and time; an instruction view expands one owner.
-Located stages and events express both views through one global record ID,
-one generator, and one owner ID. Keeping two copies would require reconciling
-identity, payloads, and lifecycle between them.
+A **transaction** is a record for a logical unit of work with a lifetime. A GPU
+dispatch can own warps, and each warp can own instructions. An instruction can
+visit fetch, decode, and execute resources before it retires. Its payload
+describes the work; stages and events describe its progress; relations connect
+it to other work.
 
-Embedded events and stages describe detail local to one owner without inventing
-design-location nodes. They still have global IDs, so lookup and relations can
-identify them. Overlapping located visits are preserved: they may be the evidence
-of a resource conflict, and discarding one would hide the problem.
+![A held signal value, two identical request occurrences, and an instruction lifetime with fetch, decode, execute, and retire activity.](diagrams/signals-records-transactions.drawio.svg)
 
-Design scope parentage and runtime owner parentage are independent. Ownership
-does not require time containment; temporally decoupled simulation may report a
-child outside its owner's stored interval. Queries and locators therefore cannot
-assume owner time bounds contain every child.
+Waveforms and records share a recording but retain their own representations.
+Turning every request field into a signal would erase occurrence boundaries and
+identity. Turning every signal update into a general record would discard the
+advantages of held values, aliases, starting frames, and signal-local scans.
 
-## Schemas separate repeated structure from values
+## Design hierarchy and runtime ownership
 
-A file-local datatype describes a structure, array, sequence, enumeration, or
-primitive. Many generators can share a datatype. Every record supplies one
-complete value; optional attributes remain available for details that do not
-belong to the common schema. A schema change declares a new source or type
-instead of changing the interpretation of already written data.
+The **design hierarchy** is a tree of scopes and sources. It answers where an
+observation belongs: the module containing a signal, the source issuing
+requests, or the execute slot occupied by an instruction. A generator identifies
+a source of records. It can be a root or belong to a scope; an additional stream
+node between every scope and generator would often add no meaning. Ordinary
+scopes already provide grouping when it is useful. Declarations can also appear
+during execution, so capture does not require a complete hierarchy at startup.
 
-Canonical payloads are independent of Rust/C++ object layout. Explicit widths,
-field order, byte order, and sequence lengths let the implementations exchange
-values without sharing native padding, allocation strategy, or ABI. Typed native
-bindings copy capture data before returning, so borrowed application values can
-be changed or destroyed immediately afterward. Retained reader payloads keep
-both their schema and storage alive after cache eviction or reader destruction.
+The **ownership hierarchy** describes runtime work. An execute visit belongs to
+an instruction even though many instructions use that execute resource over
+time. A dependency on another instruction is a separate relation: causal
+connections need not fit inside the ownership tree.
 
-Column encoders traverse the schema and separate numeric, floating, text, and
-miscellaneous data. This avoids repeating names and tags on every record while
-preserving signedness, integer width, NaN payloads, and aggregate structure.
-Local text dictionaries keep each page independently decodable. Shared text
-references can reduce repeated large strings across transaction pages, with
-publication ordered before their first use.
+![Dispatches, warps, and instructions form an ownership tree; one execute visit also references its generator in the design hierarchy.](diagrams/logical-hierarchy.drawio.svg)
 
-## Pages balance compression and selective reading
+A **located stage** is an interval at a design location; a **located event** is a
+point occurrence there. The generator identifies the location and the owner ID
+identifies the transaction. Selecting a resource over time and expanding one
+instruction must reach the same occurrence, with the same record ID and payload.
+Recording separate copies for those views would require reconciling their
+identity, updates, and lifetime.
 
-Located records are stably grouped by generator into segments. Small segments
-share a compressed page; large groups split only between records. Generator,
-parent, ID, and time bounds prune unrelated segments before decoding. Separating
-LOG pages avoids unnecessary log decompression during owner expansion.
+**Embedded**, or unlocated, stages and events describe detail local to one owner.
+A retry annotation or an internal phase does not always justify a resource in
+the design hierarchy. Such records still have global IDs, so lookup and
+relations can reach them. A lane groups local stages within their owner. Names
+and lanes give these annotations meaning without adding design-location nodes.
+
+Ownership does not imply time containment. Temporally decoupled simulation may
+report a visit outside the owner's stored interval. Queries cannot use the
+owner's interval as proof that no child exists outside it. Overlapping resource
+visits also remain intact: they may be the evidence of a scheduling conflict,
+and removing one would hide the problem.
+
+## Datatypes describe values independently of sources
+
+A reusable datatype describes a primitive, structure, array, sequence, or
+enumeration. Several request generators can share the same address and operation
+fields. Declaring those fields once saves repeated names and tags and gives
+consumers a consistent structure for filtering and comparison.
+
+The datatype answers how to decode a value. A generator answers where records
+come from. Ownership answers which runtime work they belong to. These are
+different identities. Changing a name, moving a source in the design hierarchy,
+or choosing a different logger should not require inventing a different argument
+layout.
+
+Canonical payloads specify field order, widths, byte order, and sequence lengths
+independently of Rust/C++ object layout. They preserve integer signedness,
+enumerations, floating-point bits, nested values, and repeated identical records.
+Native padding, allocation strategy, and ABI are not part of the file contract.
+Optional tagged attributes remain useful for exceptional details that do not
+belong in a common payload schema.
+
+Declarations are immutable. A changed argument layout needs a new datatype;
+records already written retain their original interpretation. Ordinary typed
+sources can bind a fixed datatype. For logging, that binding belongs to the
+callsite, allowing one logger to carry messages with different layouts.
+
+Typed native bindings must finish capture before returning. Borrowed text or
+arrays can then be changed or destroyed without affecting accepted records.
+Reader payload views retain both their schema and storage after cache eviction
+or reader destruction. Ownership of capture data and ownership of retained read
+data are explicit parts of the interface, not consequences of a convenient
+buffer implementation.
+
+## Logging
+
+A subsystem produces a stream of diagnostic messages from many statements. A
+shader scheduler and a memory controller may use different loggers in the same
+VTR file. Each logger should remain one generator, regardless of how many log
+statements it contains or how many argument layouts those statements use.
+
+### Logger, callsite, and message are separate identities
+
+The model separates three things:
+
+| Entity | Meaning | Declared or captured information |
+| --- | --- | --- |
+| Logger generator | The named source of a message stream | Name, design scope, and logger metadata |
+| Callsite | A particular logging statement | Format string, argument datatype reference, severity, file, line, and function |
+| Message record | One execution of that statement | Record ID, logger reference, callsite reference, timestamp, argument values, and optional owner |
+
+The logger selects a stream. The callsite selects how to interpret one message.
+Severity belongs to the statement, while a logger's enabled level is a capture
+policy. A logger is also independent of an execution thread: one producer can
+use several loggers, and several producers can contribute to the same logger.
+Queue ownership must therefore follow producers rather than logger count.
+
+For example, a request statement and a retry statement can contribute to one
+shader logger. The request helper can also be used by the memory logger:
+
+| Record | Logger | Tick | Callsite | Arguments |
+| --- | --- | ---: | --- | --- |
+| R501 | shader | 100 | S17: request | `addr=0x80, bytes=64` |
+| R502 | shader | 100 | S18: retry | `bank=3` |
+| R503 | memory | 104 | S17: request | `addr=0xc0, bytes=32` |
+
+There are two generators and two callsites, not one generator for every
+logger/callsite combination. Repeated executions of S17 create new records;
+they do not create new declarations. Moving through a logger stream must show
+all its messages, with each message retaining its callsite provenance.
+
+### Share datatype declarations
+
+A callsite descriptor references a VTR datatype for its arguments. It does not
+need a second schema language or a private argument serialization format. The
+same datatype traversal, canonical encoding, allocation limits, and typed
+payload inspection should apply to log arguments as they do to other records.
+
+Several callsites can share one argument datatype while having different format
+strings, severities, or source locations. Conversely, one logger can emit
+messages from callsites with unrelated datatypes. Argument order determines
+positional formatting; field names come from the schema or explicit bindings
+and remain available for structured queries. Neither names nor type tags need
+to be resent with each value.
+
+Callsite identity cannot simply be structural datatype identity. Two statements
+with the same `(u64, u32)` arguments can say different things and originate in
+different functions. Attaching the format and source location to a shared
+datatype would conflate value layout with statement provenance. A descriptor
+referencing that datatype preserves both reuse and distinction. Semantic identity
+and physical layout are separate choices: a descriptor can have its own reference
+while sharing a declaration section with other metadata.
+
+Source provenance may be unavailable, and different statements can share the
+same reported file and line. Callsite references must identify declarations
+explicitly rather than rely on reconstructing identity from those text fields.
+
+### Capture values and defer presentation
+
+An illustrative logging statement is:
+
+```cpp
+void log_request(Logger& logger, std::uint64_t addr, std::uint32_t bytes) {
+    LOG_INFO(logger, "request addr={:#x} bytes={}", addr, bytes);
+}
+```
+
+![Callsite S17 declares its format, severity, provenance, and argument layout once; repeated records reference S17 and supply timestamps and values.](diagrams/logging-call-site.drawio.svg)
+
+The format, severity, provenance, and argument schema are static at this
+statement. Invocations need only capture references to the logger and callsite,
+the observation time, and the values. That timestamp belongs to the invocation,
+not to the later backend drain. Global record identity and an optional
+owning transaction preserve navigation into the rest of the trace. A message
+without an owner remains valid; a parent is runtime context, not a substitute
+for the logger.
+
+Separating static information from dynamic values follows the designs of
+NanoLog, binlog, and Quill. VTR keeps the resulting record structured and
+self-describing on disk. Reading or formatting it must not require the
+producer executable, its address space, or its debug symbols. Process
+pointers can identify immutable descriptors during capture, but only file-
+local references belong in the recording.
+
+The repeated capture path should check whether the statement is enabled before
+evaluating its arguments. A disabled log must not call an expensive helper,
+allocate an argument, register a source, or trigger argument side effects.
+Literal formats should be checked against argument types during compilation
+where the language supports it. For enabled logs, argument-pack encoders should
+be reusable across callsites with the same argument types; making every source
+line part of the encoder's template identity adds code without changing capture.
+
+Registration may happen before a timed loop or on first use. After binding, a
+call should use a stable handle or direct lookup rather than repeat string
+interning, metadata construction, a hash-table search, or runtime type checks.
+Registration and type erasure needed for heterogeneous descriptors belong on
+the cold path. Shared immutable descriptors must not introduce a global lock
+into every message capture.
+
+This optimization must preserve recording lifetimes. A static C++ callsite can
+outlive several writers, while logger, callsite, and datatype IDs are local to
+one recording. Caching the first writer's handle in that static object would
+reuse stale identity in a later file. Writer-bound bindings must stay with their
+writer or have explicit recording identity and invalidation. Reusing a writer's
+memory address is not proof that it is the same recording.
+
+Arguments must be encoded or copied before return, including text borrowed from
+temporary or reusable simulator buffers. A queued pointer into mutable caller
+storage is not a deferred message. Small captures should avoid producer
+allocations; large captures still need owned storage and bounded admission.
+Formatting, compression, and output can run later without borrowing simulator
+state. Exact values remain available even when a presentation cannot be rendered.
+
+### Store schemas efficiently without turning them into tracks
+
+A logger stream contains messages with different argument schemas. Encoding
+must therefore obtain the payload datatype through the callsite, rather than
+assume that all messages in the generator have one layout. Pages may group
+messages by logger and callsite to traverse homogeneous columns efficiently.
+Such groups are storage units, not additional source generators. A logical
+callsite reference can be represented by a group header or dictionary index;
+the requirement is that every decoded message resolves its callsite unambiguously.
+
+Logger and time bounds should prune unrelated messages before decompression.
+The callsite catalogue can select severity, provenance, and argument layouts
+without reading every payload. Typed fields support queries such as requests
+above an address or retries for one bank without parsing `log.message` text.
+An owner query selects that transaction's messages across callsites and logger
+streams; logs remain separate from its located EVENT/STAGE child locators.
+
+Static format reuse and repeated argument text are different compression
+opportunities. Formats and schema field names belong in declarations. Dynamic
+text still needs a value representation; bounded page dictionaries can reuse
+it without interning every runtime string forever. CLP is a useful
+reference for exploiting repetition in log content. Any shared dictionary must
+be available before dependent data, while pages retain independent decoding
+boundaries.
+
+Neither storage grouping nor a formatted message defines record identity or
+promises chronological iteration. A reader can merge messages for display using
+their timestamps, with an explicit policy for ties. It must preserve distinct
+records that have identical times and arguments.
+
+### Publication and validation preserve meaning
+
+Rust and C++ writers, readers, validation, recovery, and inspection must agree on
+logger identity, callsite references, and argument datatype lookup. A logger's
+name identifies its stream; each message's callsite identifies its format and
+argument layout. The fixed datatype bindings of ordinary transactions and
+located events and stages remain independent of that choice.
+
+Declaration dependencies must precede their first persisted use. A missing
+callsite or datatype cannot be repaired by a declaration written after the
+dependent block. Format changes need an explicit version change and regenerated
+fixtures so that readers cannot silently reinterpret old bytes. Supporting
+obsolete logging models would add complexity without advancing the design goals.
+
+Validation must reject invalid logger/callsite/type references, malformed
+metadata, incompatible argument payloads, and incomplete payload consumption.
+Tests need messages from several callsites in one logger, one callsite used by
+several loggers, shared argument types, repeated identical messages, optional
+owners, borrowed-input mutation, disabled argument side effects, concurrent
+first use, and sequential recordings. Cross-language and recovery tests must
+verify the same semantics. A viewer should expose the logger as the source and
+retain the callsite as message metadata; hiding extra generators in the viewer
+would leave the underlying stream model unresolved.
+
+## Time and ordering describe different facts
+
+Record IDs identify creations. Observation timestamps place activity in simulated
+time. Producer time certifies progress for assembly. Completion order determines
+when an owner becomes ready to write. Physical storage order reflects bounded
+buffers and compression policy. None of these orders can substitute for another.
+
+A producer advancing to T promises that no more capture operations below T will
+arrive from it. With several producers, the minimum frontier determines which
+recording time is complete. Explicit historical observations can carry earlier
+timestamps without moving that frontier backward. A wall-clock grace period,
+useful for merging delayed application logs, cannot establish simulation progress.
+
+Clock cycles are another view of time. Clocks can pause or change frequency, and
+a trace can contain several clock domains. Constant-period stretches represent
+edges compactly and allow cycle numbers to be derived. Associating a source
+with a clock avoids pretending that one global cycle count applies everywhere.
+
+## Signal histories need a starting value
+
+A waveform query asks both what changed inside a window and what value was
+already held at its beginning. Even a signal that is quiet throughout the window
+needs access to its preceding state. Starting frames, time partitions, signal
+groups, delta encoding, and aliases support this access pattern. FST provides a
+reference for that family of techniques.
+
+Waveform progress also matters when no value changes. An explicitly advanced
+quiet interval still belongs to the recording's time range. Deduplication of
+held levels must not erase that progress or change event-variable occurrence
+counts.
+
+## Storage supports location and owner queries
+
+A resource query usually selects one source and a limited time window. An owner
+query can follow one instruction through many locations. Storing activity only
+inside its owner would make resource queries scan unrelated owners or require
+another index. Storing only by location would make owner expansion equally
+expensive without navigation metadata.
+
+![The same execute visit appears under its instruction and under its pipeline resource, retaining stage ID 103, parent 42, and generator 18.](diagrams/transaction-views.drawio.svg)
+
+Located records are grouped by generator into segments with generator, parent,
+ID, and time bounds. Small segments share a compressed page; large groups split
+between records. These bounds prune candidates before decoding, but a range
+match does not prove that a particular owner or ID is present. Exact filtering
+still follows. Keeping LOG payloads on separate pages avoids decompressing them
+while expanding ordinary located stages and events.
+
+![Independently compressed RECORD_BLOCK pages contain segments from several generators, and one generator can span pages.](diagrams/transaction-pages.drawio.svg)
+
+An owner stores distinct child block numbers instead of one locator per child.
+This keeps navigation metadata compact while allowing completed child payloads
+to leave memory before a long-lived owner ends. The tradeoff is additional
+parent filtering and sometimes several page reads. Checksumming a complete
+section can also cost more than decoding one selected page; query measurements
+must include the actual integrity policy.
+
+![Owner 42 references RECORD_BLOCKs 12 and 15; parent-ID filtering locates its stage and event while skipping logs.](diagrams/transaction-child-blocks.drawio.svg)
 
 Ordinary transactions are sorted by ID within a block and split into pages with
-disjoint ID ranges. This helps owner lookup without requiring a persistent exact
-ID-to-row index. Block ranges can overlap when old owners complete alongside
-new ones; range filters select candidates rather than prove membership.
+disjoint ID ranges. This supports owner lookup without a persistent exact
+ID-to-row index. Different blocks can have overlapping ID ranges when old owners
+complete alongside newer ones. Global IDs remain stable regardless of that
+physical arrangement.
 
-Owners store distinct child block numbers instead of one locator per child.
-This keeps owner metadata compact while supporting expansion through parent
-bounds and exact parent filtering. It does not guarantee one-page expansion;
-page reads and complete-section checksum scans still have a cost.
+Schema traversal separates numeric, floating, text, and miscellaneous values
+into columns. Payload keys, tags, and fixed aggregate structure come from the
+datatype instead of being repeated in every row. Page-local text dictionaries
+keep decoding independent of other pages. Shared text references can save space
+for repeated large values when their declarations precede the dependent pages.
 
-A small fixed payload of unsigned 64-bit leaves can use scalar pages. Absolute
-record fields and payload words are stored as byte planes, allowing compression
-to exploit similar high bytes without per-value varint conversion. Richer
-payloads, attributes, embedded detail, locators, and relations use general pages.
-The optimization changes representation, not logical values or query behavior.
+![A segment stores a column directory followed by time, ID, parent, duration, and five typed argument streams.](diagrams/transaction-columns.drawio.svg)
+
+Small fixed payloads of unsigned 64-bit leaves can use scalar pages. Byte planes
+exploit repeated high bytes without converting each word to a varint. Payloads
+with richer structure, attributes, embedded detail, locators, or relations use
+general pages. This optimization changes representation while preserving values
+and query behavior.
+
+Smaller pages reduce unnecessary decoding but add metadata and give compression
+less repetition to exploit. Larger pages favor sustained output and compression
+while increasing selective read costs. File size alone cannot choose the right
+balance; owner lookup, related records, labels, checksums, and I/O all contribute.
 
 ## Capture and output have separate clocks and budgets
 
-Producer time is the ordering frontier for assembly. Explicit record timestamps
-can differ from it. Record IDs represent creation identity; neither timestamps,
-IDs, completion order, nor physical storage order substitutes for the others.
+Most tracing work should run away from simulator threads. Their repeated job is
+to capture observations with stable ownership and publish them through a cheap
+handoff. The backend assembles records, encodes columns, compresses pages, and
+writes sections. Optional encoding workers can increase throughput while output
+publication remains ordered.
 
-Inline mode performs all work synchronously. Threaded mode separates capture,
-ordered assembly, and optional parallel encoding. Each logical producer is
-exclusive. A producer's frontier prevents the assembler from publishing work
-that an earlier producer operation could invalidate. Pending future work can
-spill to temporary storage instead of consuming unbounded RAM when a producer
-stalls. Encoding jobs own declaration snapshots and publish in submission order.
+Each logical producer exclusively owns its capture queue and recording time.
+Its physical thread can change through an explicit release/attachment protocol.
+Several logger streams can use the same queue without becoming the same source.
+Mutable frontend caches belong to that producer; sharing immutable logger and
+callsite descriptions must not accidentally share an unsynchronized cache.
 
-C++ and Rust use bounded SPSC capture rings for each producer. Rust copies
-scalar, typed payload, packed-bit, and variable-byte captures into ring packets;
-oversized captures use owned storage. Borrowed input remains valid only for the
-capture call. Buffered spill streams amortize I/O while retaining each producer's
-FIFO order. Payload ownership, ordering, handle origins, and completion contracts
-agree. Queue admission, pending assembly, encoding jobs, payload reuse, and page
-targets are separate budgets with separate purposes. None is a promise that total
-process RSS equals one option.
+Bounded SPSC byte rings give each producer an independent handoff to the
+backend. Ordinary captures reuse ring storage; oversized captures use owned
+storage. Full queues apply backpressure rather than silently dropping
+observations. Ingestion continues even when another producer's frontier
+prevents serialization, and pending data can spill beyond its memory budget.
+Otherwise a fast producer could fill its queue before reaching a simulator
+barrier that the slow producer needs in order to advance.
 
-## Completion is explicit and recoverable
+Queue admission, pending assembly, active owners, payload reuse, encoding jobs,
+and page targets have separate lifetimes and budgets. Bounding the capture ring
+does not bound the process's total RSS. Long-lived owners and accumulated
+navigation metadata need measurement alongside compression buffers.
 
-Append-only sections publish declarations before dependent data. A directory
-records complete section ranges and block identities. The final trailer makes
-that directory discoverable without scanning the whole file. Recovery retains
-only a contiguous verified section prefix and preserves global IDs and block
-numbers; it does not renumber references or salvage partial pages.
+Inline mode remains useful for a caller that prefers simple synchronous
+execution or already serializes recording. It creates no transport or worker
+threads. Capture, assembly, compression, and output then run on that caller,
+with the same payload, lifetime, and reader semantics as threaded execution.
 
-A finalized directory can still be incomplete. Crash sealing or recovery may
-retain an owner whose child block was never written, or a relation whose target
-is missing. Readers preserve available evidence and expose missing references.
-Normal completion requires all references to resolve. Checksums establish byte
-integrity; full validation also establishes semantic invariants.
+## Completion preserves evidence after failure
 
-The recording ID distinguishes independent runs even when length and directory
-CRC happen to match. Activity indexes and caches bind to the complete fingerprint.
-VTI stores exact activity ranges and can be rebuilt; its independent version and
-framing are specified alongside the trace format.
+Traces are especially valuable when execution fails. Append-only sections carry
+their own boundaries and integrity checks, and declarations precede dependent
+data. A final directory and trailer accelerate ordinary opening without being
+the only way to discover recorded sections.
 
-The Rust Linux guard can seal a threaded writer independently of its mutable
-frontend. It parks idle owners before using their writer directly. It cannot
-safely borrow an inline encoder interrupted inside a call, or reuse a backend
-that unwound through a panic; those cases retain the verified file prefix.
-The native C++ SDK currently has no process crash guard.
+![The recording contains a file header, append-only sections, a final directory, and a trailer.](diagrams/transaction-file-structure.drawio.svg)
 
-## Evidence and implementation boundaries
+Successful capture guarantees ownership of the input, not durable storage.
+Asynchronous failures must surface on a later call or completion barrier, and
+explicit close is needed to observe completion errors. Draining buffered output
+does not promise `fsync` durability. Retrying an already accepted message can
+duplicate the occurrence rather than repair the recording.
 
-The Rust implementation is independent of the C++ engine. Bidirectional tests
-cover codecs, execution and encoding modes, typed records, waveform states,
-retained schemas, recovery, and activity indexes. Independent byte-level oracles
-and malformed-input tests check encodings rather than reproducing one API's
-implementation. Verilator fixtures are generated by the pinned simulator fork.
+Recovery retains the contiguous verified section prefix. It does not salvage
+individual rows from an incomplete page, invent missing records, or renumber
+surviving identities. An owner, its child block, and a relation endpoint can
+become durable at different times. Incomplete recordings preserve available
+evidence and report unresolved references; complete recordings require those
+references to resolve. Checksums establish byte integrity, while full validation
+also checks semantic invariants.
 
-The maintained [benchmark suite](../../benchmarks/README.md) verifies full reads
-and queries against source replay before reporting time, size, memory, and
-capture costs. [Its report](../../benchmarks/report.md) describes the measured
-workloads. Small synchronous synthetic workloads do not establish simulator
-speedup, cold-device latency, or every asynchronous scaling property. Changes
-are assessed using comparable settings and retained slower results, rather than
-selecting only workloads that improve.
+A log is ordinary evidence, not a completion protocol. Neither a fatal message
+nor the absence of a final message proves that a run was sealed successfully.
+Completion and recovery state belong to the container. Borrowing an interrupted
+inline encoder or a backend unwinding through a panic cannot be made safe merely
+by logging an ending. Crash sealing should operate independently of an interrupted
+frontend when the backend remains usable. When safe sealing is impossible, the
+verified prefix must remain recoverable.
 
-VDB holds design-source mappings. Viewer state, source navigation policy,
-application layout, and remote protocols belong to their consuming application.
-Keeping those boundaries separate lets VTR focus on durable recorded meaning,
-correct selective decoding, and predictable ownership.
+A recording identity distinguishes independent runs even when their lengths and
+directory checksums match. Derived activity indexes and caches bind to the full
+fingerprint. Activity summaries help find interesting windows without changing
+the original observations, and can be rebuilt when absent. Recovery produces a
+new fingerprint, so stale summaries cannot silently apply to the recovered file.
+
+## Performance claims need complete measurements
+
+VTR aims for compact waveform and transaction recordings with low simulator
+capture cost and useful selective access. FST and FTR provide relevant
+compressed-format comparisons; VCD provides a simpler write-speed reference.
+These are measurement objectives, not conclusions from an API shape or a
+compression ratio.
+
+Benchmarks must verify full reads and queries against source replay before
+reporting results, and record their workloads and settings. Comparisons need
+equivalent observations, comparable hardware and CPU budgets, repeated runs,
+complete final drain and close, and the same integrity policy. Write and read
+time, encoded size, peak memory, selective-query latency, and producer cost
+all matter. A faster producer that leaves unbounded work queued has not made
+recording faster overall.
+
+Logging measurements also need several callsites per logger, shared argument
+packs, many loggers, repeated and large text, disabled levels, first-use
+registration, and steady capture. They must distinguish frontend latency from
+backend throughput and shutdown cost. Small synthetic results do not establish
+simulator speedup, cold-device latency, or every asynchronous scaling property.
+Retain slower results and investigate them rather than selecting only improved
+workloads.
+
+Rust and C++ implementations should be checked independently through
+bidirectional interoperability tests, byte-level decoding oracles, malformed
+inputs, and failure tests. These provide different kinds of evidence and should
+agree on values, references, query results, and recovery behavior without
+depending on the same encoder internals.
+
+## Boundaries and reference designs
+
+VTR owns durable runtime facts, their identities, and their retrieval. VDB holds
+design-source mappings. A callsite's runtime file and line explain where a
+diagnostic statement originated; they do not replace VDB's mapping to HDL or
+other design sources. Simulator integration, conversion, viewer layout, source
+navigation policy, and remote protocols belong to their consuming components.
+These boundaries allow one recording to serve several tools without rewriting
+its meaning or making every reader depend on a particular application.
+
+The following designs inform different parts of the model:
+
+- FTR / LWTR4SC: generators, transaction attributes, and explicit relations.
+- FST / libfst: compact signal histories and grouped waveform storage.
+- Kanata / Konata: instruction lifecycles, stages, and lanes.
+- OpenTelemetry: span kinds, events, links, and completion status.
+- NanoLog: separating static statement information from dynamic values.
+- binlog: typed binary logging with reusable event metadata.
+- Quill: static callsite metadata, argument capture, and deferred backend work.
+- CLP: exploiting repeated structure and text in log storage and queries.
