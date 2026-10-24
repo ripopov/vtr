@@ -84,11 +84,27 @@ accepts an optional output/input filename, and is run by CTest.
 | `./vtr_waveforms` | Binary/four-state/real signals, aliases, time updates, point queries, transition scans, and activity sidecar round trips |
 | `./vtr_parallel_recording` | Independent SPSC producers, simulation-time advances, nested owning payloads, statistics, and retained records |
 | `./vtr_relationships` | Ordinary children, attributes, embedded stages, typed formatted logs, relations, clock associations, and cycle queries |
+| `./vtr_logging` | Quill-style calls with static callsite schemas, source metadata, typed argument capture, and deferred formatting |
 | `./vtr_recovery` | Explicitly incomplete output, recovery to a different file, and validation of surviving evidence |
 
 The transaction tutorials share only `examples/instruction.h`, which declares
 the data record and its schema. The reader opens its input directly and can run
 in a separate process from the writer.
+
+`examples/logging.cpp` uses the `LOG_INFO(logger, "request={}", request)` and
+`LOG_WARNING` macros in `examples/logging.h`. Each callsite has static format,
+severity, and source location metadata plus a typed slot. Callers with the same
+argument types share a schema and encoder. The logger binds a source on first use;
+subsequent calls index its source table directly, without hashing or runtime type
+checks. Metadata registration is kept off the repeated capture path. Explicitly
+declared typed callsites can use `Logger::prepare` before a latency-sensitive loop
+to register a source without emitting a warmup message.
+
+Format strings are checked against the argument types at compile time.
+`Logger::set_level` filters calls before evaluating their arguments, including
+`Severity::off`. Each logger belongs to one writer and logical producer; serialize
+its calls. Text arguments are copied before the call returns;
+`Reader::format_log` renders messages after recording finishes.
 
 ## Recording
 

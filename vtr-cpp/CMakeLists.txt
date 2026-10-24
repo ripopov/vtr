@@ -66,6 +66,10 @@ if(BUILD_TESTING)
     target_link_libraries(vtr_declarations_test PRIVATE vtr)
     add_test(NAME hdl_declarations COMMAND vtr_declarations_test
         ${CMAKE_CURRENT_BINARY_DIR}/declaration-fixtures)
+    add_executable(vtr_logging_example_test tests/logging_example_test.cpp)
+    target_link_libraries(vtr_logging_example_test PRIVATE vtr)
+    add_test(NAME logging_callsite_capture COMMAND vtr_logging_example_test
+        ${CMAKE_CURRENT_BINARY_DIR}/logging-fixtures)
     add_executable(vtr_dpi_test tests/dpi_test.cpp)
     target_include_directories(vtr_dpi_test PRIVATE tests/dpi_stub)
     target_link_libraries(vtr_dpi_test PRIVATE vtr)
@@ -131,7 +135,8 @@ if(BUILD_TESTING)
 endif()
 
 if(VTR_BUILD_EXAMPLES)
-    foreach(example IN ITEMS write_transactions read_transactions waveforms parallel_recording relationships recovery)
+    foreach(example IN ITEMS write_transactions read_transactions waveforms parallel_recording
+                             relationships logging recovery)
         add_executable(vtr_${example} examples/${example}.cpp)
         target_link_libraries(vtr_${example} PRIVATE vtr)
         if(BUILD_TESTING)
