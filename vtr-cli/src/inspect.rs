@@ -12,7 +12,11 @@ pub fn info(path: &Path) -> Result<()> {
     let reader = Reader::open(path)?;
     let metadata = reader.metadata();
     println!("file:        {}", path.display());
-    println!("version:     3.2");
+    println!(
+        "version:     {}.{}",
+        vtr::framing::VERSION.0,
+        vtr::framing::VERSION.1
+    );
     println!("recording:   {}", reader.identity());
     println!(
         "completion:  {:?} ({} bytes dropped)",
@@ -43,7 +47,7 @@ pub fn info(path: &Path) -> Result<()> {
             NodeData::Scope { .. } => scopes += 1,
             NodeData::Signal { .. } => variables += 1,
             NodeData::Generator { .. } => generators += 1,
-            NodeData::EnumTable { .. } => (),
+            NodeData::EnumTable { .. } | NodeData::Callsite { .. } => (),
         }
     }
     println!(
@@ -151,6 +155,9 @@ pub fn hierarchy(path: &Path, max_depth: usize, variables: bool, sizes: bool) ->
                 "{indent}{name} [generator {} type#{payload_type}]",
                 reader.string(*kind)?
             ),
+            NodeData::Callsite { payload_type } => {
+                println!("{indent}{name} [callsite type#{payload_type}]");
+            }
             NodeData::EnumTable { entries } => {
                 println!("{indent}{name} [enum {} literals]", entries.len());
             }
@@ -312,19 +319,17 @@ pub fn logs(
     let reader = Reader::open(path)?;
     let scope = find_scope(&reader, scope)?;
     let sources: BTreeMap<_, _> = reader
-        .log_sources()?
+        .log_callsites()?
         .into_iter()
-        .filter(|source| {
-            source.severity >= severity && reader.is_within(NodeId(source.generator), scope)
-        })
-        .map(|source| (source.generator, source))
+        .filter(|source| source.severity >= severity)
+        .map(|source| (source.callsite, source))
         .collect();
     if sites {
         for source in sources.values() {
             println!(
                 "site {} {} {} type#{}",
-                source.generator,
-                reader.full_path(NodeId(source.generator))?,
+                source.callsite,
+                reader.full_path(NodeId(source.callsite))?,
                 source.severity.name(),
                 source.payload_type
             );
@@ -333,50 +338,70 @@ pub fn logs(
     }
     let mut shown = 0usize;
     let mut error = None;
-    reader.records(
-        RecordQuery {
-            kind: Some(RecordKind::Log),
-            begin: window.0,
-            end: window.1,
-            ..Default::default()
-        },
-        |record| {
-            let Some(source) = record
-                .generator()
-                .and_then(|generator| sources.get(&generator))
-            else {
-                return true;
-            };
-            if shown >= max {
-                return false;
+    let loggers: Vec<_> = reader
+        .declarations()
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(id, node)| {
+            if let NodeData::Generator { kind, .. } = node.data {
+                (reader.string(kind).ok() == Some("LOG")
+                    && reader.is_within(NodeId(id as u32), scope))
+                .then_some(id as u32)
+            } else {
+                None
             }
-            match reader.format_log_bytes(&record) {
-                Ok(bytes) => {
-                    let message = String::from_utf8(bytes).unwrap_or_else(|error| {
-                        use std::fmt::Write;
-                        let mut text = String::from("[non-UTF-8 bytes] ");
-                        for byte in error.into_bytes() {
-                            write!(text, "{byte:02x}").unwrap();
+        })
+        .collect();
+    'streams: for generator in loggers {
+        for source in sources.values() {
+            reader.records(
+                RecordQuery {
+                    kind: Some(RecordKind::Log),
+                    generator: Some(generator),
+                    callsite: Some(source.callsite),
+                    begin: window.0,
+                    end: window.1,
+                    ..Default::default()
+                },
+                |record| {
+                    if shown >= max {
+                        return false;
+                    }
+                    match reader.format_log_bytes(&record) {
+                        Ok(bytes) => {
+                            let message = String::from_utf8(bytes).unwrap_or_else(|error| {
+                                use std::fmt::Write;
+                                let mut text = String::from("[non-UTF-8 bytes] ");
+                                for byte in error.into_bytes() {
+                                    write!(text, "{byte:02x}").unwrap();
+                                }
+                                text
+                            });
+                            println!(
+                                "{} {:<5} {}: {}",
+                                record.begin(),
+                                source.severity.name(),
+                                reader
+                                    .full_path(NodeId(record.generator().unwrap()))
+                                    .unwrap(),
+                                message
+                            );
                         }
-                        text
-                    });
-                    println!(
-                        "{} {:<5} {}: {}",
-                        record.begin(),
-                        source.severity.name(),
-                        reader.full_path(NodeId(source.generator)).unwrap(),
-                        message
-                    );
-                }
-                Err(failure) => {
-                    error = Some(failure);
-                    return false;
-                }
+                        Err(failure) => {
+                            error = Some(failure);
+                            return false;
+                        }
+                    }
+                    shown += 1;
+                    true
+                },
+            )?;
+            if shown >= max || error.is_some() {
+                break 'streams;
             }
-            shown += 1;
-            true
-        },
-    )?;
+        }
+    }
     if let Some(error) = error {
         return Err(error.into());
     }

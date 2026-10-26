@@ -39,11 +39,14 @@ fn independent_sealing_drains_accepted_captures_with_live_producers() {
             opts.encoding.compression = compression;
             opts.encoding.workers = workers;
             let mut writer = Writer::create_with(&path, opts).unwrap();
+            let logger = writer
+                .logger(SourceOptions::new("diagnostics", None))
+                .unwrap();
             let source = writer
                 .transactions::<u64>(SourceOptions::new("requests", None), "REQUEST")
                 .unwrap();
             let logs = writer
-                .logs::<String>(SourceOptions::new("message {}", None))
+                .callsite::<String>(vtr::CallsiteOptions::new("message {}"))
                 .unwrap();
             let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
             let signal = writer
@@ -71,7 +74,9 @@ fn independent_sealing_drains_accepted_captures_with_live_producers() {
                 }
                 writer.advance_time(time).unwrap();
                 writer.emit_u64(signal, time).unwrap();
-                writer.log(logs, &format!("step {time}"), None).unwrap();
+                writer
+                    .log(logger, logs, &format!("step {time}"), None)
+                    .unwrap();
                 if time == 1 {
                     writer.clock_run(clock, 0, 2).unwrap();
                 }
@@ -169,10 +174,13 @@ fn schema_panics_never_finalize_a_partly_mutated_backend() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("schema-panic.vtr");
         let mut writer = Writer::create_with(&path, options(mode)).unwrap();
-        let logs = writer
-            .logs::<u64>(SourceOptions::new("good {}", None))
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        let id = writer.log(logs, &42, None).unwrap();
+        let logs = writer
+            .callsite::<u64>(vtr::CallsiteOptions::new("good {}"))
+            .unwrap();
+        let id = writer.log(logger, logs, &42, None).unwrap();
         writer.flush().unwrap();
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             writer.transactions::<PanicSchema>(SourceOptions::new("bad", None), "REQUEST")
@@ -211,17 +219,28 @@ fn payload_panics_poison_the_entire_frontend_call_and_preserve_owned_records() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("panic.vtr");
         let mut writer = Writer::create_with(&path, options(mode)).unwrap();
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
+            .unwrap();
         let good = writer
-            .logs::<u64>(SourceOptions::new("good {}", None))
+            .callsite::<u64>(vtr::CallsiteOptions::new("good {}"))
             .unwrap();
         let bad = writer
-            .logs::<PanicPayload>(SourceOptions::new("bad", None))
+            .callsite::<PanicPayload>(vtr::CallsiteOptions::new("bad"))
             .unwrap();
-        let id = writer.log(good, &42, None).unwrap();
+        let id = writer.log(logger, good, &42, None).unwrap();
         writer.flush().unwrap();
-        assert!(catch_unwind(AssertUnwindSafe(|| writer.log(bad, &PanicPayload, None))).is_err());
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| writer.log(
+                logger,
+                bad,
+                &PanicPayload,
+                None
+            )))
+            .is_err()
+        );
         assert!(writer.is_poisoned());
-        assert!(writer.log(good, &43, None).is_err());
+        assert!(writer.log(logger, good, &43, None).is_err());
         let result = writer.close();
         assert_eq!(result.is_ok(), mode == ExecutionMode::Threaded);
         drop(writer);
@@ -332,8 +351,11 @@ fn rescue_wakes_capture_waiting_for_queue_space_before_output_resumes() {
     };
     let mut writer =
         Writer::from_writer(Box::new(output), options(ExecutionMode::Threaded)).unwrap();
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let source = writer
-        .logs::<String>(SourceOptions::new("message {}", None))
+        .callsite::<String>(vtr::CallsiteOptions::new("message {}"))
         .unwrap();
     writer.flush().unwrap();
     let mut producer = writer.add_producer().unwrap();
@@ -345,7 +367,7 @@ fn rescue_wakes_capture_waiting_for_queue_space_before_output_resumes() {
         let payload = "x".repeat(4096);
         let mut accepted = 0;
         loop {
-            if producer.log(source, &payload, None).is_err() {
+            if producer.log(logger, source, &payload, None).is_err() {
                 break;
             }
             accepted += 1;
@@ -367,7 +389,7 @@ fn rescue_wakes_capture_waiting_for_queue_space_before_output_resumes() {
     reader
         .records(
             RecordQuery {
-                generator: Some(source.id()),
+                generator: Some(logger.id()),
                 ..RecordQuery::default()
             },
             |_| {
@@ -412,14 +434,19 @@ fn output_panics_wake_producers_and_never_finalize_a_damaged_backend() {
     let mut options = options(ExecutionMode::Threaded);
     options.encoding.workers = 2;
     let mut writer = Writer::from_writer(Box::new(output), options).unwrap();
-    let source = writer
-        .logs::<String>(SourceOptions::new("{}", None))
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
         .unwrap();
-    let good = writer.log(source, &"published".into(), None).unwrap();
+    let source = writer
+        .callsite::<String>(vtr::CallsiteOptions::new("{}"))
+        .unwrap();
+    let good = writer
+        .log(logger, source, &"published".into(), None)
+        .unwrap();
     writer.flush().unwrap();
     fail.store(true, Ordering::Release);
     for _ in 0..50 {
-        if writer.log(source, &"x".repeat(4096), None).is_err() {
+        if writer.log(logger, source, &"x".repeat(4096), None).is_err() {
             break;
         }
     }

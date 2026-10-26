@@ -215,13 +215,18 @@ fn missing_payloads_reject_end_and_normal_close_but_sealing_preserves_valid_evid
             let path = dir.path().join("missing.vtr");
             let mut writer =
                 Writer::create_with(&path, options(mode, Compression::LZ4, 0)).unwrap();
+            let logger = writer
+                .logger(SourceOptions::new("diagnostics", None))
+                .unwrap();
             let owners = writer
                 .transactions::<u64>(SourceOptions::new("owners", None), "OWNER")
                 .unwrap();
             let stages = writer
                 .stages::<String>(SourceOptions::new("stages", None))
                 .unwrap();
-            let logs = writer.logs::<u64>(SourceOptions::new("{}", None)).unwrap();
+            let logs = writer
+                .callsite::<u64>(vtr::CallsiteOptions::new("{}"))
+                .unwrap();
             let good = writer.begin(owners, &42, None).unwrap();
             let missing = writer.begin_deferred(owners, None).unwrap();
             let child = writer.begin(owners, &7, Some(missing.owner())).unwrap();
@@ -230,7 +235,9 @@ fn missing_payloads_reject_end_and_normal_close_but_sealing_preserves_valid_evid
             let orphan_stage = writer
                 .begin_stage(stages, missing.owner(), &"valid stage".into())
                 .unwrap();
-            let log = writer.log(logs, &99, Some(missing.owner())).unwrap();
+            let log = writer
+                .log(logger, logs, &99, Some(missing.owner()))
+                .unwrap();
             writer.flush().unwrap();
             let result = match case {
                 0 => writer.end(missing, Status::Ok),
@@ -341,13 +348,18 @@ fn independent_rescue_drains_deferred_captures_without_fabricating_missing_value
         let path = dir.path().join("rescue.vtr");
         let mut writer =
             Writer::create_with(&path, options(ExecutionMode::Threaded, compression, 2)).unwrap();
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
+            .unwrap();
         let source = writer
             .transactions::<String>(SourceOptions::new("owners", None), "OWNER")
             .unwrap();
         let stages = writer
             .stages::<String>(SourceOptions::new("stages", None))
             .unwrap();
-        let logs = writer.logs::<u64>(SourceOptions::new("{}", None)).unwrap();
+        let logs = writer
+            .callsite::<u64>(vtr::CallsiteOptions::new("{}"))
+            .unwrap();
         let mut producer = writer.add_producer().unwrap();
         producer.advance_time(5).unwrap();
         let ready = producer.begin_deferred(source, None).unwrap();
@@ -356,7 +368,9 @@ fn independent_rescue_drains_deferred_captures_without_fabricating_missing_value
         let missing_stage = producer
             .begin_stage_deferred(stages, ready.owner())
             .unwrap();
-        let log = producer.log(logs, &99, Some(missing.owner())).unwrap();
+        let log = producer
+            .log(logger, logs, &99, Some(missing.owner()))
+            .unwrap();
         let sealer = writer.sealer();
         writer.guarded(|_| {
             std::thread::spawn(move || sealer.seal(vtr::Ending::Poisoned))

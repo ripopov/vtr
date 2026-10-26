@@ -12,7 +12,8 @@ int main(int argc, char** argv) {
         auto core = trace.scope("core0");
         auto instructions =
             trace.transactions<Instruction>({.name = "instructions", .parent = core});
-        auto messages = trace.logs<Instruction>({.name = "pc={0:#x} opcode={1}", .parent = core});
+        auto logger = trace.logger({.name = "diagnostics"});
+        auto messages = trace.callsite<Instruction>({.format = "pc={0:#x} opcode={1}"});
         auto clock = trace.clock({.name = "clock", .parent = core});
         trace.associate_clock(instructions, clock);
         auto label = trace.intern("vtr.label");
@@ -27,7 +28,7 @@ int main(int argc, char** argv) {
             trace.begin_at(instructions, 12, Instruction{0x8004, 0x33}, {.parent = parent});
         auto detail = trace.embedded_stage(parent, 10, phase, lane);
         trace.end_embedded_stage(parent, detail, 12);
-        trace.log_at(messages, 13, Instruction{0x8000, 0x13}, parent);
+        trace.log_at(logger, messages, 13, Instruction{0x8000, 0x13}, parent);
         trace.relate(dependency, parent.id(), child.id());
         trace.end_at(child, 17, vt::Status::ok);
         trace.end_at(parent, 15, vt::Status::ok);

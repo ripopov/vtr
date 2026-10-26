@@ -115,6 +115,7 @@ pub struct Generator {
 pub struct Generators {
     prefix: Vec<Option<Generator>>,
     generators: BTreeMap<GeneratorId, Generator>,
+    callsites: BTreeMap<u32, TypeId>,
 }
 
 impl Generators {
@@ -122,11 +123,38 @@ impl Generators {
         std::mem::size_of::<Self>()
             + self.prefix.capacity() * std::mem::size_of::<Option<Generator>>()
             + self.generators.len() * std::mem::size_of::<(GeneratorId, Generator)>()
+            + self.callsites.len() * std::mem::size_of::<(u32, TypeId)>()
     }
+    pub fn declare_callsite(&mut self, id: u32, datatype: TypeId) -> Result<()> {
+        if id == u32::MAX || self.callsites.contains_key(&id) {
+            return Err(Error::Corrupt("invalid or redeclared callsite"));
+        }
+        self.callsites.insert(id, datatype);
+        Ok(())
+    }
+
+    pub fn callsite_type(&self, id: u32) -> Result<TypeId> {
+        self.callsites
+            .get(&id)
+            .copied()
+            .ok_or(Error::Corrupt("undeclared callsite"))
+    }
+
+    pub fn payload_type(&self, generator: GeneratorId, callsite: Option<u32>) -> Result<TypeId> {
+        let source = self.get(generator)?;
+        match (source.kind, callsite) {
+            (RecordKind::Log, Some(id)) => self.callsite_type(id),
+            (RecordKind::Log, None) => Err(Error::Corrupt("log requires a callsite")),
+            (_, None) => Ok(source.payload_type),
+            (_, Some(_)) => Err(Error::Corrupt("fixed-schema record has a callsite")),
+        }
+    }
+
     pub fn declare(&mut self, generator: Generator) -> Result<()> {
         if generator.id == u32::MAX
             || generator.kind > RecordKind::Log
-            || (generator.kind == RecordKind::Clock && generator.payload_type != 0)
+            || (matches!(generator.kind, RecordKind::Clock | RecordKind::Log)
+                && generator.payload_type != 0)
         {
             return Err(Error::Corrupt("invalid generator declaration"));
         }
@@ -168,12 +196,21 @@ impl Generators {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocatedRecord {
+    // A reserved absent ID preserves fixed-schema buffer budgets without an optional tag.
+    pub callsite_id: u32,
     pub id: RecordId,
     pub generator: GeneratorId,
     pub begin: u64,
     pub end: u64,
     pub parent: RecordId,
     pub payload: Vec<u8>,
+}
+
+impl LocatedRecord {
+    #[must_use]
+    pub fn callsite(&self) -> Option<u32> {
+        (self.callsite_id != u32::MAX).then_some(self.callsite_id)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -195,6 +232,7 @@ impl Default for RecordPolicy {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentHeader {
+    pub callsite: Option<u32>,
     pub generator: GeneratorId,
     pub page: u32,
     pub count: u32,
@@ -217,6 +255,7 @@ pub struct PageHeader {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RecordQuery {
+    pub callsite: Option<u32>,
     pub generator: Option<GeneratorId>,
     pub parent: Option<RecordId>,
     pub id: Option<RecordId>,
@@ -229,6 +268,7 @@ pub struct RecordQuery {
 impl Default for RecordQuery {
     fn default() -> Self {
         Self {
+            callsite: None,
             generator: None,
             parent: None,
             id: None,
@@ -338,6 +378,7 @@ impl SegmentEncoder<'_> {
         types: &Types,
         generator: &Generator,
         record: &LocatedRecord,
+        datatype: TypeId,
     ) -> Result<()> {
         put_i64(
             &mut self.columns[0],
@@ -365,8 +406,7 @@ impl SegmentEncoder<'_> {
         if generator.kind == RecordKind::Stage {
             put_u64(&mut self.columns[3], record.end - record.begin);
         }
-        self.arguments
-            .append(types, generator.payload_type, &record.payload)?;
+        self.arguments.append(types, datatype, &record.payload)?;
         self.previous_id = record.id;
         self.previous_parent = record.parent;
         self.previous_end = record.end;
@@ -424,25 +464,28 @@ pub fn encode_record_block(
     {
         return Err(Error::invalid("empty record block or invalid policy"));
     }
-    let mut buckets: Vec<(Generator, Vec<&LocatedRecord>)> = Vec::new();
+    let mut buckets: Vec<(Generator, Option<u32>, TypeId, Vec<&LocatedRecord>)> = Vec::new();
     let mut indices = BTreeMap::new();
     let mut ids = HashSet::new();
     for record in records {
         let generator = *generators.get(record.generator)?;
         valid_record(record, &generator)?;
-        types.validate(generator.payload_type, &record.payload, string_count)?;
+        let datatype = generators.payload_type(record.generator, record.callsite())?;
+        types.validate(datatype, &record.payload, string_count)?;
         if !ids.insert(record.id) {
             return Err(Error::invalid("duplicate global record identifier"));
         }
-        let index = *indices.entry(record.generator).or_insert_with(|| {
-            let index = buckets.len();
-            buckets.push((generator, Vec::new()));
-            index
-        });
-        buckets[index].1.push(record);
+        let index = *indices
+            .entry((record.generator, record.callsite()))
+            .or_insert_with(|| {
+                let index = buckets.len();
+                buckets.push((generator, record.callsite(), datatype, Vec::new()));
+                index
+            });
+        buckets[index].3.push(record);
     }
     if policy.separate_logs {
-        buckets.sort_by_key(|(generator, _)| generator.kind == RecordKind::Log);
+        buckets.sort_by_key(|(generator, ..)| generator.kind == RecordKind::Log);
     }
     let mut segments = Vec::new();
     let mut pages = Vec::new();
@@ -450,7 +493,7 @@ pub fn encode_record_block(
     let mut blobs = Vec::new();
     let mut all = Bounds::default();
     let mut had_activity = false;
-    for (generator, bucket) in buckets {
+    for (generator, callsite, datatype, bucket) in buckets {
         if policy.separate_logs && generator.kind == RecordKind::Log && had_activity {
             flush_page(&mut raw_page, &mut pages, &mut blobs, policy.compression)?;
             had_activity = false;
@@ -465,7 +508,7 @@ pub fn encode_record_block(
             while index < bucket.len() {
                 let lengths = encoder.columns.each_ref().map(Vec::len);
                 let checkpoint = encoder.arguments.checkpoint();
-                encoder.append(types, &generator, bucket[index])?;
+                encoder.append(types, &generator, bucket[index], datatype)?;
                 let size = encoder.size();
                 if index != first && size > policy.page_bytes {
                     for (column, length) in encoder.columns.iter_mut().zip(lengths) {
@@ -487,6 +530,7 @@ pub fn encode_record_block(
                 flush_page(&mut raw_page, &mut pages, &mut blobs, policy.compression)?;
             }
             segments.push(SegmentHeader {
+                callsite,
                 generator: generator.id,
                 page: checked_u32(pages.len())?,
                 count: checked_u32(index - first)?,
@@ -517,8 +561,11 @@ pub fn encode_record_block(
         out.extend_from_slice(&value.to_le_bytes());
     }
     for segment in segments {
+        out.extend_from_slice(&segment.generator.to_le_bytes());
+        if let Some(callsite) = segment.callsite {
+            out.extend_from_slice(&callsite.to_le_bytes());
+        }
         for value in [
-            segment.generator,
             segment.page,
             segment.count,
             segment.raw_offset,
@@ -588,8 +635,16 @@ impl<'a> RecordBlockView<'a> {
         }
         let mut segments = Vec::new();
         for _ in 0..segment_count {
+            let generator_id = cursor.u32()?;
+            let generator = generators.get(generator_id)?;
+            let callsite = if generator.kind == RecordKind::Log {
+                Some(cursor.u32()?)
+            } else {
+                None
+            };
             let segment = SegmentHeader {
-                generator: cursor.u32()?,
+                generator: generator_id,
+                callsite,
                 page: cursor.u32()?,
                 count: cursor.u32()?,
                 raw_offset: cursor.u32()?,
@@ -602,7 +657,7 @@ impl<'a> RecordBlockView<'a> {
                 end: cursor.u64()?,
             };
             let generator = generators.get(segment.generator)?;
-            types.get(generator.payload_type)?;
+            types.get(generators.payload_type(segment.generator, segment.callsite)?)?;
             if !(RecordKind::Event..=RecordKind::Log).contains(&generator.kind)
                 || segment.page >= page_count
                 || segment.count == 0
@@ -721,7 +776,10 @@ impl<'a> RecordBlockView<'a> {
         let mut raw = Vec::new();
         for segment in &self.segments {
             let generator = self.generators.get(segment.generator)?;
-            if query.generator.is_some_and(|id| id != segment.generator)
+            if query
+                .callsite
+                .is_some_and(|id| Some(id) != segment.callsite)
+                || query.generator.is_some_and(|id| id != segment.generator)
                 || (!query.include_logs && generator.kind == RecordKind::Log)
                 || query.kind.is_some_and(|kind| kind != generator.kind)
                 || query
@@ -735,6 +793,9 @@ impl<'a> RecordBlockView<'a> {
             {
                 continue;
             }
+            let datatype = self
+                .generators
+                .payload_type(generator.id, segment.callsite)?;
             if cached_page != Some(segment.page) {
                 let page = &self.pages[segment.page as usize];
                 let start = page.blob_offset as usize;
@@ -779,12 +840,13 @@ impl<'a> RecordBlockView<'a> {
                     .checked_add(duration)
                     .ok_or_else(|| Error::corrupt("stage end overflow"))?;
                 let record = LocatedRecord {
+                    callsite_id: segment.callsite.unwrap_or(u32::MAX),
                     id,
                     generator: generator.id,
                     begin,
                     end,
                     parent,
-                    payload: arguments.read(self.types, generator.payload_type)?,
+                    payload: arguments.read(self.types, datatype)?,
                 };
                 valid_record(&record, generator)?;
                 bounds.add(&record);

@@ -286,7 +286,8 @@ void allocation_free_recording(const fs::path& dir) {
     vtr::Writer writer(path, {.buffer = {.queue_bytes = 4096}});
     const auto signal = writer.signal({.name = "signal"}, {.width = 32});
     const auto source = writer.transactions<std::array<std::uint64_t, 4>>({.name = "request"});
-    const auto logs = writer.logs<std::string>({.name = "message"});
+    auto logger = writer.logger({.name = "diagnostics"});
+    const auto logs = writer.callsite<std::string>({.format = "message"});
     const auto key = writer.intern("sequence");
     writer.advance_time(1);
     writer.flush();
@@ -299,7 +300,7 @@ void allocation_free_recording(const fs::path& dir) {
         writer.emit(updates);
         auto record = writer.begin(source, std::array<std::uint64_t, 4>{i, 2, 3, 4});
         writer.attribute(record, key, vtr::Value(std::uint64_t(i)));
-        writer.log(logs, std::string("short"), record);
+        writer.log(logger, logs, std::string("short"), record);
         writer.end(record);
         writer.publish();
     }
@@ -326,7 +327,8 @@ void allocation_free_large_capture(const fs::path& dir) {
     const auto source = writer.transactions<Payload>({.name = "owner"});
     const auto stages = writer.stages<Payload>({.name = "stage"});
     const auto events = writer.events<Payload>({.name = "event"});
-    const auto logs = writer.logs<Payload>({.name = "log"});
+    auto logger = writer.logger({.name = "diagnostics"});
+    const auto logs = writer.callsite<Payload>({.format = "log"});
     std::array<std::string, 4> storage;
     Payload value;
     for (auto& part : storage) {
@@ -344,7 +346,7 @@ void allocation_free_large_capture(const fs::path& dir) {
         writer.payload(owner, value);
         writer.payload(stage, value);
         writer.event(events, owner, value);
-        writer.log(logs, value, owner);
+        writer.log(logger, logs, value, owner);
         writer.end_at(stage, i + 1, value);
         writer.end_at(owner, i + 1, value, vtr::Status::ok);
         storage[0][0] = '?';
@@ -375,11 +377,13 @@ void failed_direct_capture(const fs::path& dir) {
     for (const auto size : {300u, 4096u}) {
         const auto path = dir / ("failed-direct-" + std::to_string(size) + ".vtr");
         Stream stream(path, {}, {.queue_bytes = 512});
-        const auto generator = stream.control([](Writer& backend) {
-            return backend.add_generator(none, "message", "LOG", backend.bind<std::string>());
+        const auto generator = stream.control(
+            [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
+        const auto callsite = stream.control([](Writer& backend) {
+            return backend.add_callsite("{}", backend.bind<std::string>());
         });
         stream.advance_time(1);
-        stream.log(generator, 1, capture(std::string("before")));
+        stream.log(generator, callsite, 1, capture(std::string("before")));
         stream.advance_time(2);
         stream.flush();
         const vtr::detail::EncodedPayload broken{size, nullptr,
@@ -389,7 +393,7 @@ void failed_direct_capture(const fs::path& dir) {
                                                  }};
         bool rejected = false;
         try {
-            stream.log(generator, 2, broken);
+            stream.log(generator, callsite, 2, broken);
         } catch (const std::bad_alloc&) {
             rejected = true;
         }
@@ -413,15 +417,16 @@ void failed_direct_capture(const fs::path& dir) {
 void oversized_publication_failure(const fs::path& dir) {
     const auto path = dir / "oversized-publication.vtr";
     Stream stream(path, {}, {.queue_bytes = 256});
-    const auto generator = stream.control([](Writer& backend) {
-        return backend.add_generator(none, "message", "LOG", backend.bind<std::string>());
-    });
+    const auto generator = stream.control(
+        [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
+    const auto callsite = stream.control(
+        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
     stream.advance_time(1);
     const auto value = capture(std::string(4096, 'x'));
     fail_after = 0;
     bool rejected = false;
     try {
-        (void)stream.log(generator, 1, value);
+        (void)stream.log(generator, callsite, 1, value);
     } catch (const std::bad_alloc&) {
         rejected = true;
     }

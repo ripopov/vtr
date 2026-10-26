@@ -1,8 +1,8 @@
 # VTR file format specification
 
 This document and [TRANSACTIONS.md](TRANSACTIONS.md) specify the current VTR
-wire format, **3.2**, including scalar-page and shared-text encodings.
-The C++ package version is independently 4.0. Activity
+wire format, **3.3**, including scalar-page and shared-text encodings.
+The C++ package version is independently 5.0. Activity
 sidecars use VTI 3.0. File versions describe bytes, not API or package revisions.
 Readers and recovery tools reject other VTR header versions. Regenerate older
 recordings; there is no compatibility reader.
@@ -202,6 +202,7 @@ existing forest. Parentage is immutable.
 | 2 variable | `varint var_type`, `u8 direction`, `varint signal_back`, `u8 declares`, then a signal kind when declaring |
 | 3 generator | `varint kind_string_id`, `varint payload_datatype_id` |
 | 4 enum table | `varint count`, pairs of `varint literal_string_id`, `varint value_string_id` |
+| 5 callsite | `varint argument_datatype_id`; name is the format string |
 
 Direction codes are 0 implicit, 1 input, 2 output, 3 inout, 4 buffer, 5 linkage.
 For a variable, `signal_id = next_signal_id - signal_back`. A declaring variable
@@ -210,9 +211,16 @@ has `declares=0`, a positive valid back distance, and no signal-kind payload.
 Aliases share signal identity; they do not allocate another history.
 
 Generator kinds `CLOCK`, `EVENT`, `STAGE`, and `LOG` are reserved; other strings
-identify ordinary transaction sources. Each source has one immutable payload
-datatype, detailed in [TRANSACTIONS.md](TRANSACTIONS.md). Scope grouping does not
-inherit record kind or metadata.
+identify ordinary transaction sources. Ordinary transactions, events and stages
+bind one immutable payload datatype. CLOCK and LOG generators declare unit
+(datatype 0). A LOG generator names a logger stream; each message's callsite
+selects its argument datatype. See [TRANSACTIONS.md](TRANSACTIONS.md).
+
+Callsites share the node ID namespace but are not design locations, scopes, or
+generators. Their parent distance must be zero. Their argument datatype and
+metadata are immutable and must be declared before dependent blocks. Required
+severity and optional provenance attributes are specified in [LOGGING.md](LOGGING.md).
+Scope grouping does not inherit record kind or metadata.
 
 A declaring signal stores `u8 encoding`: 0 bits/2-state, 1 bits/4-state,
 2 bits/9-state, 3 binary64 real, 4 opaque variable-length bytes. Codes 0–2 append
@@ -298,7 +306,7 @@ Every referenced string must already exist.
 
 Keys starting with `vtr.` or `log.` are reserved. `vtr.label`, when present, is
 `str` or `text`. `vtr.clock` is a `u32` generator ID referring to a CLOCK source.
-Log source metadata is specified in [LOGGING.md](LOGGING.md).
+Callsite metadata is specified in [LOGGING.md](LOGGING.md).
 
 ## 6. SIGNAL_BLOCK (kind 4)
 
@@ -471,7 +479,7 @@ tables with the duplicated boundary time removed.
 
 [TRANSACTIONS.md](TRANSACTIONS.md) defines DATATYPES, canonical payloads,
 TX_BLOCK, RECORD_BLOCK, ownership, embedded children, relations, clocks, and
-query semantics. Logs use ordinary typed LOG generators and RECORD_BLOCK pages;
+query semantics. Logs use named LOG generators, callsite declarations and RECORD_BLOCK pages;
 there is no separate log-block encoding.
 
 ## 8. Conformance and limits

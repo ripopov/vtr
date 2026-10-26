@@ -66,11 +66,14 @@ fn runtime_navigation_filters_parent_kind_and_time_and_honors_cancellation() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("navigation.vtr");
     let mut writer = Writer::create(&path).unwrap();
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let source = writer
         .transactions::<()>(SourceOptions::new("requests", None), "REQUEST")
         .unwrap();
     let logs = writer
-        .logs::<u64>(SourceOptions::new("time {}", None))
+        .callsite::<u64>(vtr::CallsiteOptions::new("time {}"))
         .unwrap();
     let stages = writer
         .stages::<()>(SourceOptions::new("stage", None))
@@ -87,10 +90,10 @@ fn runtime_navigation_filters_parent_kind_and_time_and_honors_cancellation() {
     writer.end_stage(stage).unwrap();
     for time in [2, 3, 5, 6] {
         writer
-            .log_at(logs, time, &time, Some(parent.owner()))
+            .log_at(logger, logs, time, &time, Some(parent.owner()))
             .unwrap();
         writer
-            .log_at(logs, time, &time, Some(unrelated.owner()))
+            .log_at(logger, logs, time, &time, Some(unrelated.owner()))
             .unwrap();
     }
     writer.advance_time(10).unwrap();

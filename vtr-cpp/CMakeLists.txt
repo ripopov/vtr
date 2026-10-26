@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(vtr VERSION 4.0.0 LANGUAGES CXX)
+project(vtr VERSION 5.0.0 LANGUAGES CXX)
 
 include(CTest)
 include(GNUInstallDirs)

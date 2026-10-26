@@ -237,6 +237,61 @@ impl Backend {
             },
         )
     }
+    pub fn callsite<T: Payload + 'static>(
+        &mut self,
+        options: super::CallsiteOptions,
+    ) -> Result<u32> {
+        let payload_type = self.bind::<T>()?;
+        self.declare_callsite(options, payload_type)
+    }
+    pub fn declare_callsite(
+        &mut self,
+        options: super::CallsiteOptions,
+        payload_type: u32,
+    ) -> Result<u32> {
+        self.declarations.types.get(payload_type)?;
+        let mut attributes = vec![Attribute {
+            key: self.intern("log.severity")?,
+            value: Value::U64(options.severity),
+        }];
+        if let Some(file) = options.file {
+            let value = Value::Str(self.intern(&file)?);
+            attributes.push(Attribute {
+                key: self.intern("log.file")?,
+                value,
+            });
+        }
+        if let Some(line) = options.line {
+            attributes.push(Attribute {
+                key: self.intern("log.line")?,
+                value: Value::U64(line),
+            });
+        }
+        if let Some(function) = options.function {
+            let value = Value::Str(self.intern(&function)?);
+            attributes.push(Attribute {
+                key: self.intern("log.func")?,
+                value,
+            });
+        }
+        self.declarations
+            .validate_callsite(payload_type, &attributes)?;
+        let id = self
+            .node(
+                SourceOptions {
+                    name: options.format,
+                    parent: None,
+                    attributes,
+                },
+                NodeData::Callsite { payload_type },
+            )?
+            .0;
+        self.declarations
+            .generators
+            .declare_callsite(id, payload_type)?;
+        self.snapshot = None;
+        Ok(id)
+    }
     pub fn source<T: Payload + 'static>(
         &mut self,
         options: SourceOptions,
@@ -610,6 +665,7 @@ impl Backend {
                     id,
                     ActiveStage {
                         value: LocatedRecord {
+                            callsite_id: u32::MAX,
                             id,
                             generator,
                             begin: time,
@@ -625,26 +681,37 @@ impl Backend {
                 generator,
                 time,
                 parent,
-                log,
+                callsite,
             } => {
                 let payload = payload.expect("point payload");
-                self.payload(
-                    generator,
-                    if log {
+                let source = self.declarations.generators.get(generator)?;
+                if source.kind
+                    != if callsite.is_some() {
                         RecordKind::Log
                     } else {
                         RecordKind::Event
-                    },
+                    }
+                {
+                    return Err(Error::invalid("source kind does not match point operation"));
+                }
+                let datatype = self
+                    .declarations
+                    .generators
+                    .payload_type(generator, callsite)?;
+                self.declarations.types.validate(
+                    datatype,
                     &payload,
+                    self.declarations.strings.len() as u64,
                 )?;
                 if parent != 0 && !self.owners.contains_key(parent) {
                     return Err(Error::invalid("point owner is not active"));
                 }
-                if !log && parent == 0 {
+                if callsite.is_none() && parent == 0 {
                     return Err(Error::invalid("located event requires an owner"));
                 }
                 self.created(id)?;
                 self.submit_record(LocatedRecord {
+                    callsite_id: callsite.unwrap_or(u32::MAX),
                     id,
                     generator,
                     begin: time,
@@ -734,7 +801,7 @@ impl Backend {
                 time,
                 parent,
                 payload,
-                log,
+                callsite,
             } => {
                 self.apply_owned_payload(
                     producer,
@@ -743,7 +810,7 @@ impl Backend {
                         generator,
                         time,
                         parent,
-                        log,
+                        callsite,
                     },
                     id,
                     Some(payload),
@@ -1370,19 +1437,16 @@ impl Backend {
                 "",
             )?;
             let marker = self.intern(super::ending::MARKER)?;
-            let severity = self.intern("log.severity")?;
-            let mut options = SourceOptions::new("run {}", Some(scope));
-            options.attributes = vec![
-                Attribute {
-                    key: marker,
-                    value: Value::Bool(true),
-                },
-                Attribute {
-                    key: severity,
-                    value: Value::U64(5),
-                },
-            ];
-            let generator = self.source::<super::ending::RunEnding>(options, "LOG")?;
+
+            let mut options = SourceOptions::new("ending", Some(scope));
+            options.attributes = vec![Attribute {
+                key: marker,
+                value: Value::Bool(true),
+            }];
+            let generator = self.source::<()>(options, "LOG")?;
+            let mut callsite_options = super::CallsiteOptions::new("run {}");
+            callsite_options.severity = 5;
+            let callsite = self.callsite::<super::ending::RunEnding>(callsite_options)?;
             let payload = crate::schema::capture(&super::ending::RunEnding::from(ending))?;
             self.apply(
                 ProducerId(0),
@@ -1393,7 +1457,7 @@ impl Backend {
                     time: self.captured_time,
                     parent: 0,
                     payload,
-                    log: true,
+                    callsite: Some(callsite),
                 },
             )?;
         }

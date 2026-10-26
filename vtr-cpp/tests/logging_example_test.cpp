@@ -31,14 +31,15 @@ void emit(logging::Logger& logger, std::uint32_t value, std::size_t text_size) {
 
 void verify_capture(const std::filesystem::path& path) {
     vt::Reader reader(path);
-    check(reader.generators().size() == 10, "one source per callsite and logger");
+    check(reader.generators().size() == 2, "one generator per logger");
+    check(reader.callsites().size() == 5, "callsites shared by both loggers");
     std::map<vt::GeneratorId, unsigned> counts;
     std::map<std::string, unsigned> messages;
     std::set<vt::TypeId> value_types;
     std::set<std::uint64_t> lines;
     unsigned info = 0, warning = 0;
     for (const auto& node : reader.nodes()) {
-        if (node.kind != vt::NodeKind::generator) {
+        if (node.kind != vt::NodeKind::callsite) {
             continue;
         }
         check(node.metadata.size() == 4, "complete static source metadata");
@@ -59,15 +60,12 @@ void verify_capture(const std::filesystem::path& path) {
             }
         }
     }
-    for (const auto& generator : reader.generators()) {
-        if (reader.string(reader.nodes()[generator.id.value].name) == "value={}") {
-            value_types.insert(generator.payload);
-        }
-    }
-    check(info == 8 && warning == 2 && lines.size() == 5, "distinct callsite provenance");
-    check(value_types.size() == 1, "argument schema shared across callsites and loggers");
+    check(info == 4 && warning == 1 && lines.size() == 5, "distinct callsite provenance");
+
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
         ++counts[*record.generator()];
+        if (reader.string(reader.nodes()[record.callsite()->value].name) == "value={}")
+            value_types.insert(record.payload().type());
         const auto message = reader.format_log(record);
         ++messages[message];
         check(record.attributes().empty(), "messages contain no repeated source metadata");
@@ -85,15 +83,16 @@ void verify_capture(const std::filesystem::path& path) {
         }
         return vt::Flow::next;
     });
-    check(counts.size() == 10, "each logger uses its own sources");
+    check(counts.size() == 2, "messages retain their logger");
     for (const auto& [source, count] : counts) {
         (void)source;
-        check(count == 2, "repeated interleaved calls reuse sources");
+        check(count == 10, "each logger contains all callsites");
     }
-    check(messages["value=10"] == 2 && messages["value=11"] == 2 &&
-              messages["value=20"] == 2 && messages["value=21"] == 2 &&
-              messages["ready"] == 4 && messages["many=0 1 2 3 4 5 6 7 8 9 10"] == 4,
+    check(messages["value=10"] == 2 && messages["value=11"] == 2 && messages["value=20"] == 2 &&
+              messages["value=21"] == 2 && messages["ready"] == 4 &&
+              messages["many=0 1 2 3 4 5 6 7 8 9 10"] == 4,
           "deferred formatting preserves values");
+    check(value_types.size() == 1, "argument schema shared across callsites and loggers");
     check(reader.validate().records == 20, "complete capture validation");
 }
 
@@ -118,6 +117,80 @@ void capture(const std::filesystem::path& directory) {
     }
 }
 
+void recording_lifetimes(const std::filesystem::path& directory) {
+    std::optional<vt::Writer> writer;
+    std::optional<vt::Logger> previous_logger;
+    std::optional<vt::Callsite<std::uint64_t>> previous_callsite;
+    auto rejects_stale = [](auto&& action) {
+        try {
+            action();
+        } catch (const vt::Error& error) {
+            check(error.code() == vt::ErrorCode::wrong_recording, "stale handle error code");
+            return;
+        }
+        throw std::runtime_error("stale recording handle accepted");
+    };
+    for (unsigned generation = 0; generation < 32; ++generation) {
+        const auto path = directory / "lifetime.vtr";
+        writer.emplace(path, vt::WriterOptions{.mode = vt::ExecutionMode::inline_});
+        const auto logger = writer->logger({.name = "logger"});
+        const auto callsite = writer->callsite<std::uint64_t>({.format = "{}"});
+        if (previous_logger) {
+            check(previous_logger->id() == logger.id() && previous_callsite->id() == callsite.id(),
+                  "sequential recordings require colliding local IDs");
+            rejects_stale([&] { writer->log(*previous_logger, callsite, std::uint64_t{1}); });
+            rejects_stale([&] { writer->log(logger, *previous_callsite, std::uint64_t{1}); });
+        }
+        writer->log(logger, callsite, std::uint64_t{generation});
+        writer->close();
+        previous_logger = logger;
+        previous_callsite = callsite;
+        writer.reset();
+        vt::Reader reader(path);
+        check(reader.validate().records == 1, "rejected stale handles emitted messages");
+        reader.records({}, [&](const vt::Record& record) {
+            check(record.payload().as<std::uint64_t>() == generation,
+                  "new recording payload changed");
+            return vt::Flow::next;
+        });
+    }
+}
+
+void raw_schema_validation(const std::filesystem::path& directory) {
+    for (const auto mode : {vt::ExecutionMode::inline_, vt::ExecutionMode::threaded}) {
+        for (unsigned scenario = 0; scenario < 5; ++scenario) {
+            const auto path = directory / "raw.vtr";
+            vt::Writer writer(path, {.mode = mode});
+            const auto logger = writer.logger({.name = "raw"});
+            auto callsite = writer.declare_callsite({.format = "{}"}, writer.bind<std::uint64_t>());
+            std::array<std::byte, 9> bytes{std::byte{42}};
+            std::size_t length = 8;
+            if (scenario == 1)
+                length = 7;
+            if (scenario == 2)
+                length = 9;
+            if (scenario == 3)
+                callsite = vt::CallsiteId(UINT32_MAX);
+            if (scenario == 4)
+                callsite = vt::CallsiteId(logger.id().value);
+            bool failed = false;
+            try {
+                writer.log_raw(logger, callsite, 0, vt::ByteView(bytes).first(length));
+                writer.close();
+            } catch (const vt::Error&) {
+                failed = true;
+            }
+            check(failed == (scenario != 0), "raw schema validation accepted malformed capture");
+            if (!failed) {
+                vt::Reader reader(path);
+                check(reader.validate().records == 1, "raw capture lost its record");
+                check(reader.lookup(vt::RecordId(1))->payload().as<std::uint64_t>() == 42,
+                      "raw capture changed canonical payload");
+            }
+        }
+    }
+}
+
 void filtering(const std::filesystem::path& path) {
     vt::Writer writer(path);
     logging::Logger logger(writer);
@@ -137,7 +210,8 @@ void filtering(const std::filesystem::path& path) {
     check(arguments == 1, "off level skips every argument expression");
     writer.close();
     vt::Reader reader(path);
-    check(reader.generators().size() == 1, "disabled calls declare no sources");
+    check(reader.generators().size() == 1 && reader.callsites().size() == 1,
+          "disabled calls declare no callsites");
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
         check(reader.format_log(record) == "enabled=1", "filtered output");
         return vt::Flow::next;
@@ -149,8 +223,8 @@ void preparation(const std::filesystem::path& path) {
     vt::Writer writer(path);
     logging::Logger logger(writer);
     using Payload = decltype(logging::arguments(std::uint64_t{0}));
-    static constexpr logging::Metadata metadata{
-        "prepared={:#x}", logging::Severity::info, std::source_location::current()};
+    static constexpr logging::Metadata metadata{"prepared={:#x}", logging::Severity::info,
+                                                std::source_location::current()};
     static_assert(Payload::valid_format(metadata.format));
     static constinit const logging::Callsite<Payload> site(metadata);
     const auto source = logger.prepare(site).id();
@@ -160,7 +234,7 @@ void preparation(const std::filesystem::path& path) {
     vt::Reader reader(path);
     check(reader.generators().size() == 1, "preparation declares exactly one source");
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
-        check(record.generator() == source && reader.format_log(record) == "prepared=0x1234",
+        check(record.callsite() == source && reader.format_log(record) == "prepared=0x1234",
               "prepared source used for typed capture");
         return vt::Flow::next;
     });
@@ -191,7 +265,8 @@ void concurrent_registration(const std::filesystem::path& directory) {
                 }
                 writer.close();
                 vt::Reader reader(path);
-                check(reader.generators().size() == 2, "concurrent registration reuses typed slots");
+                check(reader.generators().size() == 1,
+                      "concurrent registration retains one logger");
                 reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
                     const auto text = reader.format_log(record);
                     check(text.starts_with("parallel=") || text.starts_with("counter="),
@@ -215,14 +290,63 @@ void concurrent_registration(const std::filesystem::path& directory) {
     }
 }
 
+void shared_logger_concurrent_first_use(const std::filesystem::path& path) {
+    vt::Writer writer(path, {.encoding = {.workers = 2}});
+    const auto shared = writer.logger({.name = "shared"});
+    constexpr unsigned workers = 4;
+    std::vector<vt::ProducerId> producers;
+    for (unsigned worker = 0; worker < workers; ++worker)
+        producers.push_back(writer.add_producer());
+    std::barrier start(workers);
+    std::array<std::exception_ptr, workers> errors{};
+    std::vector<std::jthread> threads;
+    for (unsigned worker = 0; worker < workers; ++worker) {
+        threads.emplace_back([&, worker] {
+            bool synchronized = false;
+            try {
+                writer.use_producer(producers[worker]);
+                logging::Logger logger(writer, shared);
+                start.arrive_and_wait();
+                synchronized = true;
+                for (unsigned value = 0; value < 20; ++value)
+                    emit_parallel(logger, value);
+                writer.finish_producer();
+            } catch (...) {
+                if (!synchronized)
+                    start.arrive_and_drop();
+                errors[worker] = std::current_exception();
+                writer.release_producer();
+            }
+        });
+    }
+    threads.clear();
+    for (const auto& error : errors)
+        if (error)
+            std::rethrow_exception(error);
+    writer.close();
+    vt::Reader reader(path);
+    check(reader.generators().size() == 1 && reader.callsites().size() == 2,
+          "shared logger registration duplicated a generator or callsite");
+    reader.records({.generator = shared.id()}, [&](const vt::Record& record) {
+        const auto text = reader.format_log(record);
+        check(text.starts_with("parallel=") || text.starts_with("counter="),
+              "concurrent callsite binding changed schema");
+        return vt::Flow::next;
+    });
+    check(reader.validate().records == workers * 40, "shared logger lost concurrent captures");
+}
+
 int main(int argc, char** argv) {
     try {
         const auto directory = argc > 1 ? argv[1] : "logging-fixtures";
         std::filesystem::create_directories(directory);
         capture(directory);
+        recording_lifetimes(directory);
+        raw_schema_validation(directory);
         filtering(std::filesystem::path(directory) / "filtered.vtr");
         preparation(std::filesystem::path(directory) / "prepared.vtr");
         concurrent_registration(directory);
+        shared_logger_concurrent_first_use(std::filesystem::path(directory) / "shared.vtr");
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

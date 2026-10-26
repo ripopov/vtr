@@ -25,7 +25,8 @@ struct SegmentEncoder {
     Timestamp previous_end = 0;
     std::size_t dictionary_bytes = 0;
 
-    void append(const Types& types, const Generator& generator, const LocatedRecord& record) {
+    void append(const Types& types, const Generator& generator, const LocatedRecord& record,
+                TypeId datatype) {
         bool stage = generator.kind == RecordKind::stage;
         d::sint(columns[0], record.begin - previous_end);
         d::sint(columns[1], record.id - previous_id);
@@ -38,10 +39,10 @@ struct SegmentEncoder {
             d::put(columns[3], record.end - record.begin);
         }
         auto old_dictionary = arguments.dictionary.size();
-        if (generator.payload_type == 0)
+        if (datatype == 0)
             require(record.payload.empty(), "trailing unit payload");
         else
-            arguments.append(types, generator.payload_type, record.payload);
+            arguments.append(types, datatype, record.payload);
         for (auto i = old_dictionary; i < arguments.dictionary.size(); ++i) {
             dictionary_bytes +=
                 var_size(arguments.dictionary[i].size()) + arguments.dictionary[i].size();
@@ -98,6 +99,8 @@ struct Bounds {
 
 void valid_record(const LocatedRecord& record, const Generator& generator) {
     require(record.id && record.parent < record.id, "invalid record identity/parent");
+    require((generator.kind == RecordKind::log) == record.callsite().has_value(),
+            "record callsite does not match source kind");
     require(generator.kind >= RecordKind::event && generator.kind <= RecordKind::log,
             "invalid located generator kind");
     require(generator.kind == RecordKind::log || record.parent,
@@ -110,17 +113,37 @@ void valid_record(const LocatedRecord& record, const Generator& generator) {
 
 void Generators::declare(Generator generator) {
     require(generator.kind <= RecordKind::log, "unknown generator kind");
-    require(generator.kind != RecordKind::clock || generator.payload_type == 0,
-            "clock generator requires unit payload");
+    require((generator.kind != RecordKind::clock && generator.kind != RecordKind::log) ||
+                generator.payload_type == 0,
+            "clock and logger generators require unit datatype");
     require(generator.id != UINT32_MAX, "invalid generator identifier");
     require(generators_.emplace(generator.id, generator).second, "generator redeclared");
     if (generator.id < prefix_.size())
         prefix_[generator.id] = generator;
 }
 
-const Generator& Generators::operator[](GeneratorId id) const {
-    if (id < prefix_.size() && prefix_[id])
-        return *prefix_[id];
+void Generators::declare_callsite(std::uint32_t id, TypeId datatype) {
+    require(id != UINT32_MAX && callsites_.emplace(id, datatype).second,
+            "invalid or redeclared callsite");
+}
+
+TypeId Generators::callsite_type(std::uint32_t id) const {
+    auto found = callsites_.find(id);
+    require(found != callsites_.end(), "undeclared callsite");
+    return found->second;
+}
+
+TypeId Generators::payload_type(GeneratorId id, std::optional<std::uint32_t> callsite) const {
+    const auto& generator = (*this)[id];
+    if (generator.kind == RecordKind::log) {
+        require(callsite.has_value(), "log requires a callsite");
+        return callsite_type(*callsite);
+    }
+    require(!callsite, "fixed-schema record has a callsite");
+    return generator.payload_type;
+}
+
+const Generator& Generators::lookup(GeneratorId id) const {
     auto i = generators_.find(id);
     require(i != generators_.end(), "undeclared generator");
     return i->second;
@@ -135,17 +158,22 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
 
     struct Bucket {
         const Generator* generator;
+        std::optional<std::uint32_t> callsite;
+        TypeId datatype;
         std::vector<const LocatedRecord*> records;
     };
 
     std::vector<Bucket> buckets;
-    std::unordered_map<GeneratorId, std::size_t> by_generator;
+    std::unordered_map<std::uint64_t, std::size_t> by_generator;
     for (const auto& record : records) {
         const auto& generator = generators[record.generator];
         valid_record(record, generator);
-        auto [i, fresh] = by_generator.try_emplace(record.generator, buckets.size());
+        auto datatype = record.callsite() ? generators.callsite_type(*record.callsite())
+                                          : generator.payload_type;
+        auto key = (std::uint64_t(record.generator) << 32) | record.callsite().value_or(0);
+        auto [i, fresh] = by_generator.try_emplace(key, buckets.size());
         if (fresh) {
-            buckets.push_back({&generator, {}});
+            buckets.push_back({&generator, record.callsite(), datatype, {}});
         }
         buckets[i->second].records.push_back(&record);
     }
@@ -188,7 +216,8 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
                 const auto& record = *bucket.records[index];
                 // Four row varints and nine growing column-length prefixes fit in 128 bytes.
                 const auto upper = record.payload.size() > (SIZE_MAX - 128) / 10
-                                       ? SIZE_MAX : 128 + record.payload.size() * 10;
+                                       ? SIZE_MAX
+                                       : 128 + record.payload.size() * 10;
                 auto remaining = [&] {
                     return policy.page_bytes - std::min(measured_size, policy.page_bytes);
                 };
@@ -210,7 +239,7 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
                     dictionary_count = encoder.arguments.dictionary.size();
                     dictionary_bytes = encoder.dictionary_bytes;
                 }
-                encoder.append(types, *bucket.generator, record);
+                encoder.append(types, *bucket.generator, record, bucket.datatype);
                 if (bounded) {
                     unmeasured_upper += upper;
                 } else {
@@ -246,7 +275,7 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
             segments.push_back({bucket.generator->id, u32(pages.size()), u32(index - first), offset,
                                 u32(raw.size()), bounds.min_id, bounds.max_id,
                                 bounds.max_parent ? bounds.min_parent : 0, bounds.max_parent,
-                                bounds.begin, bounds.end});
+                                bounds.begin, bounds.end, bucket.callsite});
             if (raw_page.size() >= policy.page_bytes) {
                 flush_page();
             }
@@ -261,7 +290,10 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
     d::fixed(payload, u32(segments.size()));
     d::fixed(payload, u32(pages.size()));
     for (const auto& s : segments) {
-        for (auto v : {s.generator, s.page, s.count, s.raw_offset, s.raw_length}) {
+        d::fixed(payload, s.generator);
+        if (s.callsite)
+            d::fixed(payload, *s.callsite);
+        for (auto v : {s.page, s.count, s.raw_offset, s.raw_length}) {
             d::fixed(payload, v);
         }
         for (auto v : {s.min_id, s.max_id, s.min_parent, s.max_parent, s.begin, s.end}) {
@@ -296,6 +328,9 @@ RecordBlockView::RecordBlockView(View encoded, const Types& types, const Generat
     for (std::uint32_t i = 0; i < segment_count; ++i) {
         SegmentHeader s;
         s.generator = r.fixed<std::uint32_t>();
+        const auto& generator = generators_[s.generator];
+        if (generator.kind == RecordKind::log)
+            s.callsite = r.fixed<std::uint32_t>();
         s.page = r.fixed<std::uint32_t>();
         s.count = r.fixed<std::uint32_t>();
         s.raw_offset = r.fixed<std::uint32_t>();
@@ -306,8 +341,7 @@ RecordBlockView::RecordBlockView(View encoded, const Types& types, const Generat
         s.max_parent = r.fixed<std::uint64_t>();
         s.begin = r.fixed<std::uint64_t>();
         s.end = r.fixed<std::uint64_t>();
-        const auto& generator = generators_[s.generator];
-        types_[generator.payload_type];
+        types_[generators_.payload_type(s.generator, s.callsite)];
         require(generator.kind >= RecordKind::event && generator.kind <= RecordKind::log &&
                     s.page < page_count && s.count && s.raw_length,
                 "invalid record segment");
@@ -366,7 +400,8 @@ void RecordBlockView::query(RecordQuery query,
         while (segment_index < segments_.size() && segments_[segment_index].page == page_index) {
             const auto& segment = segments_[segment_index++];
             const auto& generator = generators_[segment.generator];
-            if ((query.generator && *query.generator != segment.generator) ||
+            if ((query.callsite && query.callsite != segment.callsite) ||
+                (query.generator && *query.generator != segment.generator) ||
                 (!query.include_logs && generator.kind == RecordKind::log) ||
                 (query.kind && *query.kind != generator.kind) ||
                 (query.id && (*query.id < segment.min_id || *query.id > segment.max_id)) ||
@@ -375,6 +410,7 @@ void RecordBlockView::query(RecordQuery query,
                 query.end < segment.begin || query.begin > segment.end) {
                 continue;
             }
+            const auto datatype = generators_.payload_type(segment.generator, segment.callsite);
             const auto& page = pages_[page_index];
             if (raw.empty()) {
                 raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
@@ -405,7 +441,8 @@ void RecordBlockView::query(RecordQuery query,
                 auto duration = generator.kind == RecordKind::stage ? columns[3].var() : 0;
                 require(duration <= UINT64_MAX - record.begin, "stage end overflow");
                 record.end = record.begin + duration;
-                record.payload = args.read(types_, generator.payload_type);
+                record.callsite_id = segment.callsite.value_or(UINT32_MAX);
+                record.payload = args.read(types_, datatype);
                 valid_record(record, generator);
                 bounds.add(record);
                 id = record.id;

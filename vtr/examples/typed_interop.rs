@@ -44,6 +44,7 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     options.encoding.waveform_records = 4;
     options.metadata.timescale = -9;
     let mut writer = Writer::create_with(path, options)?;
+    let logger = writer.logger(SourceOptions::new("diagnostics", None))?;
     let label = writer.intern("vtr.label")?;
     let name = writer.intern("embedded")?;
     let lane = writer.intern("lane")?;
@@ -55,7 +56,14 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
         writer.transactions::<[u64; 3]>(SourceOptions::new("scalar", Some(core)), "SCALAR")?;
     let execute = writer.stages::<String>(SourceOptions::new("execute", Some(core)))?;
     let events = writer.events::<()>(SourceOptions::new("retired", Some(core)))?;
-    let logs = writer.logs::<Packet>(SourceOptions::new("packet {}", Some(core)))?;
+    let logs = writer.callsite::<Packet>(vtr::CallsiteOptions::new("packet {}"))?;
+    let retry = writer.callsite::<String>(vtr::CallsiteOptions {
+        severity: 3,
+        file: Some("shared.cpp".into()),
+        line: Some(17),
+        ..vtr::CallsiteOptions::new("retry {}")
+    })?;
+    let memory_logger = writer.logger(SourceOptions::new("memory", None))?;
     let clock = writer.clock(SourceOptions::new("clock", Some(core)))?;
     writer.associate_clock(requests, clock)?;
     let counter = writer.signal(
@@ -146,7 +154,7 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     writer.emit_u64(counter, 3)?;
     writer.event(events, owner.owner(), &())?;
     writer.event(events, owner.owner(), &())?;
-    writer.log(logs, &packet(), Some(owner.owner()))?;
+    writer.log(logger, logs, &packet(), Some(owner.owner()))?;
     writer.clock_stop(clock, 10)?;
     writer.end_stage_with_payload(visit, &"execute Δ".to_owned())?;
     writer.advance_time(15)?;
@@ -171,6 +179,10 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
         }
     }
     writer.advance_time(40)?;
+    writer.log(logger, retry, &"bank 3".into(), None)?;
+    writer.log(logger, retry, &"bank 3".into(), None)?;
+    writer.log(memory_logger, logs, &packet(), None)?;
+    writer.log(logger, logs, &packet(), None)?;
     writer.close()?;
     Ok(())
 }
@@ -178,7 +190,7 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
 fn read(path: &str) -> vtr::Result<()> {
     let reader = Reader::open(path)?;
     let report = reader.validate()?;
-    assert_eq!(report.records, 25);
+    assert_eq!(report.records, 29);
     assert_eq!(report.relations, 1);
     assert!(report.missing.is_empty());
     let owner = reader.lookup(2)?.unwrap();
@@ -193,6 +205,35 @@ fn read(path: &str) -> vtr::Result<()> {
         reader.format_log(&reader.lookup(9)?.unwrap())?,
         "packet 32768"
     );
+    assert_eq!(reader.log_callsites()?.len(), 2);
+    let retry = reader.lookup(26)?.unwrap();
+    let duplicate = reader.lookup(27)?.unwrap();
+    assert_eq!(retry.generator(), reader.find_generator("diagnostics"));
+    assert_eq!(retry.decode::<String>()?, "bank 3");
+    assert_eq!(retry.callsite(), duplicate.callsite());
+    assert_ne!(retry.id(), duplicate.id());
+    assert_eq!(
+        reader.lookup(28)?.unwrap().generator(),
+        reader.find_generator("memory")
+    );
+    assert_eq!(
+        reader.lookup(28)?.unwrap().callsite(),
+        reader.lookup(9)?.unwrap().callsite()
+    );
+    let mut selected = 0;
+    reader.records(
+        vtr::RecordQuery {
+            generator: retry.generator(),
+            callsite: retry.callsite(),
+            ..Default::default()
+        },
+        |record| {
+            assert_eq!(reader.format_log(&record).unwrap(), "retry bank 3");
+            selected += 1;
+            true
+        },
+    )?;
+    assert_eq!(selected, 2);
     let scalar = reader.find_generator("core.scalar").unwrap();
     let mut count = 0;
     reader.transactions(
@@ -317,6 +358,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match arguments.get(1).map(String::as_str) {
         Some(command @ ("index-write" | "index-read")) if arguments.len() == 4 => {
             index(command, &arguments[2], &arguments[3])?;
+        }
+        Some("recover") if arguments.len() == 4 => {
+            vtr::recover(&arguments[2], &arguments[3])?;
         }
         Some("tracker-write") if arguments.len() == 4 => {
             let mode = if arguments[3] == "inline" {

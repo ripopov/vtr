@@ -16,26 +16,34 @@ fn borrowed_captures_own_data_before_return_and_decode_after_reader_destruction(
             },
         )
         .unwrap();
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
+            .unwrap();
         let text_source = writer
-            .logs::<Cow<'static, str>>(SourceOptions::new("text {}", None))
+            .callsite::<Cow<'static, str>>(vtr::CallsiteOptions::new("text {}"))
             .unwrap();
         let words_source = writer
-            .logs::<Cow<'static, [u64]>>(SourceOptions::new("words {}", None))
+            .callsite::<Cow<'static, [u64]>>(vtr::CallsiteOptions::new("words {}"))
             .unwrap();
         let mut text = String::from("borrowed Δ");
         let mut words = vec![0, u64::MAX, 42];
         let bytes_source = writer
-            .logs::<Bytes<Cow<'static, [u8]>>>(SourceOptions::new("bytes {}", None))
+            .callsite::<Bytes<Cow<'static, [u8]>>>(vtr::CallsiteOptions::new("bytes {}"))
             .unwrap();
         let mut bytes = vec![0, 255, 128];
         let text_id = writer
-            .log(text_source, &Cow::Borrowed(text.as_str()), None)
+            .log(logger, text_source, &Cow::Borrowed(text.as_str()), None)
             .unwrap();
         let words_id = writer
-            .log(words_source, &Cow::Borrowed(words.as_slice()), None)
+            .log(logger, words_source, &Cow::Borrowed(words.as_slice()), None)
             .unwrap();
         let bytes_id = writer
-            .log(bytes_source, &Bytes(Cow::Borrowed(bytes.as_slice())), None)
+            .log(
+                logger,
+                bytes_source,
+                &Bytes(Cow::Borrowed(bytes.as_slice())),
+                None,
+            )
             .unwrap();
         text.clear();
         words.fill(7);

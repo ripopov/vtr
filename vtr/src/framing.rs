@@ -10,7 +10,7 @@ use crate::{Error, Result, wire::Cursor};
 
 pub const MAGIC: [u8; 8] = [0x89, b'V', b'T', b'R', 13, 10, 26, 10];
 pub const TRAILER_MAGIC: [u8; 8] = *b"VTR_END\0";
-pub const VERSION: (u16, u16) = (3, 2);
+pub const VERSION: (u16, u16) = (3, 3);
 pub const HEADER_BYTES: usize = 32;
 pub const SECTION_BYTES: usize = 24;
 

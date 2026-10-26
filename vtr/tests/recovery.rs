@@ -11,6 +11,9 @@ fn truncated_and_corrupt_traces_retain_only_published_verified_sections() {
     options.encoding.waveform_records = 10;
     options.encoding.block_records = 5;
     let mut writer = Writer::create_with(&path, options).unwrap();
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let signal = writer
         .signal(
             SourceOptions::new("signal", None),
@@ -23,12 +26,18 @@ fn truncated_and_corrupt_traces_retain_only_published_verified_sections() {
         )
         .unwrap();
     let source = writer
-        .logs::<String>(SourceOptions::new("step {}", None))
+        .callsite::<String>(vtr::CallsiteOptions::new("step {}"))
+        .unwrap();
+    let retry = writer
+        .callsite::<u64>(CallsiteOptions::new("retry {}"))
         .unwrap();
     for time in 0..50 {
         writer.advance_time(time).unwrap();
         writer.emit_u64(signal, time).unwrap();
-        writer.log(source, &format!("{time}"), None).unwrap();
+        writer
+            .log(logger, source, &format!("{time}"), None)
+            .unwrap();
+        writer.log(logger, retry, &time, None).unwrap();
         if time % 10 == 0 {
             writer.scope(format!("scope{time}"), None).unwrap();
             writer.flush().unwrap();
@@ -61,6 +70,20 @@ fn truncated_and_corrupt_traces_retain_only_published_verified_sections() {
         assert_eq!(truncated.completion(), Completion::Unfinished);
         assert_eq!(truncated.identity(), reader.identity());
         truncated.validate().unwrap();
+        truncated
+            .records(RecordQuery::default(), |record| {
+                if record.callsite() == Some(source.id()) {
+                    assert_eq!(
+                        record.decode::<String>().unwrap(),
+                        record.begin().to_string()
+                    );
+                } else {
+                    assert_eq!(record.callsite(), Some(retry.id()));
+                    assert_eq!(record.decode::<u64>().unwrap(), record.begin());
+                }
+                true
+            })
+            .unwrap();
         if truncated.signal_count() != 0 {
             truncated
                 .changes(Some(signal), TimeWindow::default(), |time, _, value| {

@@ -23,6 +23,13 @@ def main():
                     subprocess.run([str(indexer), "index-write", str(trace), str(sidecar)], check=True)
                     for reader in (rust, native):
                         subprocess.run([str(reader), "index-read", str(trace), str(sidecar)], check=True)
+                interrupted = trace.with_suffix(".interrupted")
+                interrupted.write_bytes(trace.read_bytes()[:-1])
+                for language, recoverer in (("cpp", native), ("rust", rust)):
+                    recovered = trace.with_suffix(f".{language}.recovered.vtr")
+                    subprocess.run([str(recoverer), "recover", str(interrupted), str(recovered)], check=True)
+                    for reader in (rust, native):
+                        subprocess.run([str(reader), "read", str(recovered)], check=True, stdout=subprocess.DEVNULL)
                 print(f"verified {trace.name} and bidirectional activity sidecars", flush=True)
 
     tracker = Path(sys.argv[3]).resolve()

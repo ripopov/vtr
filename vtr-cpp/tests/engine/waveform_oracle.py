@@ -12,7 +12,7 @@ import zlib
 
 def checked_framing(source):
     assert source[:8] == b'\x89VTR\r\n\x1a\n'
-    assert struct.unpack_from('<HHI', source, 8) == (3, 2, 0)
+    assert struct.unpack_from('<HHI', source, 8) == (3, 3, 0)
     offset, size, trailer = struct.unpack_from('<QQ8s', source, len(source) - 24)
     assert size == len(source) and trailer == b'VTR_END\0'
     kind, flags, length, crc, reserved = struct.unpack_from('<IIQII', source, offset)

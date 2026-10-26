@@ -85,7 +85,7 @@ std::size_t schema_memory(const Types& types, const Generators& generators) {
     auto bytes =
         memory_add(memory_mul(types.size(), 2 * sizeof(Type)), memory_mul(types.size() + 64, 128));
     bytes = memory_add(bytes, sizeof(Generators));
-    bytes = memory_add(bytes, memory_mul(generators.size() + 1, 128));
+    bytes = memory_add(bytes, memory_mul(generators.size() + generators.callsite_count() + 1, 128));
     for (TypeId id = 0; id < types.size(); ++id) {
         if (id == unsigned(Primitive::enumeration)) {
             continue;
@@ -649,8 +649,12 @@ struct Writer::Impl {
             types.validate(type, *payload, native.string_count());
         }
         auto id = allocate();
-        Stage stage{{id, gen, time, time, parent, {}},
-                    payload.has_value() || type == 0 || types[type].fixed_size == 0};
+        Stage stage{};
+        stage.record.id = id;
+        stage.record.generator = gen;
+        stage.record.begin = stage.record.end = time;
+        stage.record.parent = parent;
+        stage.payload_ready = payload.has_value() || type == 0 || types[type].fixed_size == 0;
         if (payload) {
             stage.record.payload = copy_payload(*payload);
         }
@@ -835,6 +839,21 @@ TypeId Writer::bind_type(const std::function<TypeId(Types&)>& bind) {
     });
 }
 
+std::uint32_t Writer::add_callsite(std::string_view format, TypeId type, std::uint64_t severity) {
+    auto& p = *impl_;
+    return p.call([&] {
+        p.alive();
+        for (const auto& field : p.types[type].fields) {
+            if (field.name == "vtr.label")
+                require(field.type == 12 || field.type == 13, "invalid payload label type");
+        }
+        auto id = p.native.add_callsite(format, type, severity);
+        p.generators.declare_callsite(id, type);
+        p.snapshot.reset();
+        return id;
+    });
+}
+
 GeneratorId Writer::add_generator(Id parent, std::string_view name, std::string_view kind,
                                   TypeId type) {
     auto& p = *impl_;
@@ -847,7 +866,8 @@ GeneratorId Writer::add_generator(Id parent, std::string_view name, std::string_
             }
         }
         auto category = record_kind(kind);
-        require(category != RecordKind::clock || type == 0, "clock requires unit payload");
+        require((category != RecordKind::clock && category != RecordKind::log) || type == 0,
+                "clock requires unit payload");
         auto id = p.native.add_generator(parent, name, kind, type);
         p.generators.declare({id, category, type});
         p.snapshot.reset();
@@ -1094,7 +1114,8 @@ RecordId Writer::event(GeneratorId gen, RecordId owner, Timestamp time, View pay
     });
 }
 
-RecordId Writer::log(GeneratorId gen, Timestamp time, View payload, RecordId owner) {
+RecordId Writer::log(GeneratorId gen, std::uint32_t callsite, Timestamp time, View payload,
+                     RecordId owner) {
     auto& p = *impl_;
     return p.call([&] {
         p.alive();
@@ -1102,9 +1123,10 @@ RecordId Writer::log(GeneratorId gen, Timestamp time, View payload, RecordId own
             p.owner(owner);
         }
         require(p.generators[gen].kind == RecordKind::log, "log requires LOG generator");
-        p.types.validate(p.generators[gen].payload_type, payload, p.native.string_count());
+        p.types.validate(p.generators.payload_type(gen, callsite), payload,
+                         p.native.string_count());
         auto id = p.allocate();
-        p.submit(LocatedRecord{id, gen, time, time, owner, p.copy_payload(payload)});
+        p.submit(LocatedRecord{id, gen, time, time, owner, p.copy_payload(payload), callsite});
         return id;
     });
 }

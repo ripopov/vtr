@@ -1,6 +1,6 @@
 #pragma once
 
-// Static callsites share argument encoders and bind sources once per logger.
+// Static callsites share argument encoders and writer-bound declarations.
 #include "vtr_writer.h"
 
 #include <array>
@@ -76,7 +76,7 @@ struct vtr::Schema<logging::Arguments<std::index_sequence<Indices...>, Args...>>
     static constexpr std::string_view name = "LogArguments";
     static constexpr auto fields = std::tuple{
         vtr::field(std::string_view{logging::Argument<Indices, Args>::name.data(),
-                                   logging::Argument<Indices, Args>::name.size()},
+                                    logging::Argument<Indices, Args>::name.size()},
                    &logging::Argument<Indices, Args>::value)...,
     };
 };
@@ -116,9 +116,13 @@ template <class Payload> class Callsite {
 class Logger {
   public:
     explicit Logger(vtr::Writer& writer, std::string_view name = "logger")
-        : writer_(writer), scope_(writer.scope(name)), severity_(writer.intern("log.severity")),
-          file_(writer.intern("log.file")), line_(writer.intern("log.line")),
-          function_(writer.intern("log.func")) {}
+        : writer_(writer), logger_(writer.logger({.name = name})) {}
+
+    Logger(vtr::Writer& writer, vtr::Logger logger) : writer_(writer), logger_(logger) {}
+
+    [[nodiscard]] vtr::GeneratorId id() const noexcept {
+        return logger_.id();
+    }
 
     void set_level(Severity level) noexcept {
         level_ = level;
@@ -138,7 +142,7 @@ class Logger {
     }
 
     template <class Payload> void write(const Callsite<Payload>& site, const Payload& payload) {
-        writer_.log(prepare(site), payload);
+        writer_.log(logger_, prepare(site), payload);
     }
 
   private:
@@ -147,31 +151,30 @@ class Logger {
     };
 
     template <class Payload> struct Binding : BindingBase {
-        explicit Binding(vtr::Source<Payload, vtr::SourceKind::log> source) : source(source) {}
-        vtr::Source<Payload, vtr::SourceKind::log> source;
+        explicit Binding(vtr::Callsite<Payload> source) : source(source) {}
+
+        vtr::Callsite<Payload> source;
     };
 
     template <class Payload> [[gnu::noinline]] std::size_t bind(const Callsite<Payload>& site) {
         const auto slot = site.claim_slot();
         const auto& metadata = site.metadata_;
-        vtr::Attributes attributes{
-            {severity_, vtr::Value(static_cast<std::uint64_t>(metadata.severity))},
-            {file_, vtr::Value(writer_.intern(metadata.location.file_name()))},
-            {line_, vtr::Value(std::uint64_t{metadata.location.line()})},
-            {function_, vtr::Value(writer_.intern(metadata.location.function_name()))},
-        };
         if (slot >= sources_.size()) {
             sources_.resize(slot + 1);
         }
-        auto source = writer_.logs<Payload>(
-            {.name = metadata.format, .parent = scope_, .metadata = std::move(attributes)});
+        auto source =
+            writer_.callsite<Payload>({.format = metadata.format,
+                                       .severity = static_cast<std::uint64_t>(metadata.severity),
+                                       .file = metadata.location.file_name(),
+                                       .line = metadata.location.line(),
+                                       .function = metadata.location.function_name()},
+                                      &site);
         sources_[slot] = std::make_unique<Binding<Payload>>(source);
         return slot;
     }
 
     vtr::Writer& writer_;
-    vtr::ScopeId scope_;
-    vtr::StringId severity_, file_, line_, function_;
+    vtr::Logger logger_;
     Severity level_ = Severity::info;
     // Writer-bound handles stay here; static callsites contain no recording state.
     std::vector<std::unique_ptr<BindingBase>> sources_;
@@ -184,8 +187,8 @@ class Logger {
         auto& vtr_log_logger = (logger);                                                           \
         if (vtr_log_logger.enabled(severity)) {                                                    \
             using vtr_log_payload = decltype(logging::arguments(__VA_ARGS__));                     \
-            static constexpr logging::Metadata vtr_log_metadata{                                   \
-                fmt, severity, std::source_location::current()};                                   \
+            static constexpr logging::Metadata vtr_log_metadata{fmt, severity,                     \
+                                                                std::source_location::current()};  \
             static_assert(vtr_log_payload::valid_format(vtr_log_metadata.format));                 \
             static constinit const logging::Callsite<vtr_log_payload> vtr_log_callsite{            \
                 vtr_log_metadata};                                                                 \

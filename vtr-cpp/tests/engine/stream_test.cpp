@@ -30,9 +30,10 @@ void skew_and_barrier(const std::filesystem::path& directory) {
     Stream stream(path, {.record_limit = 17}, {.queue_bytes = 256, .pending_bytes = 1024});
     const auto generator = stream.control(
         [](Writer& writer) { return writer.add_generator(none, "requests", "TRANSACTION"); });
-    const auto text = stream.control([](Writer& writer) {
-        return writer.add_generator(none, "messages", "LOG", writer.bind<std::string>());
-    });
+    const auto text = stream.control(
+        [](Writer& writer) { return writer.add_generator(none, "messages", "LOG"); });
+    const auto callsite = stream.control(
+        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
     const auto fast_signal = stream.control([](Writer& writer) {
         return writer.add_var(none, "fast", {SignalKind::bits, 32, 2}).second;
     });
@@ -74,7 +75,7 @@ void skew_and_barrier(const std::filesystem::path& directory) {
             first_slow = stream.begin(generator, 0);
             stream.emit(slow_signal, 73);
             auto value = capture(std::string("borrowed"));
-            borrowed = stream.log(text, 0, value, first_slow);
+            borrowed = stream.log(text, callsite, 0, value, first_slow);
             value.assign(value.size(), 0xff);
             stream.publish();
             barrier.arrive_and_wait();
@@ -242,6 +243,8 @@ void ownership_slot_collisions(const std::filesystem::path& directory) {
         [](Writer& backend) { return backend.add_generator(none, "stage", "STAGE"); });
     const auto log_generator = stream.control(
         [](Writer& backend) { return backend.add_generator(none, "filler", "LOG"); });
+    const auto callsite =
+        stream.control([](Writer& backend) { return backend.add_callsite("filler", 0); });
     const auto key = stream.control([](Writer& backend) { return backend.intern("value"); });
     const auto later = stream.control([](Writer& backend) { return backend.intern("later"); });
     const auto first = stream.add_producer(), second = stream.add_producer();
@@ -250,7 +253,7 @@ void ownership_slot_collisions(const std::filesystem::path& directory) {
     for (unsigned i = 0; i < owners.size(); ++i) {
         if (i)
             for (unsigned n = 0; n < 1022; ++n)
-                stream.log(log_generator, 0);
+                stream.log(log_generator, callsite, 0);
         owners[i] = stream.begin(generator, i);
         stages[i] = stream.begin_stage(stage_generator, owners[i], i);
         check(owners[i] == 1 + i * 1024 && stages[i] == 2 + i * 1024,
@@ -380,9 +383,10 @@ void exclusive_attachment(const std::filesystem::path& directory) {
 void oversized_owned_payloads(const std::filesystem::path& directory) {
     const auto path = directory / "oversized.vtr";
     Stream stream(path, {}, {.queue_bytes = 128, .pending_bytes = 512});
-    const auto generator = stream.control([](Writer& backend) {
-        return backend.add_generator(none, "messages", "LOG", backend.bind<std::string>());
-    });
+    const auto generator = stream.control(
+        [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
+    const auto callsite = stream.control(
+        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
     const auto fast = stream.add_producer(), slow = stream.add_producer();
     stream.use_producer(fast);
     std::vector<RecordId> ids;
@@ -390,7 +394,7 @@ void oversized_owned_payloads(const std::filesystem::path& directory) {
         stream.advance_time(i + 1);
         const auto value = std::string(i % 2 ? 4096 : 7, static_cast<char>('a' + i % 26));
         auto payload = capture(value);
-        ids.push_back(stream.log(generator, i + 1, payload));
+        ids.push_back(stream.log(generator, callsite, i + 1, payload));
         payload.assign(payload.size(), 0xff);
     }
     stream.release_producer();

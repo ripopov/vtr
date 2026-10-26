@@ -236,7 +236,7 @@ pub mod source {
 /// ```compile_fail
 /// use vtr::{Recorder, SourceOptions, Writer};
 /// fn wrong_source(writer: &mut Writer) -> vtr::Result<()> {
-///     let logs = writer.logs::<u64>(SourceOptions::new("value {}", None))?;
+///     let logs = writer.logger(SourceOptions::new("diagnostics", None))?;
 ///     writer.begin(logs, &42, None)?;
 ///     Ok(())
 /// }
@@ -253,6 +253,45 @@ impl<T, K> Clone for Source<T, K> {
     }
 }
 impl<T, K> Source<T, K> {
+    #[must_use]
+    pub fn id(self) -> u32 {
+        self.id
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CallsiteOptions {
+    pub format: String,
+    pub severity: u64,
+    pub file: Option<String>,
+    pub line: Option<u64>,
+    pub function: Option<String>,
+}
+impl CallsiteOptions {
+    pub fn new(format: impl Into<String>) -> Self {
+        Self {
+            format: format.into(),
+            severity: 2,
+            file: None,
+            line: None,
+            function: None,
+        }
+    }
+}
+
+pub type Logger = Source<(), source::Log>;
+pub struct Callsite<T> {
+    id: u32,
+    origin: Origin,
+    marker: PhantomData<fn() -> T>,
+}
+impl<T> Copy for Callsite<T> {}
+impl<T> Clone for Callsite<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Callsite<T> {
     #[must_use]
     pub fn id(self) -> u32 {
         self.id
@@ -518,12 +557,29 @@ impl Writer {
         let _guard = self.crash.guard();
         self.source::<T, source::Event>(options, "EVENT")
     }
-    pub fn logs<T: Payload + 'static>(
-        &mut self,
-        options: SourceOptions,
-    ) -> Result<Source<T, source::Log>> {
+    pub fn logger(&mut self, options: SourceOptions) -> Result<Logger> {
         let _guard = self.crash.guard();
-        self.source::<T, source::Log>(options, "LOG")
+        self.source::<(), source::Log>(options, "LOG")
+    }
+    pub fn declare_callsite(
+        &mut self,
+        options: CallsiteOptions,
+        datatype: crate::TypeId,
+    ) -> Result<u32> {
+        let _guard = self.crash.guard();
+        self.control(move |backend| backend.declare_callsite(options, datatype))
+    }
+    pub fn callsite<T: Payload + 'static>(
+        &mut self,
+        options: CallsiteOptions,
+    ) -> Result<Callsite<T>> {
+        let _guard = self.crash.guard();
+        let id = self.control(move |backend| backend.callsite::<T>(options))?;
+        Ok(Callsite {
+            id,
+            origin: self.front.origin,
+            marker: PhantomData,
+        })
     }
     pub fn clock(&mut self, options: SourceOptions) -> Result<ClockSource> {
         let _guard = self.crash.guard();

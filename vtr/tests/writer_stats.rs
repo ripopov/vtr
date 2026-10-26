@@ -24,6 +24,9 @@ fn live_payload_buffer_queue_and_published_block_statistics_match_the_recording(
             options.encoding.block_records = 2;
             options.encoding.waveform_records = 2;
             let mut writer = Writer::create_with(&path, options).unwrap();
+            let logger = writer
+                .logger(SourceOptions::new("diagnostics", None))
+                .unwrap();
             let owners = writer
                 .transactions::<String>(SourceOptions::new("owners", None), "OWNER")
                 .unwrap();
@@ -31,7 +34,7 @@ fn live_payload_buffer_queue_and_published_block_statistics_match_the_recording(
                 .stages::<String>(SourceOptions::new("stage", None))
                 .unwrap();
             let logs = writer
-                .logs::<String>(SourceOptions::new("{}", None))
+                .callsite::<String>(vtr::CallsiteOptions::new("{}"))
                 .unwrap();
             let property = writer.intern("note").unwrap();
             let signal = writer
@@ -70,7 +73,12 @@ fn live_payload_buffer_queue_and_published_block_statistics_match_the_recording(
                     .unwrap();
                 writer.end(transaction, Status::Ok).unwrap();
                 writer
-                    .log(logs, &format!("message {time}"), Some(owner.owner()))
+                    .log(
+                        logger,
+                        logs,
+                        &format!("message {time}"),
+                        Some(owner.owner()),
+                    )
                     .unwrap();
             }
             writer.advance_time(30).unwrap();
@@ -187,11 +195,16 @@ fn owned_worker_cpu_sampling_does_not_wait_for_blocked_output() {
         options.encoding.workers = workers;
         options.encoding.block_records = 1;
         let mut writer = Writer::from_writer(Box::new(output), options).unwrap();
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
+            .unwrap();
         let logs = writer
-            .logs::<String>(SourceOptions::new("{}", None))
+            .callsite::<String>(vtr::CallsiteOptions::new("{}"))
             .unwrap();
         armed.store(true, Ordering::Relaxed);
-        writer.log(logs, &"owned worker".repeat(100), None).unwrap();
+        writer
+            .log(logger, logs, &"owned worker".repeat(100), None)
+            .unwrap();
         waiting.recv_timeout(Duration::from_secs(3)).unwrap();
         let release = gate.clone();
         let watchdog = std::thread::spawn(move || {

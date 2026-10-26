@@ -15,14 +15,18 @@ fn fixture(scenario: &str, execution: &str) -> Reader {
 fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
     for execution in ["inline", "threaded"] {
         let reader = fixture("normal", execution);
-        let sources = reader.log_sources().unwrap();
+        let sources = reader.log_callsites().unwrap();
         assert_eq!(sources.len(), 6);
-        let scope = reader
-            .node(NodeId(sources[0].generator))
-            .unwrap()
-            .parent
-            .unwrap();
-        assert_eq!(reader.full_path(scope).unwrap(), "simulation_log");
+        let logger = reader.find_generator("simulation_log").unwrap();
+        assert_eq!(
+            reader
+                .declarations()
+                .nodes
+                .iter()
+                .filter(|node| matches!(node.data, NodeData::Generator { .. }))
+                .count(),
+            1
+        );
         for (source, severity) in sources.iter().zip([
             Severity::Trace,
             Severity::Debug,
@@ -32,11 +36,8 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
             Severity::Fatal,
         ]) {
             assert_eq!(source.severity, severity);
-            assert_eq!(
-                reader.node(NodeId(source.generator)).unwrap().parent,
-                Some(scope)
-            );
-            assert_eq!(reader.name(NodeId(source.generator)).unwrap(), "{}");
+            assert_eq!(reader.node(NodeId(source.callsite)).unwrap().parent, None);
+            assert_eq!(reader.name(NodeId(source.callsite)).unwrap(), "{}");
             assert_eq!(source.payload_type, 13);
         }
         let mut records = Vec::new();
@@ -66,7 +67,7 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
         reader
             .records(
                 RecordQuery {
-                    generator: Some(warning.generator),
+                    callsite: Some(warning.callsite),
                     begin: 0,
                     end: 0,
                     ..RecordQuery::default()
@@ -85,6 +86,7 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
             .unwrap();
         assert_eq!(count, 1);
         for record in &records {
+            assert_eq!(record.generator(), Some(logger));
             assert_eq!(
                 reader.lookup(record.id()).unwrap().unwrap().generator(),
                 record.generator()
@@ -111,7 +113,7 @@ fn terminating_tasks_binary_output_and_runtime_warnings_remain_readable() {
             ("repeat", 3, Severity::Warn, "previous dump"),
         ] {
             let reader = fixture(scenario, execution);
-            let sources = reader.log_sources().unwrap();
+            let sources = reader.log_callsites().unwrap();
             let mut found = false;
             reader
                 .records(
@@ -122,7 +124,7 @@ fn terminating_tasks_binary_output_and_runtime_warnings_remain_readable() {
                     |record| {
                         let source = sources
                             .iter()
-                            .find(|source| Some(source.generator) == record.generator())
+                            .find(|source| Some(source.callsite) == record.callsite())
                             .unwrap();
                         found |= record.begin() == time
                             && source.severity == severity

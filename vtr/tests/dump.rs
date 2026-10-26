@@ -2,7 +2,6 @@ use vtr::{
     Compression, Direction, SignalId, SignalKind, VarType,
     recording::{
         ClockSource, ExecutionMode, Recorder, Source, SourceOptions, Status, Writer, WriterOptions,
-        source,
     },
     trace::{Reader, TimeWindow},
 };
@@ -51,6 +50,9 @@ fn dump_suppresses_only_waves_and_preserves_recorded_state_across_spill() {
                 options.encoding.waveform_deduplicate = deduplicate;
                 options.encoding.waveform_records = 2;
                 let mut writer = Writer::create_with(&path, options).unwrap();
+                let logger = writer
+                    .logger(SourceOptions::new("diagnostics", None))
+                    .unwrap();
                 let bits = signal(
                     &mut writer,
                     "bits",
@@ -102,10 +104,11 @@ fn dump_suppresses_only_waves_and_preserves_recorded_state_across_spill() {
                     .transactions::<u64>(SourceOptions::new("owners", None), "OWNER")
                     .unwrap();
                 let logs = writer
-                    .logs::<u64>(SourceOptions::new("step {}", None))
+                    .callsite::<u64>(vtr::CallsiteOptions::new("step {}"))
                     .unwrap();
                 let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
                 let scenario = Scenario {
+                    logger,
                     waves: [bits, logic, wide, real, bytes],
                     pulse,
                     late,
@@ -180,7 +183,8 @@ struct Scenario {
     pulse: SignalId,
     late: SignalId,
     owners: Source<u64>,
-    logs: Source<u64, source::Log>,
+    logger: vtr::Logger,
+    logs: vtr::Callsite<u64>,
     clock: ClockSource,
 }
 impl Scenario {
@@ -199,7 +203,9 @@ impl Scenario {
         recorder.emit_u64(self.late, 1).unwrap();
         recorder.advance_time(2).unwrap();
         self.waves(recorder, true);
-        recorder.log(self.logs, &2, Some(owner.owner())).unwrap();
+        recorder
+            .log(self.logger, self.logs, &2, Some(owner.owner()))
+            .unwrap();
         recorder.advance_time(3).unwrap();
         recorder.dump(true).unwrap();
         recorder.dump(true).unwrap();

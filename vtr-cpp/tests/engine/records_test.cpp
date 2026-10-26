@@ -30,6 +30,8 @@ std::vector<LocatedRecord> select_source(const std::vector<LocatedRecord>& sourc
                                          const Generators& generators, RecordQuery q) {
     std::vector<LocatedRecord> rows;
     for (const auto& r : source) {
+        if (q.callsite && q.callsite != r.callsite())
+            continue;
         if (q.generator && *q.generator != r.generator) {
             continue;
         }
@@ -73,8 +75,9 @@ void roundtrips() {
                             i % 3 == 0   ? RecordKind::stage
                             : i % 3 == 1 ? RecordKind::event
                                          : RecordKind::log,
-                            payload_type});
+                            i % 3 == 2 ? 0 : payload_type});
     }
+    generators.declare_callsite(1000, payload_type);
     std::vector<LocatedRecord> source;
     std::mt19937_64 random(0x951a3907);
     for (unsigned i = 0; i < 12000; ++i) {
@@ -88,7 +91,9 @@ void roundtrips() {
                             : std::string(""));
         row.scalar(random());
         auto parent = generators[generator].kind == RecordKind::log && i % 2 ? 0 : 1 + i % 3;
-        source.push_back({10 + i, generator, begin, end, parent, std::move(row).take()});
+        source.push_back(
+            {10 + i, generator, begin, end, parent, std::move(row).take(),
+             generators[generator].kind == RecordKind::log ? std::optional(1000u) : std::nullopt});
     }
     std::reverse(source.begin() + 100, source.begin() + 300);
     source.push_back({UINT64_MAX - 2, 100, 0, UINT64_MAX, 1, source[0].payload});
@@ -162,13 +167,15 @@ void roundtrips() {
 void sparse_generators() {
     Types types;
     const auto text = types.bind<std::string>();
-    const std::array<Generator, 4> declarations{{
-        {0, RecordKind::event, text}, {255, RecordKind::stage, text},
-        {256, RecordKind::log, 9}, {UINT32_MAX - 1, RecordKind::event, 9}}};
+    const std::array<Generator, 4> declarations{{{0, RecordKind::event, text},
+                                                 {255, RecordKind::stage, text},
+                                                 {256, RecordKind::log, 0},
+                                                 {UINT32_MAX - 1, RecordKind::event, 9}}};
     auto snapshot = [&] {
         Generators source;
         for (const auto& generator : declarations)
             source.declare(generator);
+        source.declare_callsite(10000, 9);
         const auto& retained = source[255];
         for (auto id : {0u, 255u, 256u, UINT32_MAX - 1})
             rejects([&] { source.declare({id, RecordKind::clock, 0}); });
@@ -195,9 +202,11 @@ void sparse_generators() {
     std::vector<LocatedRecord> source;
     for (const auto& generator : declarations) {
         auto payload = generator.payload_type == text ? capture(std::string("sparse Δ"))
-                                                       : capture(std::uint64_t(UINT64_MAX));
+                                                      : capture(std::uint64_t(UINT64_MAX));
         const auto end = generator.kind == RecordKind::stage ? 12u : 9u;
-        source.push_back({10 + source.size(), generator.id, 9, end, 1, std::move(payload)});
+        source.push_back(
+            {10 + source.size(), generator.id, 9, end, 1, std::move(payload),
+             generator.kind == RecordKind::log ? std::optional(10000u) : std::nullopt});
     }
     auto encoded = encode_record_block(1, types, snapshot, source);
     RecordBlockView block(encoded, types, snapshot);
@@ -226,13 +235,14 @@ void recovery_inputs() {
     Generators generators;
     generators.declare({10, RecordKind::stage, text});
     generators.declare({11, RecordKind::event, text});
-    generators.declare({12, RecordKind::log, text});
+    generators.declare({12, RecordKind::log, 0});
+    generators.declare_callsite(1000, text);
     auto payload = capture(std::string("same"));
     std::vector<LocatedRecord> source{{10, 10, 2, 4, 1, payload},
                                       {11, 10, 3, 5, 1, payload},
                                       {12, 11, 4, 4, 1, payload},
                                       {13, 11, 4, 4, 1, payload},
-                                      {14, 12, 4, 4, 0, payload}};
+                                      {14, 12, 4, 4, 0, payload, 1000}};
     auto encoded = encode_record_block(4, types, generators, source,
                                        {64, vtr::detail::wire::Codec::stored, 0, false});
     for (std::size_t n = 0; n < encoded.size(); ++n) {
@@ -283,8 +293,9 @@ void fixture(unsigned codec) {
     auto type = types.structure("Visit", {{"serial", 8}, {"note", 13}});
     Generators generators;
     for (unsigned i = 0; i < 3; ++i) {
-        generators.declare({10 + i, static_cast<RecordKind>(2 + i), type});
+        generators.declare({10 + i, static_cast<RecordKind>(2 + i), i == 2 ? 0 : type});
     }
+    generators.declare_callsite(1000, type);
     std::vector<LocatedRecord> source;
     for (unsigned i = 0; i < 200; ++i) {
         auto generator = 10 + i % 3;
@@ -294,7 +305,8 @@ void fixture(unsigned codec) {
         payload.scalar(std::uint32_t(i));
         payload.append(std::string("repeat Δ"));
         source.push_back({3 + i, generator, begin, end, generator == 12 && i % 2 ? 0u : 1u,
-                          std::move(payload).take()});
+                          std::move(payload).take(),
+                          generator == 12 ? std::optional(1000u) : std::nullopt});
     }
     std::reverse(source.begin() + 30, source.begin() + 80);
     source.push_back({UINT64_MAX, 11, UINT64_MAX, UINT64_MAX, UINT64_MAX - 1, source[0].payload});
@@ -318,9 +330,9 @@ void fixture(unsigned codec) {
         if (i) {
             std::cout << ',';
         }
-        std::cout << '[' << 10 + i << ',' << 2 + i << ',' << type << ']';
+        std::cout << '[' << 10 + i << ',' << 2 + i << ',' << (i == 2 ? 0 : type) << ']';
     }
-    std::cout << "],\"rows\":[";
+    std::cout << "],\"callsites\":[[1000," << type << "]],\"rows\":[";
     bool first = true;
     for (const auto& r : source) {
         if (!first) {
@@ -330,6 +342,11 @@ void fixture(unsigned codec) {
         std::cout << '[' << r.id << ',' << r.generator << ',' << r.begin << ',' << r.end << ','
                   << r.parent << ',';
         hex(r.payload);
+        std::cout << ',';
+        if (r.callsite())
+            std::cout << *r.callsite();
+        else
+            std::cout << "null";
         std::cout << ']';
     }
     std::cout << "]}\n";

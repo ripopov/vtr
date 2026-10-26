@@ -12,14 +12,18 @@
 namespace vtr {
 namespace detail {
 
-struct PayloadStorage {
-    std::shared_ptr<const engine::Types> types;
-    wire::Bytes bytes;
+struct PayloadSchema {
+    engine::Types types;
+    RecordingId origin;
     std::size_t allocation_limit;
 };
 
+struct PayloadStorage {
+    std::shared_ptr<const PayloadSchema> schema;
+    wire::Bytes bytes;
+};
+
 struct RecordStorage {
-    RecordingId origin;
     RecordId id{0};
     RecordKind kind = RecordKind::transaction;
     std::optional<RecordId> parent;
@@ -29,12 +33,12 @@ struct RecordStorage {
     Status status = Status::unset;
     SpanKind span_kind = SpanKind::unspecified;
     TypeId type{0};
-    std::shared_ptr<const PayloadStorage> payload;
+    PayloadStorage payload;
     Attributes attributes;
     std::vector<EmbeddedEvent> events;
     std::vector<EmbeddedStage> stages;
     std::vector<BlockId> child_blocks;
-    std::optional<StringId> name;
+    std::variant<std::monostate, StringId, CallsiteId> annotation;
     std::optional<StringId> lane;
     std::optional<Timestamp> explicit_end;
 };
@@ -84,25 +88,24 @@ std::optional<RecordId> record_id(std::uint64_t id) {
     return id ? std::optional(RecordId(id)) : std::nullopt;
 }
 
-std::shared_ptr<RecordStorage>
-base_storage(std::uint64_t id, std::uint64_t parent, std::optional<std::uint32_t> generator,
-             std::uint64_t begin, std::uint64_t end, engine::RecordKind kind,
-             wire::detail::View payload, std::span<const wire::Attribute> attributes,
-             std::shared_ptr<const engine::Types> types, const engine::ContainerReader& container,
-             std::size_t allocation_limit) {
+std::shared_ptr<RecordStorage> base_storage(std::uint64_t id, std::uint64_t parent,
+                                            std::optional<std::uint32_t> generator,
+                                            std::uint64_t begin, std::uint64_t end,
+                                            engine::RecordKind kind, engine::TypeId datatype,
+                                            wire::detail::View payload,
+                                            std::span<const wire::Attribute> attributes,
+                                            std::shared_ptr<const PayloadSchema> schema) {
     auto result = std::make_shared<RecordStorage>();
-    result->origin = identity(container.waveform().trace_id());
     result->id = RecordId(id);
     result->kind = record_kind(kind);
     result->parent = record_id(parent);
     if (generator) {
         result->generator = GeneratorId(*generator);
-        result->type = TypeId(container.generators()[*generator].payload_type);
     }
+    result->type = TypeId(datatype);
     result->begin = begin;
     result->end = end;
-    result->payload = std::make_shared<PayloadStorage>(
-        std::move(types), wire::Bytes(payload.begin(), payload.end()), allocation_limit);
+    result->payload = {std::move(schema), wire::Bytes(payload.begin(), payload.end())};
     result->attributes = decode_attributes(attributes);
     return result;
 }
@@ -124,42 +127,46 @@ void owner_detail(RecordStorage& result, const engine::Transaction& owner) {
 }
 
 std::shared_ptr<RecordStorage> record_storage(const engine::Transaction& tx,
-                                              std::shared_ptr<const engine::Types> types,
-                                              const engine::ContainerReader& container,
-                                              std::size_t allocation_limit) {
-    auto result = base_storage(tx.id, tx.parent, tx.generator, tx.begin, tx.end,
-                               container.generators()[tx.generator].kind, tx.payload, tx.attributes,
-                               std::move(types), container, allocation_limit);
+                                              std::shared_ptr<const PayloadSchema> schema,
+                                              const engine::ContainerReader& container) {
+    const auto& generator = container.generators()[tx.generator];
+    auto result =
+        base_storage(tx.id, tx.parent, tx.generator, tx.begin, tx.end, generator.kind,
+                     generator.payload_type, tx.payload, tx.attributes, std::move(schema));
     owner_detail(*result, tx);
     return result;
 }
 
 std::shared_ptr<RecordStorage> record_storage(const engine::LocatedRecord& record,
-                                              std::shared_ptr<const engine::Types> types,
-                                              const engine::ContainerReader& container,
-                                              std::size_t allocation_limit) {
-    return base_storage(record.id, record.parent, record.generator, record.begin, record.end,
-                        container.generators()[record.generator].kind, record.payload, {},
-                        std::move(types), container, allocation_limit);
+                                              std::shared_ptr<const PayloadSchema> schema,
+                                              const engine::ContainerReader& container) {
+    const auto& generator = container.generators()[record.generator];
+    const auto callsite = record.callsite();
+    const auto datatype =
+        callsite ? container.generators().callsite_type(*callsite) : generator.payload_type;
+    auto result = base_storage(record.id, record.parent, record.generator, record.begin, record.end,
+                               generator.kind, datatype, record.payload, {}, std::move(schema));
+    if (callsite)
+        result->annotation = CallsiteId(*callsite);
+    return result;
 }
 
 std::shared_ptr<RecordStorage> record_storage(const engine::RecordRef& record,
-                                              std::shared_ptr<const engine::Types> types,
-                                              const engine::ContainerReader& container,
-                                              std::size_t allocation_limit) {
+                                              std::shared_ptr<const PayloadSchema> schema,
+                                              const engine::ContainerReader& container) {
     if (auto owner = record.transaction()) {
-        return record_storage(*owner, std::move(types), container, allocation_limit);
+        return record_storage(*owner, std::move(schema), container);
     }
     if (auto located = record.located()) {
-        return record_storage(*located, std::move(types), container, allocation_limit);
+        return record_storage(*located, std::move(schema), container);
     }
-    auto result = base_storage(record.id(), record.parent(), record.generator(), record.begin(),
-                               record.end(), record.kind(), record.payload(), record.attributes(),
-                               std::move(types), container, allocation_limit);
+    auto result =
+        base_storage(record.id(), record.parent(), record.generator(), record.begin(), record.end(),
+                     record.kind(), 0, record.payload(), record.attributes(), std::move(schema));
     if (auto event = record.event()) {
-        result->name = StringId(event->name);
+        result->annotation = StringId(event->name);
     } else if (auto stage = record.stage()) {
-        result->name = StringId(stage->name);
+        result->annotation = StringId(stage->name);
         result->lane = StringId(stage->lane);
         result->explicit_end = stage->end;
     }
@@ -179,7 +186,7 @@ TypeId PayloadView::type() const noexcept {
 
 PayloadView PayloadView::first_element() const {
     return detail::translate([&] {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         auto offset = offset_ + (type.kind == detail::engine::TypeKind::sequence ? 4 : 0);
         return PayloadView(storage_, offset, TypeId(type.element));
     });
@@ -189,14 +196,14 @@ PayloadView PayloadView::next_element() const {
     return detail::translate([&] {
         auto data = detail::engine::View(storage_->bytes);
         detail::binary::Cursor cursor(data.subspan(offset_));
-        detail::skip(cursor, *storage_->types, type_.value);
+        detail::skip(cursor, storage_->schema->types, type_.value);
         return PayloadView(storage_, data.size() - cursor.data.size(), type_);
     });
 }
 
 bool PayloadView::matches(detail::PayloadKind kind, std::string_view name) const {
     return detail::translate([&] {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         return static_cast<detail::PayloadKind>(type.kind) == kind &&
                (name.empty() || type.name == name);
     });
@@ -204,7 +211,7 @@ bool PayloadView::matches(detail::PayloadKind kind, std::string_view name) const
 
 std::optional<ByteView> PayloadView::fixed_array(TypeId element, std::size_t count) const {
     return detail::translate([&]() -> std::optional<ByteView> {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         if (type.kind != detail::engine::TypeKind::array || type.count != count ||
             type.element != element.value || !type.fixed_size) {
             return std::nullopt;
@@ -215,12 +222,12 @@ std::optional<ByteView> PayloadView::fixed_array(TypeId element, std::size_t cou
 }
 
 std::size_t PayloadView::allocation_limit() const noexcept {
-    return storage_->allocation_limit;
+    return storage_->schema->allocation_limit;
 }
 
 std::size_t PayloadView::size() const {
     return detail::translate([&]() -> std::size_t {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         switch (type.kind) {
         case detail::engine::TypeKind::structure:
             return type.fields.size();
@@ -238,7 +245,7 @@ std::size_t PayloadView::size() const {
 
 PayloadView PayloadView::operator[](std::string_view field) const {
     return detail::translate([&] {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         if (type.kind != detail::engine::TypeKind::structure) {
             throw Error(ErrorCode::invalid_argument, "Named payload access requires a struct");
         }
@@ -253,7 +260,7 @@ PayloadView PayloadView::operator[](std::string_view field) const {
 
 PayloadView PayloadView::operator[](std::size_t index) const {
     return detail::translate([&] {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         if (index >= size()) {
             throw Error(ErrorCode::invalid_argument, "Payload element index is out of range");
         }
@@ -262,7 +269,7 @@ PayloadView PayloadView::operator[](std::size_t index) const {
         std::uint32_t element;
         if (type.kind == detail::engine::TypeKind::structure) {
             for (std::size_t i = 0; i < index; ++i) {
-                detail::skip(cursor, *storage_->types, type.fields[i].type);
+                detail::skip(cursor, storage_->schema->types, type.fields[i].type);
             }
             element = type.fields[index].type;
         } else {
@@ -270,12 +277,12 @@ PayloadView PayloadView::operator[](std::size_t index) const {
             if (type.kind == detail::engine::TypeKind::sequence) {
                 cursor.fixed<std::uint32_t>();
             }
-            const auto& item = (*storage_->types)[element];
+            const auto& item = storage_->schema->types[element];
             if (item.fixed_size) {
                 cursor.take(index * *item.fixed_size);
             } else {
                 for (std::size_t i = 0; i < index; ++i) {
-                    detail::skip(cursor, *storage_->types, element);
+                    detail::skip(cursor, storage_->schema->types, element);
                 }
             }
         }
@@ -285,13 +292,13 @@ PayloadView PayloadView::operator[](std::size_t index) const {
 
 Value PayloadView::scalar() const {
     return detail::translate([&]() -> Value {
-        const auto& type = (*storage_->types)[type_.value];
+        const auto& type = storage_->schema->types[type_.value];
         if (type.kind != detail::engine::TypeKind::scalar &&
             type.kind != detail::engine::TypeKind::enumeration) {
             throw Error(ErrorCode::invalid_argument, "Aggregate payload has no scalar value");
         }
         auto primitive = type.kind == detail::engine::TypeKind::enumeration
-                             ? (*storage_->types)[type.element].primitive
+                             ? storage_->schema->types[type.element].primitive
                              : type.primitive;
         detail::binary::Cursor cursor(detail::engine::View(storage_->bytes).subspan(offset_));
         using Primitive = detail::engine::Primitive;
@@ -377,6 +384,11 @@ std::optional<RecordId> Record::parent() const noexcept {
     return storage_->parent;
 }
 
+std::optional<CallsiteId> Record::callsite() const noexcept {
+    const auto callsite = std::get_if<CallsiteId>(&storage_->annotation);
+    return callsite ? std::optional(*callsite) : std::nullopt;
+}
+
 std::optional<GeneratorId> Record::generator() const noexcept {
     return storage_->generator;
 }
@@ -398,7 +410,8 @@ vtr::SpanKind Record::span_kind() const noexcept {
 }
 
 PayloadView Record::payload() const {
-    return PayloadView(storage_->payload, 0, storage_->type);
+    return PayloadView(std::shared_ptr<const detail::PayloadStorage>(storage_, &storage_->payload),
+                       0, storage_->type);
 }
 
 AttributeView Record::attributes() const noexcept {
@@ -418,7 +431,8 @@ std::span<const BlockId> Record::child_blocks() const noexcept {
 }
 
 std::optional<StringId> Record::name() const noexcept {
-    return storage_->name;
+    const auto name = std::get_if<StringId>(&storage_->annotation);
+    return name ? std::optional(*name) : std::nullopt;
 }
 
 std::optional<StringId> Record::lane() const noexcept {
@@ -431,11 +445,11 @@ std::optional<Timestamp> Record::explicit_end() const noexcept {
 
 struct Reader::Impl {
     detail::engine::Reader backend;
-    std::shared_ptr<const detail::engine::Types> schema;
-    std::size_t allocation_limit;
+    std::shared_ptr<const detail::PayloadSchema> schema;
     vtr::Metadata metadata;
     std::vector<Node> nodes;
     std::vector<Generator> generators;
+    std::vector<LogCallsite> callsites;
     std::vector<DataType> types;
     std::vector<SignalKind> signals;
     Provenance ending;
@@ -443,8 +457,8 @@ struct Reader::Impl {
     Impl(const std::filesystem::path& path, ReaderOptions options)
         : backend(path.string(), {options.verify_checksums, options.owner_cache_entries,
                                   options.owner_cache_bytes, options.max_payload_bytes}),
-          schema(std::make_shared<detail::engine::Types>(backend.types())),
-          allocation_limit(options.max_payload_bytes),
+          schema(std::make_shared<detail::PayloadSchema>(
+              backend.types(), detail::identity(backend.trace_id()), options.max_payload_bytes)),
           metadata(detail::decode_metadata(backend.metadata())) {
         auto fingerprint = backend.fingerprint();
         auto dropped = backend.container().waveform().stats().recovered_dropped;
@@ -452,12 +466,12 @@ struct Reader::Impl {
                       ? (backend.incomplete() ? Completion::incomplete : Completion::complete)
                       : Completion::unfinished,
                   dropped};
-        types.reserve(schema->size());
-        for (std::uint32_t i = 0; i < schema->size(); ++i) {
+        types.reserve(schema->types.size());
+        for (std::uint32_t i = 0; i < schema->types.size(); ++i) {
             if (i == static_cast<std::uint32_t>(Primitive::enumeration)) {
                 types.push_back({TypeId(i), {}, Primitive::enumeration});
             } else {
-                types.push_back(detail::decode_type(i, (*schema)[i]));
+                types.push_back(detail::decode_type(i, schema->types[i]));
             }
         }
         signals.reserve(backend.signals().size());
@@ -472,6 +486,7 @@ struct Reader::Impl {
             auto kind = node.kind == detail::wire::Node::scope        ? NodeKind::scope
                         : node.kind == detail::wire::Node::generator  ? NodeKind::generator
                         : node.kind == detail::wire::Node::enum_table ? NodeKind::enum_table
+                        : node.kind == detail::wire::Node::callsite   ? NodeKind::callsite
                                                                       : NodeKind::signal;
             nodes.push_back(
                 {NodeId(i),
@@ -499,6 +514,21 @@ struct Reader::Impl {
                 for (const auto& [name, value] : node.entries)
                     declared.enum_entries.push_back({StringId(name), StringId(value)});
             }
+            if (node.kind == detail::wire::Node::callsite) {
+                LogCallsite site{CallsiteId(i), StringId(node.name), TypeId(node.payload_type), 2};
+                for (const auto& attribute : node.attrs) {
+                    auto key = backend.string(attribute.key);
+                    if (key == "log.severity")
+                        site.severity = attribute.value.number;
+                    else if (key == "log.file")
+                        site.file = StringId(attribute.value.literal);
+                    else if (key == "log.func")
+                        site.function = StringId(attribute.value.literal);
+                    else if (key == "log.line")
+                        site.line = attribute.value.number;
+                }
+                callsites.push_back(site);
+            }
             if (node.kind == detail::wire::Node::generator) {
                 auto id = GeneratorId(i);
                 auto record_kind = detail::record_kind(backend.container().generators()[i].kind);
@@ -511,7 +541,7 @@ struct Reader::Impl {
     }
 
     template <class T> Record retain(const T& ref) const {
-        return Record(detail::record_storage(ref, schema, backend.container(), allocation_limit));
+        return Record(detail::record_storage(ref, schema, backend.container()));
     }
 };
 
@@ -545,6 +575,10 @@ std::span<const Node> Reader::nodes() const noexcept {
 
 std::span<const Generator> Reader::generators() const noexcept {
     return impl_->generators;
+}
+
+std::span<const LogCallsite> Reader::callsites() const noexcept {
+    return impl_->callsites;
 }
 
 std::span<const DataType> Reader::types() const noexcept {
@@ -612,6 +646,8 @@ void Reader::records(RecordQuery query, const std::function<Flow(const Record&)>
         if (query.generator) {
             selected.generator = query.generator->value;
         }
+        if (query.callsite)
+            selected.callsite = query.callsite->value;
         if (query.parent) {
             selected.parent = query.parent->value;
         }
@@ -814,26 +850,46 @@ namespace {
 class FormatPunctuation : public std::numpunct<char> {
     std::locale source_;
     std::string groups_;
-    const std::numpunct<char>& source() const { return std::use_facet<std::numpunct<char>>(source_); }
+
+    const std::numpunct<char>& source() const {
+        return std::use_facet<std::numpunct<char>>(source_);
+    }
 
   public:
     FormatPunctuation(std::locale source, std::string groups)
         : source_(std::move(source)), groups_(std::move(groups)) {}
 
   private:
-    std::string do_grouping() const override { return groups_; }
-    char do_decimal_point() const override { return source().decimal_point(); }
-    char do_thousands_sep() const override { return source().thousands_sep(); }
-    std::string do_truename() const override { return source().truename(); }
-    std::string do_falsename() const override { return source().falsename(); }
+    std::string do_grouping() const override {
+        return groups_;
+    }
+
+    char do_decimal_point() const override {
+        return source().decimal_point();
+    }
+
+    char do_thousands_sep() const override {
+        return source().thousands_sep();
+    }
+
+    std::string do_truename() const override {
+        return source().truename();
+    }
+
+    std::string do_falsename() const override {
+        return source().falsename();
+    }
 };
 
 std::locale format_locale(std::string_view spec) {
     auto locale = std::locale();
-    if (spec.find('L') == spec.npos) return locale;
+    if (spec.find('L') == spec.npos)
+        return locale;
     auto groups = std::use_facet<std::numpunct<char>>(locale).grouping();
-    const auto stop = std::find_if(groups.begin(), groups.end(), [](char size) { return size <= 0; });
-    if (stop == groups.end()) return locale;
+    const auto stop =
+        std::find_if(groups.begin(), groups.end(), [](char size) { return size <= 0; });
+    if (stop == groups.end())
+        return locale;
     const auto end = static_cast<std::size_t>(stop - groups.begin());
     // libc++ can loop on zero/negative groups; CHAR_MAX has the same unlimited-group meaning.
     groups.resize(end + 1);
@@ -966,14 +1022,16 @@ std::string Reader::format_log(const Record& log) const {
     if (log.kind() != RecordKind::log || !log.generator()) {
         throw Error(ErrorCode::invalid_argument, "Log formatting requires a LOG record");
     }
-    if (log.storage_->origin != identity()) {
+    if (log.storage_->payload.schema->origin != identity()) {
         throw Error(ErrorCode::wrong_recording, "Log belongs to another recording");
     }
-    auto generator = log.generator()->value;
-    if (generator >= nodes().size() || nodes()[generator].kind != NodeKind::generator) {
+    if (!log.callsite())
+        throw Error(ErrorCode::corrupt_data, "Log has no callsite");
+    auto callsite = log.callsite()->value;
+    if (callsite >= nodes().size() || nodes()[callsite].kind != NodeKind::callsite) {
         throw Error(ErrorCode::wrong_recording, "Log generator is absent from this recording");
     }
-    auto format = string(nodes()[generator].name);
+    auto format = string(nodes()[callsite].name);
     auto payload = log.payload();
     const auto& type = types()[payload.type().value];
     bool structure = std::holds_alternative<StructDefinition>(type.definition);

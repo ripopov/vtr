@@ -75,8 +75,8 @@ pub struct SignalUpdate {
 }
 
 use super::{
-    ActiveRecord, ClockSource, Origin, OwnerRef, ProducerId, Source, SpanKind, Stage, Status,
-    Transaction, session::Session, source,
+    ActiveRecord, Callsite, ClockSource, Logger, Origin, OwnerRef, ProducerId, Source, SpanKind,
+    Stage, Status, Transaction, session::Session, source,
 };
 use crate::{
     Error, Result,
@@ -173,7 +173,7 @@ pub enum Operation {
         time: u64,
         parent: u64,
         payload: Vec<u8>,
-        log: bool,
+        callsite: Option<u32>,
     },
     End {
         id: u64,
@@ -245,7 +245,7 @@ pub enum PayloadOperation {
         generator: u32,
         time: u64,
         parent: u64,
-        log: bool,
+        callsite: Option<u32>,
     },
     End {
         id: u64,
@@ -296,14 +296,14 @@ impl PayloadOperation {
                 generator,
                 time,
                 parent,
-                log,
+                callsite,
             } => Operation::Point {
                 id,
                 generator,
                 time,
                 parent,
                 payload: payload.unwrap(),
-                log,
+                callsite,
             },
             Self::End { time, status, .. } => Operation::End {
                 id,
@@ -534,38 +534,64 @@ pub trait Recorder: Capture {
                 generator: source.id,
                 time,
                 parent: owner.id,
-                log: false,
+                callsite: None,
             },
             payload,
         )
     }
     fn log<T: Payload>(
         &mut self,
-        source: Source<T, source::Log>,
+        logger: Logger,
+        callsite: Callsite<T>,
         payload: &T,
         owner: Option<OwnerRef>,
     ) -> Result<u64> {
         let mut session = self.session();
-        session.log_at(source, session.current_time(), payload, owner)
+        session.log_at(logger, callsite, session.current_time(), payload, owner)
     }
     fn log_at<T: Payload>(
         &mut self,
-        source: Source<T, source::Log>,
+        logger: Logger,
+        callsite: Callsite<T>,
         time: u64,
         payload: &T,
         owner: Option<OwnerRef>,
     ) -> Result<u64> {
         let mut session = self.session();
-        session.state().check(source.origin)?;
+        session.state().check(logger.origin)?;
+        session.state().check(callsite.origin)?;
         if let Some(owner) = owner {
             session.state().check(owner.origin)?;
         }
         session.payload(
             PayloadOperation::Point {
-                generator: source.id,
+                generator: logger.id,
                 time,
                 parent: owner.map_or(0, |owner| owner.id),
-                log: true,
+                callsite: Some(callsite.id),
+            },
+            payload,
+        )
+    }
+    fn log_raw(
+        &mut self,
+        logger: Logger,
+        callsite: u32,
+        time: u64,
+        payload: &[u8],
+        owner: Option<OwnerRef>,
+    ) -> Result<u64> {
+        let mut session = self.session();
+        session.state().check(logger.origin)?;
+        if let Some(owner) = owner {
+            session.state().check(owner.origin)?;
+        }
+        session.payload_bytes(
+            PayloadOperation::Point {
+                generator: logger.id,
+                callsite: Some(callsite),
+                time,
+                parent: owner.map_or(0, |owner| owner.id),
             },
             payload,
         )

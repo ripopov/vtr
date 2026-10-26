@@ -47,7 +47,11 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
         {.name = "scalar", .parent = core}, "SCALAR");
     auto execute = writer.stages<std::string>({.name = "execute", .parent = core});
     auto events = writer.events({.name = "retired", .parent = core});
-    auto logs = writer.logs<Packet>({.name = "packet {}", .parent = core});
+    auto logger = writer.logger({.name = "diagnostics"});
+    auto logs = writer.callsite<Packet>({.format = "packet {}"});
+    auto retry = writer.callsite<std::string>(
+        {.format = "retry {}", .severity = 3, .file = "shared.cpp", .line = 17});
+    auto memory_logger = writer.logger({.name = "memory"});
     auto clock = writer.clock({.name = "clock", .parent = core});
     writer.associate_clock(requests, clock);
     auto counter = writer.signal({.name = "counter", .parent = core}, {.width = 32});
@@ -89,7 +93,7 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     writer.emit(counter, 3);
     (void)writer.event(events, owner);
     (void)writer.event(events, owner);
-    (void)writer.log(logs, packet(), owner);
+    (void)writer.log(logger, logs, packet(), owner);
     writer.stop(clock, 10);
     writer.end(visit, std::string("execute Δ"));
     writer.advance_time(15);
@@ -115,15 +119,21 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
         }
     }
     writer.advance_time(40);
+    writer.log(logger, retry, std::string("bank 3"));
+    writer.log(logger, retry, std::string("bank 3"));
+    writer.log(memory_logger, logs, packet());
+    writer.log(logger, logs, packet());
     writer.close();
 }
 
 void read(const char* path) {
     std::optional<vt::Record> retained;
+    std::optional<vt::Record> retained_log;
+    std::optional<vt::PayloadView> retained_arguments;
     {
         vt::Reader reader(path);
         const auto report = reader.validate();
-        check(report.records == 25 && report.relations == 1 && report.missing.empty());
+        check(report.records == 29 && report.relations == 1 && report.missing.empty());
         auto owner = reader.lookup(vt::RecordId(2));
         check(owner.has_value());
         retained = owner;
@@ -135,6 +145,25 @@ void read(const char* path) {
         check(reader.lookup(vt::RecordId(6))->parent() == owner->id());
         check(reader.lookup(vt::RecordId(9))->payload().as<Packet>() == packet());
         check(reader.format_log(*reader.lookup(vt::RecordId(9))) == "packet 32768");
+        check(reader.callsites().size() == 2);
+        auto retry = reader.lookup(vt::RecordId(26));
+        auto duplicate = reader.lookup(vt::RecordId(27));
+        retained_log = retry;
+        retained_arguments = reader.lookup(vt::RecordId(9))->payload()["data"];
+        check(retry->generator() == reader.find_generator("diagnostics") &&
+              retry->payload().as<std::string>() == "bank 3");
+        check(retry->callsite() == duplicate->callsite() && retry->id() != duplicate->id());
+        check(reader.lookup(vt::RecordId(28))->generator() == reader.find_generator("memory"));
+        check(reader.lookup(vt::RecordId(28))->callsite() ==
+              reader.lookup(vt::RecordId(9))->callsite());
+        unsigned selected = 0;
+        reader.records({.generator = retry->generator(), .callsite = retry->callsite()},
+                       [&](const vt::Record& record) {
+                           check(reader.format_log(record) == "retry bank 3");
+                           ++selected;
+                           return vt::Flow::next;
+                       });
+        check(selected == 2);
         unsigned count = 0;
         reader.transactions(
             {.generator = reader.find_generator("core.scalar")}, [&](const vt::Record& record) {
@@ -171,7 +200,10 @@ void read(const char* path) {
               wide.packed[16] == std::byte{1});
     }
     check(retained->payload().as<Packet>() == packet());
-    std::cout << "25 records, typed payloads, ownership, clocks, relations, waveforms and retained "
+    check(retained_log->callsite().has_value() &&
+          retained_log->payload().as<std::string>() == "bank 3");
+    check(retained_arguments->as<std::vector<std::int16_t>>() == packet().data);
+    std::cout << "29 records, typed payloads, ownership, clocks, relations, waveforms and retained "
                  "schemas verified\n";
 }
 
@@ -196,8 +228,10 @@ void index(const char* command, const char* trace_path, const char* index_path) 
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 4 && (std::string_view(argv[1]) == "index-read" ||
-                          std::string_view(argv[1]) == "index-write"))
+        if (argc == 4 && std::string_view(argv[1]) == "recover")
+            (void)vt::recover(argv[2], argv[3]);
+        else if (argc == 4 && (std::string_view(argv[1]) == "index-read" ||
+                               std::string_view(argv[1]) == "index-write"))
             index(argv[1], argv[2], argv[3]);
         else if (argc == 3 && std::string_view(argv[1]) == "read")
             read(argv[2]);

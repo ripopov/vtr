@@ -1,7 +1,6 @@
 //! Rendering reads typed fields and checks their recording identity.
 
 use vtr::{
-    attributes::{Attribute, Value},
     recording::{ExecutionMode, Recorder, SourceOptions, Writer, WriterOptions},
     trace::{Reader, Severity},
 };
@@ -31,7 +30,9 @@ fn typed_fields_escaping_specs_and_wrong_recording_checks() {
         },
     )
     .unwrap();
-    let severity = writer.intern("log.severity").unwrap();
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let cases = [
         (
             "{{message}} {0:#010x} {1} {3}",
@@ -48,18 +49,15 @@ fn typed_fields_escaping_specs_and_wrong_recording_checks() {
     let mut ids = Vec::new();
     for (format, _) in cases {
         let source = writer
-            .logs::<Arguments>(SourceOptions {
-                name: format.into(),
-                parent: None,
-                attributes: vec![Attribute {
-                    key: severity,
-                    value: Value::U64(3),
-                }],
+            .callsite::<Arguments>(vtr::CallsiteOptions {
+                severity: 3,
+                ..vtr::CallsiteOptions::new(format)
             })
             .unwrap();
         ids.push(
             writer
                 .log(
+                    logger,
                     source,
                     &Arguments {
                         number: 255,
@@ -80,10 +78,10 @@ fn typed_fields_escaping_specs_and_wrong_recording_checks() {
     writer.close().unwrap();
     let reader = Reader::open(&path).unwrap();
     reader.validate().unwrap();
-    assert_eq!(reader.log_sources().unwrap().len(), cases.len());
+    assert_eq!(reader.log_callsites().unwrap().len(), cases.len());
     assert!(
         reader
-            .log_sources()
+            .log_callsites()
             .unwrap()
             .iter()
             .all(|source| source.severity == Severity::Warn)
@@ -171,6 +169,9 @@ fn scalar_presentations_match_the_independent_cpp_format_oracle() {
         },
     )
     .unwrap();
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let mut float64_sources = std::collections::HashMap::new();
     let mut float32_sources = std::collections::HashMap::new();
     let mut signed_sources = std::collections::HashMap::new();
@@ -184,28 +185,37 @@ fn scalar_presentations_match_the_independent_cpp_format_oracle() {
         let id = match case["type"].as_str().unwrap() {
             "f64" => oracle_log(
                 &mut writer,
+                logger,
                 &mut float64_sources,
                 spec,
                 &f64::from_bits(bits),
             ),
             "f32" => oracle_log(
                 &mut writer,
+                logger,
                 &mut float32_sources,
                 spec,
                 &f32::from_bits(bits as u32),
             ),
-            "i64" => oracle_log(&mut writer, &mut signed_sources, spec, &(bits as i64)),
-            "u64" => oracle_log(&mut writer, &mut unsigned_sources, spec, &bits),
+            "i64" => oracle_log(
+                &mut writer,
+                logger,
+                &mut signed_sources,
+                spec,
+                &(bits as i64),
+            ),
+            "u64" => oracle_log(&mut writer, logger, &mut unsigned_sources, spec, &bits),
             "text" => {
                 let bytes = unhex(case["text_hex"].as_str().unwrap());
                 oracle_log(
                     &mut writer,
+                    logger,
                     &mut text_sources,
                     spec,
                     &String::from_utf8(bytes).unwrap(),
                 )
             }
-            "bool" => oracle_log(&mut writer, &mut bool_sources, spec, &(bits != 0)),
+            "bool" => oracle_log(&mut writer, logger, &mut bool_sources, spec, &(bits != 0)),
             _ => panic!("unknown oracle type"),
         };
         ids.push(id);
@@ -269,16 +279,17 @@ fn scalar_presentations_match_the_independent_cpp_format_oracle() {
 
 fn oracle_log<T: vtr::Payload + 'static>(
     writer: &mut Writer,
-    sources: &mut std::collections::HashMap<String, vtr::Source<T, vtr::recording::source::Log>>,
+    logger: vtr::Logger,
+    sources: &mut std::collections::HashMap<String, vtr::Callsite<T>>,
     spec: &str,
     value: &T,
 ) -> u64 {
     let source = *sources.entry(spec.into()).or_insert_with(|| {
         writer
-            .logs::<T>(SourceOptions::new(format!("{{:{spec}}}"), None))
+            .callsite::<T>(vtr::CallsiteOptions::new(format!("{{:{spec}}}")))
             .unwrap()
     });
-    writer.log(source, value, None).unwrap()
+    writer.log(logger, source, value, None).unwrap()
 }
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -303,16 +314,19 @@ fn retained_log_from_a_later_publication_is_rejected_by_an_earlier_prefix() {
             },
         )
         .unwrap();
-        let early = writer
-            .logs::<u64>(SourceOptions::new("early {}", None))
+        let logger = writer
+            .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        writer.log(early, &1, None).unwrap();
+        let early = writer
+            .callsite::<u64>(vtr::CallsiteOptions::new("early {}"))
+            .unwrap();
+        writer.log(logger, early, &1, None).unwrap();
         writer.flush().unwrap();
         let prefix = std::fs::read(&path).unwrap();
         let late = writer
-            .logs::<u64>(SourceOptions::new("late {}", None))
+            .callsite::<u64>(vtr::CallsiteOptions::new("late {}"))
             .unwrap();
-        let id = writer.log(late, &2, None).unwrap();
+        let id = writer.log(logger, late, &2, None).unwrap();
         writer.close().unwrap();
         let reader = Reader::open(&path).unwrap();
         let retained = reader.lookup(id).unwrap().unwrap();

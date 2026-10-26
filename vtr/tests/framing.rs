@@ -98,14 +98,14 @@ fn invalid_headers_and_final_directories_are_rejected() {
         corrupt[offset] ^= 1;
         assert!(Container::from_bytes(corrupt, false).is_err());
     }
-    for (major, minor) in [(2u16, 0u16), (3, 1), (3, 3), (4, 0)] {
+    for (major, minor) in [(2u16, 0u16), (3, 1), (3, 2), (4, 0)] {
         let mut wrong_version = bytes.to_vec();
         wrong_version[8..10].copy_from_slice(&major.to_le_bytes());
         wrong_version[10..12].copy_from_slice(&minor.to_le_bytes());
         let error = Container::from_bytes(wrong_version, false).err().unwrap();
         assert_eq!(
             error.to_string(),
-            format!("unsupported VTR version {major}.{minor} (expected 3.2)")
+            format!("unsupported VTR version {major}.{minor} (expected 3.3)")
         );
     }
     let mut corrupt = bytes.to_vec();

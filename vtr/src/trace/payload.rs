@@ -10,7 +10,7 @@ use crate::{
 /// A file-local typed payload retained independently of its reader and caches.
 #[derive(Clone, Debug)]
 pub struct PayloadView {
-    pub(crate) types: Arc<Types>,
+    pub(super) types: Arc<super::RecordTypes>,
     pub(super) storage: Arc<super::RecordData>,
     pub(crate) datatype: TypeId,
     pub(crate) range: Range<usize>,

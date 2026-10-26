@@ -1,45 +1,74 @@
 # Structured logging
 
-A log source is a generator of kind `LOG`. Its name is the format string and its
-payload datatype describes each message's values. Source metadata is declared
-once; records store global ID, timestamp, optional ordinary owner, and the typed
-payload. They use RECORD_BLOCK pages alongside located events and stages, as
-specified in [TRANSACTIONS.md](TRANSACTIONS.md).
+A logger is a named generator of kind `LOG`, independent of message argument
+layouts. A callsite declares a format string, argument datatype, severity and
+optional source provenance. Each message records its logger, callsite, global
+record ID, timestamp, optional ordinary owner, and canonical argument payload.
+One logger can carry many callsites, and one callsite can be used by several
+loggers. Identical messages remain distinct occurrences.
 
 ## Writing and reading
 
-The runnable [logging example](../vtr/examples/logging.rs) defines a Rust `Payload`
-structure with named text and numeric fields, captures messages, renders them,
-and decodes retained payloads after dropping the reader. Its public operations
-are `Writer::logs::<T>`, `Recorder::log`/`log_at`, `Reader::records`, and
-`Reader::format_log`. C++ uses `Schema<T>`, `Writer::logs<T>`, and the corresponding
-recording/reader operations; see the [C++ logging example](../vtr-cpp/examples/logging.cpp).
+Rust declares a stream with `Writer::logger(SourceOptions)` and a typed statement
+with `Writer::callsite::<T>(CallsiteOptions)`. Capture uses
+`Recorder::log(logger, callsite, &arguments, owner)` or `log_at` with an explicit
+timestamp. `Writer::bind` and `declare_callsite` expose datatype references;
+`Recorder::log_raw` accepts a logger, callsite ID, timestamp and canonical bytes.
+The raw path validates the declared datatype and consumes the entire payload.
 
-Capture copies borrowed values before returning. It does not format a message on
-the producer thread. A scalar text payload and source name `{}` capture an
-already formatted message; a structure preserves independently queryable fields.
-Unit payloads have no format arguments. A log parent can identify the transaction
-being processed, but logs do not appear in that owner's located-child locators.
+C++ provides the corresponding `logger`, `callsite<T>`, `declare_callsite`,
+`log`, `log_at` and `log_raw` operations. The [C++ logging helper](../vtr-cpp/examples/logging.h)
+checks literal formats at compile time and skips argument evaluation when the
+level is disabled. Callsite descriptors are immutable. Writer-owned registration
+reuses the same callsite across loggers; producer-local logger bindings retain
+stable typed handles. Static descriptors contain no recording-local IDs.
+Separate producer bindings can share a logger handle without sharing mutable
+frontend caches. Registration finishes before steady capture, which uses direct
+handles without metadata construction or type matching.
 
-`Reader::log_sources` exposes source metadata. `RecordQuery` selects generator,
-kind, parent, ID, and inclusive time bounds. To filter by severity or scope,
-select matching sources from metadata/hierarchy and query their generator IDs.
-Block and segment headers prune unrelated data before page decompression.
-Payload fields remain available through `PayloadView::field`, `scalar`, or typed
-`decode`; no parsing of formatted text is required. Retained records keep their
-schema and payload storage independently of reader caches and reader lifetime.
+The [Rust example](../vtr/examples/logging.rs) and
+[C++ example](../vtr-cpp/examples/logging.cpp) capture values and format them later.
+Borrowed text and arrays are copied or encoded before return. A scalar text
+payload and callsite format `{}` capture already formatted output; a structure
+preserves independently queryable fields. Unit payloads have no format arguments.
+Log owners do not add EVENT/STAGE child-block locators.
 
-## Source metadata
+Rust `Reader::log_callsites` and C++ `Reader::callsites` expose formats, argument
+datatypes, severity and provenance before decoding messages. `Record::callsite`
+retains the declaration reference. `RecordQuery` selects logger generator,
+callsite, kind, parent and inclusive time bounds; Rust also exposes an ID filter.
+Select severity from the callsite catalogue and scope from the logger hierarchy.
+Segment headers prune unrelated logger/callsite groups before decompression.
+`PayloadView` supports typed fields and decoding independently of formatting,
+and retains both schema and storage after reader destruction.
+
+## Callsite declarations
+
+Callsites use HIERARCHY kind 5 in the shared node ID namespace. Their name is the
+format string, their payload reference is the argument datatype, and their parent
+must be absent. They are omitted from design-hierarchy children and are not
+generators. Distinct declarations remain distinct even when all metadata and
+datatypes match.
 
 | Key | Value type | Meaning |
 | --- | --- | --- |
-| `log.severity` | u64 | Trace 0, debug 1, info 2, warn 3, error 4, fatal 5; default info |
+| `log.severity` | u64 | Required: trace 0, debug 1, info 2, warn 3, error 4, fatal 5 |
 | `log.file` | str | Optional runtime source file |
 | `log.line` | u64 | Optional runtime source line |
 | `log.func` | str | Optional runtime function |
 
-Other severity codes are preserved. Source provenance describes where the
-runtime message originated; design-source mappings belong to VDB.
+Declaration APIs default severity to info. Other codes are preserved. Duplicate
+reserved metadata keys and values of the wrong type are invalid. Source
+provenance describes the runtime statement; design-source mappings belong to VDB.
+
+LOG generators declare unit datatype. Each LOG segment adds its callsite ID
+after the generator ID; all records in that segment use the callsite's datatype.
+The writer groups by logger/callsite without introducing additional generators.
+Storage order need not be chronological or preserve the interleaving of different
+callsites. Ordinary transaction, EVENT and STAGE payloads remain fixed to their
+generators; embedded records continue to carry attributes without datatype schemas.
+These declarations and the segment selector require VTR 3.3; older assets must
+be regenerated.
 
 ## Rendering
 
@@ -78,9 +107,9 @@ numeric bits remain in the payload.
 Container completion and recovery provenance are defined in
 [SPEC section 2](SPEC.md#2-container). They do not require a log message.
 
-The Rust writer/guard can additionally emit one reserved source under the root
-scope `vtr.run`. Its format is `run {}`, severity fatal, and attribute
-`vtr.ending=true`. The `vtr.RunEnding` payload has these ordered fields:
+The Rust writer/guard can additionally emit one reserved logger `vtr.run.ending`
+with attribute `vtr.ending=true`. Its callsite format is `run {}` and severity is
+fatal. The `vtr.RunEnding` payload has these ordered fields:
 
 | Field | Type |
 | --- | --- |

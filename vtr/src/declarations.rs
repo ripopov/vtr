@@ -109,6 +109,9 @@ pub enum NodeData {
         kind: u32,
         payload_type: u32,
     },
+    Callsite {
+        payload_type: u32,
+    },
     EnumTable {
         entries: Vec<(u32, u32)>,
     },
@@ -139,6 +142,36 @@ impl Declarations {
         let mut out = Self::default();
         out.intern("").unwrap();
         out
+    }
+
+    pub(crate) fn validate_callsite(&self, datatype: u32, attributes: &Attributes) -> Result<()> {
+        if let crate::schema::TypeKind::Struct(fields) = &self.types.get(datatype)?.kind
+            && fields
+                .iter()
+                .any(|field| field.name == "vtr.label" && !matches!(field.datatype, 12 | 13))
+        {
+            return Err(Error::Corrupt("invalid payload label datatype"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for attribute in attributes {
+            let key = self.string(attribute.key)?;
+            if matches!(key, "log.severity" | "log.line" | "log.file" | "log.func") {
+                if !seen.insert(key) {
+                    return Err(Error::Corrupt("duplicate callsite metadata"));
+                }
+                let valid = match key {
+                    "log.severity" | "log.line" => matches!(attribute.value, crate::Value::U64(_)),
+                    _ => matches!(attribute.value, crate::Value::Str(_)),
+                };
+                if !valid {
+                    return Err(Error::Corrupt("invalid callsite metadata"));
+                }
+            }
+        }
+        if !seen.contains("log.severity") {
+            return Err(Error::Corrupt("callsite severity is missing"));
+        }
+        Ok(())
     }
 
     pub fn string(&self, id: u32) -> Result<&str> {
@@ -261,6 +294,7 @@ impl Declarations {
                 NodeData::Signal { .. } => 2,
                 NodeData::Generator { .. } => 3,
                 NodeData::EnumTable { .. } => 4,
+                NodeData::Callsite { .. } => 5,
             });
             let parent = match node.parent {
                 None => 0,
@@ -288,6 +322,14 @@ impl Declarations {
                     self.string(*kind)?;
                     self.types.get(*payload_type)?;
                     put_u64(&mut out, u64::from(*kind));
+                    put_u64(&mut out, u64::from(*payload_type));
+                }
+                NodeData::Callsite { payload_type } => {
+                    if node.parent.is_some() {
+                        return Err(Error::invalid("callsite cannot have a design parent"));
+                    }
+                    self.types.get(*payload_type)?;
+                    self.validate_callsite(*payload_type, &node.attributes)?;
                     put_u64(&mut out, u64::from(*payload_type));
                 }
                 NodeData::EnumTable { entries } => {
@@ -443,11 +485,24 @@ impl Declarations {
                         }
                         NodeData::EnumTable { entries }
                     }
+                    5 => {
+                        if parent.is_some() {
+                            return Err(Error::Corrupt("callsite cannot have a design parent"));
+                        }
+                        let payload_type = cursor.id()?;
+                        self.types.get(payload_type)?;
+                        self.generators
+                            .declare_callsite(self.nodes.len() as u32, payload_type)?;
+                        NodeData::Callsite { payload_type }
+                    }
                     _ => return Err(Error::Corrupt("unknown hierarchy node kind")),
                 };
                 let mut budget = DEFAULT_PAYLOAD_LIMIT;
                 let attributes =
                     read_attributes(&mut cursor, self.strings.len() as u64, 0, &mut budget)?;
+                if let NodeData::Callsite { payload_type } = &data {
+                    self.validate_callsite(*payload_type, &attributes)?;
+                }
                 self.nodes.push(Node {
                     parent,
                     name,

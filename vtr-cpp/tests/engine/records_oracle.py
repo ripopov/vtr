@@ -39,19 +39,25 @@ def decompress(data):
 def decode_fixture(fixture):
     types = declarations(bytes.fromhex(fixture["declarations"]))
     generators = {id: (kind, type_id) for id, kind, type_id in fixture["generators"]}
+    callsites = dict(fixture["callsites"])
     expected = {}
     expected_order = defaultdict(list)
-    for id, gen, begin, end, parent, payload in fixture["rows"]:
+    for id, gen, begin, end, parent, payload, callsite in fixture["rows"]:
         source = Row(bytes.fromhex(payload))
-        value = decode(types, generators[gen][1], source)
+        value = decode(types, callsites[callsite] if callsite is not None else generators[gen][1], source)
         source.done()
-        expected[id] = (gen, begin, end, parent, value)
+        expected[id] = (gen, begin, end, parent, value, callsite)
         expected_order[gen].append(id)
     r = Cursor(bytes.fromhex(fixture["block"]))
     number, count, min_id, max_id, t_min, t_max = [r.fixed(8) for _ in range(6)]
     assert number == 7
     n_segments, n_pages = r.fixed(4), r.fixed(4)
-    segments = [tuple(r.fixed(4) for _ in range(5)) + tuple(r.fixed(8) for _ in range(6)) for _ in range(n_segments)]
+    segments = []
+    for _ in range(n_segments):
+        gen = r.fixed(4)
+        callsite = r.fixed(4) if generators[gen][0] == 4 else None
+        if callsite is not None: assert callsite in callsites
+        segments.append((gen, callsite) + tuple(r.fixed(4) for _ in range(4)) + tuple(r.fixed(8) for _ in range(6)))
     pages = [tuple(r.fixed(4) for _ in range(3)) for _ in range(n_pages)]
     blobs = r.take(len(r.data) - r.offset)
     actual, actual_order = {}, defaultdict(list)
@@ -62,7 +68,7 @@ def decode_fixture(fixture):
         raw = decompress(blobs[blob_offset:blob_end])
         assert len(raw) == raw_length
         offset = 0
-        for gen, page, n, raw_offset, length, seg_min, seg_max, parent_min, parent_max, begin_min, end_max in segments:
+        for gen, callsite, page, n, raw_offset, length, seg_min, seg_max, parent_min, parent_max, begin_min, end_max in segments:
             if page != page_index:
                 continue
             assert raw_offset == offset
@@ -75,6 +81,7 @@ def decode_fixture(fixture):
             cols = [Cursor(stream) for stream in streams[:4]]
             args = Columns([stream.hex() for stream in streams[4:]])
             kind, type_id = generators[gen]
+            if callsite is not None: type_id = callsites[callsite]
             previous_id = previous_parent = previous_end = 0
             rows = []
             for _ in range(n):
@@ -93,7 +100,7 @@ def decode_fixture(fixture):
                 assert end <= MASK
                 value = decode(types, type_id, args)
                 assert id not in actual
-                actual[id] = (gen, begin, end, parent, value)
+                actual[id] = (gen, begin, end, parent, value, callsite)
                 actual_order[gen].append(id)
                 rows.append((id, begin, end, parent))
                 previous_id, previous_parent, previous_end = id, parent, end

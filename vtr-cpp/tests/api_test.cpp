@@ -4,8 +4,8 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
-#include <cmath>
 #include <climits>
+#include <cmath>
 #include <filesystem>
 #include <format>
 #include <iomanip>
@@ -203,7 +203,8 @@ void lifecycle(const std::filesystem::path& path, unsigned workers, vt::Codec co
     auto children = out.transactions({.name = "children", .parent = scope});
     auto stages = out.stages<std::uint32_t>({.name = "execute", .parent = scope});
     auto events = out.events<std::string>({.name = "events", .parent = scope});
-    auto messages = out.logs<Message>({.name = "{1} {0:#x} {} {1} {9} {{ok}}", .parent = scope});
+    auto logger = out.logger({.name = "diagnostics"});
+    auto messages = out.callsite<Message>({.format = "{1} {0:#x} {} {1} {9} {{ok}}"});
     auto clock = out.clock({.name = "clock", .parent = scope});
     out.associate_clock(owners, clock);
     auto wave = out.signal({.name = "counter", .parent = scope}, {.width = 8});
@@ -233,7 +234,7 @@ void lifecycle(const std::filesystem::path& path, unsigned workers, vt::Codec co
         auto first = out.event_at(events, tx, 13, std::string("same"));
         auto repeated = out.event_at(events, tx, 13, std::string("same"));
         check(first != repeated, "repeated events keep distinct IDs");
-        out.log_at(messages, 13, Message{0x8000, "message"}, tx);
+        out.log_at(logger, messages, 13, Message{0x8000, "message"}, tx);
         auto child = out.begin_at(children, 30, {.parent = tx});
         out.end_at(child, 31);
         auto stretch = out.run(clock, 0, 2);
@@ -871,15 +872,16 @@ class LogPunctuation : public std::numpunct<char> {
 
 void log_locale_and_limits(const std::filesystem::path& path) {
     vt::Writer writer(path);
-    auto integers = writer.logs<std::uint64_t>({.name = "{:L}"});
-    auto floats = writer.logs<double>({.name = "{:.1Lf}"});
-    auto booleans = writer.logs<bool>({.name = "{:L}"});
-    auto wide = writer.logs<std::uint64_t>({.name = "{:65537}"});
+    auto logger = writer.logger({.name = "diagnostics"});
+    auto integers = writer.callsite<std::uint64_t>({.format = "{:L}"});
+    auto floats = writer.callsite<double>({.format = "{:.1Lf}"});
+    auto booleans = writer.callsite<bool>({.format = "{:L}"});
+    auto wide = writer.callsite<std::uint64_t>({.format = "{:65537}"});
     const std::array expected{
-        std::pair{writer.log(integers, std::uint64_t{1234567}), "1_234_567"},
-        std::pair{writer.log(floats, 1234.5), "1_234,5"},
-        std::pair{writer.log(booleans, true), "yes"},
-        std::pair{writer.log(wide, std::uint64_t{1}), "{?}"},
+        std::pair{writer.log(logger, integers, std::uint64_t{1234567}), "1_234_567"},
+        std::pair{writer.log(logger, floats, 1234.5), "1_234,5"},
+        std::pair{writer.log(logger, booleans, true), "yes"},
+        std::pair{writer.log(logger, wide, std::uint64_t{1}), "{?}"},
     };
     std::vector<std::pair<vt::RecordId, std::string>> fixed_expected;
     const std::locale punctuation(std::locale::classic(), new LogPunctuation);
@@ -902,16 +904,16 @@ void log_locale_and_limits(const std::filesystem::path& path) {
                       return zero;
                   }()},
              }) {
-            auto site = writer.logs<double>({.name = "{:" + spec + "}"});
-            fixed_expected.emplace_back(writer.log(site, value), text);
+            auto site = writer.callsite<double>({.format = "{:" + spec + "}"});
+            fixed_expected.emplace_back(writer.log(logger, site, value), text);
         }
     }
-    auto hash_fill = writer.logs<double>({.name = "{:#>8.0f}"});
-    fixed_expected.emplace_back(writer.log(hash_fill, 12.0), "######12");
-    auto signed_fixed = writer.logs<double>({.name = "{:+#012.0Lf}"});
-    fixed_expected.emplace_back(writer.log(signed_fixed, 1234.0), "+000001_234,");
-    auto stop_group = writer.logs<double>({.name = "{:*^#20.0Lf}"});
-    const auto stop_group_id = writer.log(stop_group, 123456789.5);
+    auto hash_fill = writer.callsite<double>({.format = "{:#>8.0f}"});
+    fixed_expected.emplace_back(writer.log(logger, hash_fill, 12.0), "######12");
+    auto signed_fixed = writer.callsite<double>({.format = "{:+#012.0Lf}"});
+    fixed_expected.emplace_back(writer.log(logger, signed_fixed, 1234.0), "+000001_234,");
+    auto stop_group = writer.callsite<double>({.format = "{:*^#20.0Lf}"});
+    const auto stop_group_id = writer.log(logger, stop_group, 123456789.5);
     writer.close();
     vt::Reader reader(path);
 
@@ -935,8 +937,11 @@ void log_locale_and_limits(const std::filesystem::path& path) {
     check(reader.format_log(*reader.lookup(stop_group_id)) == "****123456_790,*****",
           "alternate fixed formatting repeats a stopped digit group");
     for (const auto& [groups, text] : std::vector<std::pair<std::string, std::string>>{
-             {"", "1234567"}, {"\3", "1_234_567"}, {std::string("\3\0", 2), "1234_567"},
-             {std::string{3, CHAR_MAX}, "1234_567"}, {std::string(1, 0), "1234567"},
+             {"", "1234567"},
+             {"\3", "1_234_567"},
+             {std::string("\3\0", 2), "1234_567"},
+             {std::string{3, CHAR_MAX}, "1234_567"},
+             {std::string(1, 0), "1234567"},
              {std::string(1, static_cast<char>(-1)), "1234567"}}) {
         std::locale::global(std::locale(std::locale::classic(), new LogPunctuation(groups)));
         check(reader.format_log(*reader.lookup(expected[0].first)) == text,

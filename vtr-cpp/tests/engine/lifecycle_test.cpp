@@ -56,7 +56,7 @@ void hierarchy(const fs::path& dir, unsigned workers = 0) {
     RecordId grid, warp, instruction, child, local_event, local_stage, visit_a, visit_b,
         implicit_visit, event_a, event_b, message;
     GeneratorId stage, event, log, clock_a, clock_b, instruction_gen;
-    Id signal, wire_event;
+    Id signal, wire_event, callsite;
     std::uint64_t max_id;
     auto args = capture(Visit{2, "wait Δ"});
     {
@@ -78,8 +78,8 @@ void hierarchy(const fs::path& dir, unsigned workers = 0) {
         stage = writer.add_generator(top, "execute_slot", "STAGE", visit_type);
         auto other_stage = writer.add_generator(top, "writeback", "STAGE", visit_type);
         event = writer.add_generator(top, "conflict", "EVENT", visit_type);
-        log = writer.add_generator(top, "request port={} reason={}", "LOG", visit_type);
-        writer.generator_attribute(log, writer.intern("log.severity"), Value(std::uint64_t(3)));
+        log = writer.add_generator(top, "diagnostics", "LOG");
+        callsite = writer.add_callsite("request port={} reason={}", visit_type, 3);
         clock_a = writer.add_clock(top, "clk_a");
         clock_b = writer.add_clock(top, "clk_b");
         writer.associate_clock(instruction_gen, clock_a);
@@ -102,7 +102,7 @@ void hierarchy(const fs::path& dir, unsigned workers = 0) {
         event_a = writer.event(event, instruction, 5, args);
         event_b = writer.event(event, instruction, 5, args);
         auto source_args = args;
-        message = writer.log(log, 5, source_args, instruction);
+        message = writer.log(log, callsite, 5, source_args, instruction);
         std::fill(source_args.begin(), source_args.end(), 0);
         child = writer.begin(instruction_gen, 30, instruction);
         rejects([&] { writer.end(child, 200); });
@@ -240,13 +240,14 @@ void long_owner(const fs::path& dir, unsigned workers = 0) {
         auto scope = writer.add_scope(none, "top");
         auto gen = writer.add_generator(scope, "owner", "TRANSACTION");
         auto event = writer.add_generator(scope, "event", "EVENT", type);
-        auto log = writer.add_generator(scope, "log", "LOG", type);
+        auto log = writer.add_generator(scope, "log", "LOG");
+        auto callsite = writer.add_callsite("{}", type);
         owner = writer.begin(gen, 0);
         auto data = capture(Visit{0, std::string(128, 'x')});
         for (unsigned i = 0; i < 5000; ++i) {
             writer.event(event, owner, 1, data);
             if (i % 10 == 0) {
-                writer.log(log, 1, data, owner);
+                writer.log(log, callsite, 1, data, owner);
             }
         }
         writer.flush();
@@ -525,8 +526,8 @@ void reused_stage_lists(const fs::path& dir, unsigned workers) {
             for (unsigned j = 0; j < counts[i % counts.size()]; ++j) {
                 const auto record = writer.begin_stage(stage, id, begin + j);
                 active.push_back(record);
-                expected.push_back({record, stage, begin + j,
-                                    j % 2 ? begin + 20 : begin + j + 3, id, {}});
+                expected.push_back(
+                    {record, stage, begin + j, j % 2 ? begin + 20 : begin + j + 3, id, {}});
             }
             for (unsigned j = 0; j < active.size(); j += 2)
                 writer.end_stage(active[j], begin + j + 3);

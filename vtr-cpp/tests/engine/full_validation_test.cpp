@@ -41,6 +41,7 @@ void write_case(const fs::path& path, const std::string& name) {
     auto ordinary = core.add_generator(scope, "owner", "TRANSACTION", payload_type);
     auto event = core.add_generator(scope, "event", "EVENT");
     auto log = core.add_generator(scope, "log", "LOG");
+    auto callsite = core.add_callsite("{}", 0);
     auto clock = core.add_generator(scope, "clock", "CLOCK", name == "clock-schema" ? 9 : 0);
     auto period = core.intern("vtr.period"), edge = core.intern("dependency"),
          label = core.intern("vtr.label"), address = core.intern("address");
@@ -49,7 +50,7 @@ void write_case(const fs::path& path, const std::string& name) {
         return;
     }
     if (name == "log-metadata") {
-        core.node_attr(log, core.intern("log.file"), Value(std::uint64_t(3)));
+        core.node_attr(callsite, core.intern("log.file"), Value(std::uint64_t(3)));
     }
     if (name == "clock-association-missing") {
         Value value(std::uint64_t(999));
@@ -65,6 +66,7 @@ void write_case(const fs::path& path, const std::string& name) {
     generators.declare({ordinary, RecordKind::ordinary, payload_type});
     generators.declare({event, RecordKind::event, 0});
     generators.declare({log, RecordKind::log, 0});
+    generators.declare_callsite(callsite, 0);
     generators.declare({clock, RecordKind::clock, 0});
     Transaction root;
     root.id = 1;
@@ -91,7 +93,7 @@ void write_case(const fs::path& path, const std::string& name) {
     }
     if (name == "locator-extra-log") {
         root.child_blocks = {2};
-        rows.push_back({2, log, 5, 5, 1, {}});
+        rows.push_back({2, log, 5, 5, 1, {}, callsite});
     }
     if (name == "locator-wrong-kind") {
         root.child_blocks = {1};
@@ -308,8 +310,8 @@ int main(int argc, char** argv) {
             wire::Writer closed((dir / "closed-packed.vtr").string());
             std::vector<std::pair<wire::Id, Bytes>> signals;
             for (const auto width : {1U, 64U, 65U, 257U}) {
-                const auto [node, signal] = closed.add_var(
-                    wire::none, std::to_string(width), {wire::SignalKind::bits, width, 2});
+                const auto [node, signal] = closed.add_var(wire::none, std::to_string(width),
+                                                           {wire::SignalKind::bits, width, 2});
                 (void)node;
                 signals.emplace_back(signal, Bytes((width + 7) / 8, 0xff));
             }

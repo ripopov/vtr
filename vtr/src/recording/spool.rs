@@ -145,14 +145,14 @@ pub(super) fn encode(operation: &Operation) -> Result<Vec<u8>> {
             time,
             parent,
             payload,
-            log,
+            callsite,
         } => {
             out.number(*id);
             out.number(*generator);
             out.number(*time);
             out.number(*parent);
             out.blob(payload);
-            out.number(*log);
+            out.number(callsite.map_or(0, |id| u64::from(id) + 1));
         }
         Operation::End {
             id,
@@ -292,7 +292,12 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Operation> {
             time: input.number()?,
             parent: input.number()?,
             payload: input.blob()?,
-            log: input.boolean()?,
+            callsite: match input.number()? {
+                0 => None,
+                id => Some(
+                    u32::try_from(id - 1).map_err(|_| Error::Corrupt("spool callsite overflow"))?,
+                ),
+            },
         },
         5 => Operation::End {
             id: input.number()?,

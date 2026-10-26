@@ -85,6 +85,9 @@ fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("trace.vtr");
             let mut writer = Writer::create_with(&path, options(mode, compression)).unwrap();
+            let logger = writer
+                .logger(SourceOptions::new("diagnostics", None))
+                .unwrap();
             let label = writer.intern("vtr.label").unwrap();
             let event_name = writer.intern("embedded").unwrap();
             let lane = writer.intern("lane").unwrap();
@@ -100,7 +103,7 @@ fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
                 .events::<()>(SourceOptions::new("retire", Some(core)))
                 .unwrap();
             let logs = writer
-                .logs::<Vec<String>>(SourceOptions::new("result {}", Some(core)))
+                .callsite::<Vec<String>>(vtr::CallsiteOptions::new("result {}"))
                 .unwrap();
             let clock = writer
                 .clock(SourceOptions::new("clock", Some(core)))
@@ -186,7 +189,9 @@ fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
             let second = writer.event(events, owner.owner(), &()).unwrap();
             assert_ne!(first, second);
             let mut message = vec!["copied".to_owned()];
-            let log = writer.log(logs, &message, Some(owner.owner())).unwrap();
+            let log = writer
+                .log(logger, logs, &message, Some(owner.owner()))
+                .unwrap();
             message[0].clear();
             writer
                 .relate(

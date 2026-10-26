@@ -127,6 +127,7 @@ class Record {
     [[nodiscard]] RecordKind kind() const noexcept;
     [[nodiscard]] std::optional<RecordId> parent() const noexcept;
     [[nodiscard]] std::optional<GeneratorId> generator() const noexcept;
+    [[nodiscard]] std::optional<CallsiteId> callsite() const noexcept;
     [[nodiscard]] Timestamp begin() const noexcept;
     [[nodiscard]] Timestamp end() const noexcept;
     [[nodiscard]] vtr::Status status() const noexcept;
@@ -166,6 +167,7 @@ struct RecordQuery {
     std::optional<RecordId> parent = {};
     std::optional<RecordKind> kind = {};
     TimeWindow time = {};
+    std::optional<CallsiteId> callsite = {};
 };
 
 enum class Flow { next, stop };
@@ -185,7 +187,7 @@ struct Expansion {
     bool complete;
 };
 
-enum class NodeKind { scope, signal, generator, enum_table };
+enum class NodeKind { scope, signal, generator, enum_table, callsite };
 
 struct Node {
     NodeId id;
@@ -207,6 +209,15 @@ struct Generator {
     StringId kind_name;
     TypeId payload;
     std::optional<GeneratorId> clock;
+};
+
+struct LogCallsite {
+    CallsiteId id;
+    StringId format;
+    TypeId arguments;
+    std::uint64_t severity;
+    std::optional<StringId> file = {}, function = {};
+    std::optional<std::uint64_t> line = {};
 };
 
 struct SignalSample {
@@ -319,6 +330,7 @@ class Reader {
     [[nodiscard]] const vtr::Metadata& metadata() const noexcept;
     [[nodiscard]] std::span<const Node> nodes() const noexcept;
     [[nodiscard]] std::span<const Generator> generators() const noexcept;
+    [[nodiscard]] std::span<const LogCallsite> callsites() const noexcept;
     [[nodiscard]] std::span<const DataType> types() const noexcept;
     [[nodiscard]] std::span<const SignalKind> signals() const noexcept;
     [[nodiscard]] std::string_view string(StringId id) const;
@@ -370,7 +382,7 @@ class Reader {
 [[nodiscard]] Provenance recover(const std::filesystem::path& source,
                                  const std::filesystem::path& destination);
 
-// Source-bound VTI 3.0 sidecars are derived data, separate from the 3.2 trace.
+// Source-bound VTI 3.0 sidecars are derived data, separate from the 3.3 trace.
 // Build/load require a finalized fingerprint; recovery invalidates old sidecars.
 class ActivityIndex {
   public:

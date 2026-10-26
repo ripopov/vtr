@@ -45,6 +45,28 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
                        "hierarchy chunk exceeds nodes");
             for (std::size_t id = first; id < std::size_t(first) + count; ++id) {
                 const auto& node = nodes[id];
+                if (node.kind == vtr::detail::wire::Node::callsite) {
+                    for (const auto& field : types_[node.payload_type].fields) {
+                        if (field.name == "vtr.label")
+                            d::require(field.type == 12 || field.type == 13,
+                                       "invalid payload label datatype");
+                    }
+                    std::unordered_set<std::string_view> metadata;
+                    for (const auto& attribute : node.attrs) {
+                        auto key = native_.string(attribute.key);
+                        if (key == "log.severity" || key == "log.line" || key == "log.file" ||
+                            key == "log.func") {
+                            d::require(metadata.insert(key).second, "duplicate callsite metadata");
+                            const bool numeric = key == "log.severity" || key == "log.line";
+                            d::require(attribute.value.tag == (numeric
+                                                                   ? vtr::detail::wire::Tag::u64
+                                                                   : vtr::detail::wire::Tag::str),
+                                       "invalid callsite metadata");
+                        }
+                    }
+                    d::require(metadata.contains("log.severity"), "callsite severity is missing");
+                    generators_.declare_callsite(static_cast<std::uint32_t>(id), node.payload_type);
+                }
                 if (node.kind != vtr::detail::wire::Node::generator) {
                     continue;
                 }
@@ -176,8 +198,8 @@ void ContainerReader::validate_record_blocks() const {
         view.validate();
         view.query({}, [&](const auto& record) {
             d::require(ids.insert(record.id).second, "duplicate global record identifier");
-            types_.validate(generators_[record.generator].payload_type, record.payload,
-                            native_.strings().size());
+            types_.validate(generators_.payload_type(record.generator, record.callsite()),
+                            record.payload, native_.strings().size());
             return true;
         });
     }

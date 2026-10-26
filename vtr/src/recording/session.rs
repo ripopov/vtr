@@ -154,6 +154,36 @@ impl<'a> Session<'a> {
         };
         self.result(result)
     }
+    pub fn payload_bytes(&mut self, action: PayloadOperation, payload: &[u8]) -> Result<u64> {
+        self.check()?;
+        if payload.len() > u32::MAX as usize {
+            return Err(Error::invalid("payload exceeds u32"));
+        }
+        let id = action.record_id(self.front)?;
+        let result = match &mut self.sink {
+            Sink::Inline(backend) => {
+                let mut bytes = backend.payload_buffer(payload.len());
+                bytes.extend_from_slice(payload);
+                backend
+                    .apply_owned_payload(
+                        self.front.producer,
+                        self.front.time,
+                        action,
+                        id,
+                        Some(bytes),
+                    )
+                    .map(|()| id)
+            }
+            Sink::Threaded(sender, shared) => sender
+                .publish_payload(action, id, Some(payload), || shared.error())
+                .map(|()| {
+                    shared.captured();
+                    id
+                }),
+        };
+        self.result(result)
+    }
+
     #[inline]
     pub fn dispatch_progress(&mut self, time: u64) -> Result<()> {
         self.check()?;

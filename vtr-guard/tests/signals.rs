@@ -67,14 +67,17 @@ fn signal_child() {
         )
         .unwrap(),
     );
+    let logger = writer
+        .logger(SourceOptions::new("diagnostics", None))
+        .unwrap();
     let source = writer
-        .logs::<u64>(SourceOptions::new("step {}", None))
+        .callsite::<u64>(vtr::CallsiteOptions::new("step {}"))
         .unwrap();
     let fault = writer
-        .logs::<FaultPayload>(SourceOptions::new("interrupted capture", None))
+        .callsite::<FaultPayload>(vtr::CallsiteOptions::new("interrupted capture"))
         .unwrap();
     writer.advance_time(17).unwrap();
-    writer.log(source, &42, None).unwrap();
+    writer.log(logger, source, &42, None).unwrap();
     writer.flush().unwrap();
     // SAFETY: Box keeps the writer live and immovable on this thread until process exit or unwatch.
     unsafe {
@@ -82,7 +85,7 @@ fn signal_child() {
     }
     match scenario.as_str() {
         "busy-threaded" | "busy-inline" => {
-            writer.log(fault, &FaultPayload, None).unwrap();
+            writer.log(logger, fault, &FaultPayload, None).unwrap();
         }
         "exit-threaded" => {
             // SAFETY: The subprocess intentionally exercises libc's registered on_exit handler.

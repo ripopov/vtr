@@ -2,6 +2,8 @@
 #include "stream.h"
 #include "vtr_writer.h"
 
+#include <atomic>
+#include <limits>
 #include <unordered_map>
 
 namespace vtr {
@@ -11,11 +13,26 @@ void BoundedPayloadBuffer::size_changed() {
     throw Error(ErrorCode::invalid_argument, "Payload changed size during capture");
 }
 
+namespace {
+std::uint64_t next_recording_origin() {
+    static std::atomic<std::uint64_t> next{1};
+    auto value = next.load(std::memory_order_relaxed);
+    for (;;) {
+        if (value == std::numeric_limits<std::uint64_t>::max())
+            throw Error(ErrorCode::resource_limit, "Recording identities exhausted");
+        if (next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed))
+            return value;
+    }
+}
+} // namespace
+
 struct RecordingContext {
     std::unique_ptr<engine::Writer> direct;
     std::unique_ptr<engine::Stream> stream;
     Timestamp current_time = 0;
     bool finished = false, closed = false;
+    // Allocator address reuse must not make handles from a previous recording valid.
+    const std::uint64_t origin = next_recording_origin();
 
     ~RecordingContext() {
         if (direct) {
@@ -26,8 +43,8 @@ struct RecordingContext {
         }
     }
 
-    void check_origin(const void* candidate) const {
-        if (candidate != this) {
+    void check_origin(std::uint64_t candidate) const {
+        if (candidate != origin) {
             throw Error(ErrorCode::wrong_recording, "Handle belongs to another recording");
         }
     }
@@ -97,6 +114,7 @@ std::uint32_t parent_id(std::optional<ScopeId> parent) {
 struct Writer::Impl {
     detail::RecordingContext context;
     std::unordered_map<std::type_index, TypeId> types;
+    std::unordered_map<const void*, std::pair<CallsiteId, TypeId>> callsites;
 
     Impl(const std::filesystem::path& path, const WriterOptions& options) {
         auto encoding = detail::encoding_options(options.encoding);
@@ -119,7 +137,8 @@ struct Writer::Impl {
     }
 };
 
-ClockSource::ClockSource(GeneratorId id, const void* origin) noexcept : id_(id), origin_(origin) {}
+ClockSource::ClockSource(GeneratorId id, std::uint64_t origin) noexcept
+    : id_(id), origin_(origin) {}
 
 GeneratorId ClockSource::id() const noexcept {
     return id_;
@@ -128,6 +147,7 @@ GeneratorId ClockSource::id() const noexcept {
 Writer::Writer(const std::filesystem::path& path, WriterOptions options)
     : impl_(detail::translate([&] { return std::make_unique<Impl>(path, options); })) {
     context_ = &impl_->context;
+    origin_ = context_->origin;
 }
 
 Writer::~Writer() noexcept = default;
@@ -141,7 +161,7 @@ ProducerId Writer::add_producer(Timestamp time) {
     if (!context_->stream)
         throw Error(ErrorCode::invalid_argument, "Inline mode has one implicit producer");
     return detail::translate(
-        [&] { return ProducerId(context_->stream->add_producer(time), context_); });
+        [&] { return ProducerId(context_->stream->add_producer(time), recording_origin()); });
 }
 
 void Writer::use_producer(ProducerId producer) {
@@ -186,11 +206,12 @@ void Writer::metadata(vtr::Metadata data) {
     context_->control([&](auto& out) { out.metadata() = detail::encode_metadata(data); });
 }
 
-ScopeId Writer::scope(std::string_view name, std::optional<ScopeId> parent,
-                      AttributeView metadata, ScopeDeclaration declaration) {
+ScopeId Writer::scope(std::string_view name, std::optional<ScopeId> parent, AttributeView metadata,
+                      ScopeDeclaration declaration) {
     return context_->control([&](auto& out) {
-        auto id = out.add_scope(detail::parent_id(parent), name,
-                                static_cast<std::uint16_t>(declaration.kind), declaration.component);
+        auto id =
+            out.add_scope(detail::parent_id(parent), name,
+                          static_cast<std::uint16_t>(declaration.kind), declaration.component);
         for (const auto& item : metadata) {
             out.node_attribute(id, item.key.value, detail::encode_value(item.data));
         }
@@ -204,7 +225,8 @@ NodeId Writer::enum_table(SourceOptions options, std::span<const EnumEntry> entr
         literals.reserve(entries.size());
         for (const auto& entry : entries)
             literals.emplace_back(entry.name.value, entry.value.value);
-        const auto node = out.add_enum_table(detail::parent_id(options.parent), options.name, literals);
+        const auto node =
+            out.add_enum_table(detail::parent_id(options.parent), options.name, literals);
         for (const auto& item : options.metadata)
             out.node_attribute(node, item.key.value, detail::encode_value(item.data));
         return NodeId(node);
@@ -282,11 +304,54 @@ GeneratorId Writer::source(SourceOptions options, std::string_view kind, TypeId 
     });
 }
 
+Logger Writer::logger(SourceOptions options) {
+    return {source(std::move(options), "LOG", TypeId(0)), recording_origin()};
+}
+
+CallsiteId Writer::declare_callsite(CallsiteOptions options, TypeId datatype,
+                                    const void* descriptor) {
+    return context_->control([&](auto& out) {
+        if (descriptor) {
+            auto found = impl_->callsites.find(descriptor);
+            if (found != impl_->callsites.end()) {
+                if (found->second.second != datatype)
+                    throw Error(ErrorCode::invalid_argument,
+                                "Callsite descriptor changed datatype");
+                return found->second.first;
+            }
+        }
+        auto id = out.add_callsite(options.format, datatype.value, options.severity);
+        auto attribute = [&](std::string_view key, const Value& value) {
+            out.node_attribute(id, out.intern(key), detail::encode_value(value));
+        };
+        if (options.file)
+            attribute("log.file", Value(StringId(out.intern(*options.file))));
+        if (options.line)
+            attribute("log.line", Value(*options.line));
+        if (options.function)
+            attribute("log.func", Value(StringId(out.intern(*options.function))));
+        auto result = CallsiteId(id);
+        if (descriptor)
+            impl_->callsites.emplace(descriptor, std::pair{result, datatype});
+        return result;
+    });
+}
+
+void Writer::check_callsite(std::uint64_t origin) const {
+    context_->check_origin(origin);
+}
+
+RecordId Writer::log_raw(Logger logger, CallsiteId callsite, Timestamp time, ByteView payload,
+                         std::optional<OwnerRef> owner) {
+    return instant(logger.id_, logger.origin_, SourceKind::log, time,
+                   {payload.size(), payload.data()}, owner, callsite);
+}
+
 ClockSource Writer::clock(SourceOptions options) {
     return {source(std::move(options), "CLOCK", TypeId(0)), recording_origin()};
 }
 
-void Writer::associate_clock_impl(GeneratorId site, const void* origin, ClockSource clock) {
+void Writer::associate_clock_impl(GeneratorId site, std::uint64_t origin, ClockSource clock) {
     context_->check_origin(origin);
     context_->check_origin(clock.origin_);
     context_->control([&](auto& out) { out.associate_clock(site.value, clock.id_.value); });
@@ -317,7 +382,7 @@ NodeId Writer::alias(SignalId signal, SourceOptions options, VariableDeclaration
     });
 }
 
-RecordId Writer::begin_transaction(GeneratorId site, const void* origin, Timestamp time,
+RecordId Writer::begin_transaction(GeneratorId site, std::uint64_t origin, Timestamp time,
                                    std::optional<detail::EncodedPayload> payload,
                                    TransactionOptions options) {
     context_->check_origin(origin);
@@ -336,7 +401,7 @@ RecordId Writer::begin_transaction(GeneratorId site, const void* origin, Timesta
     return RecordId(id);
 }
 
-RecordId Writer::begin_stage(GeneratorId site, const void* origin, OwnerRef owner, Timestamp time,
+RecordId Writer::begin_stage(GeneratorId site, std::uint64_t origin, OwnerRef owner, Timestamp time,
                              std::optional<detail::EncodedPayload> payload) {
     context_->check_origin(origin);
     context_->check_origin(owner.origin_);
@@ -348,7 +413,7 @@ RecordId Writer::begin_stage(GeneratorId site, const void* origin, OwnerRef owne
         [&](auto& out) { return RecordId(out.begin_stage(site.value, owner.id_.value, time)); });
 }
 
-void Writer::set_payload(RecordId record, const void* origin, SourceKind kind,
+void Writer::set_payload(RecordId record, std::uint64_t origin, SourceKind kind,
                          detail::EncodedPayload payload) {
     context_->check_origin(origin);
     context_->call_payload(payload, [&](auto& out, const auto& data) {
@@ -359,7 +424,7 @@ void Writer::set_payload(RecordId record, const void* origin, SourceKind kind,
     });
 }
 
-void Writer::finish(RecordId record, const void* origin, SourceKind kind, Timestamp time,
+void Writer::finish(RecordId record, std::uint64_t origin, SourceKind kind, Timestamp time,
                     Status result, std::optional<detail::EncodedPayload> payload) {
     context_->check_origin(origin);
     if (kind == SourceKind::stage) {
@@ -378,25 +443,22 @@ void Writer::finish(RecordId record, const void* origin, SourceKind kind, Timest
     }
 }
 
-RecordId Writer::instant(GeneratorId site, const void* origin, SourceKind kind, Timestamp time,
-                         detail::EncodedPayload payload, std::optional<OwnerRef> owner) {
+RecordId Writer::instant(GeneratorId site, std::uint64_t origin, SourceKind kind, Timestamp time,
+                         detail::EncodedPayload payload, std::optional<OwnerRef> owner,
+                         std::optional<CallsiteId> callsite) {
     context_->check_origin(origin);
     if (owner)
         context_->check_origin(owner->origin_);
     return context_->call_payload(payload, [&](auto& out, const auto& data) {
         const auto parent = owner ? owner->id_.value : 0;
-        return RecordId(kind == SourceKind::event ? out.event(site.value, parent, time, data)
-                                                  : out.log(site.value, time, data, parent));
+        return RecordId(kind == SourceKind::event
+                            ? out.event(site.value, parent, time, data)
+                            : out.log(site.value, callsite->value, time, data, parent));
     });
 }
 
 RecordId Writer::event_at(Source<Unit, SourceKind::event> site, OwnerRef owner, Timestamp time) {
     return event_at(site, owner, time, Unit{});
-}
-
-RecordId Writer::log_at(Source<Unit, SourceKind::log> site, Timestamp time,
-                        std::optional<OwnerRef> owner) {
-    return log_at(site, time, Unit{}, owner);
 }
 
 void Writer::attribute_u64(OwnerRef owner, StringId key, std::uint64_t data) {
@@ -482,13 +544,15 @@ void Writer::emit_packed(SignalId signal, ByteView packed) {
 }
 
 void Writer::emit_words(SignalId signal, std::span<const std::uint32_t> words,
-                          std::uint32_t width) {
+                        std::uint32_t width) {
     if (!width || words.size() < (std::uint64_t(width) + 31) / 32)
         throw Error(ErrorCode::invalid_argument, "Insufficient signal words or zero input width");
+
     struct Input {
         std::span<const std::uint32_t> words;
         std::uint32_t width;
     } input{words, width};
+
     const detail::EncodedPayload payload{
         (std::uint64_t(width) + 7) / 8, &input,
         [](std::span<std::byte> destination, const void* source) {
@@ -503,17 +567,20 @@ void Writer::emit_words(SignalId signal, std::span<const std::uint32_t> words,
                 destination.back() &= static_cast<std::byte>((1U << (input.width % 8)) - 1);
         }};
     context_->call([&](auto& out) {
-        if constexpr (std::is_same_v<std::remove_reference_t<decltype(out)>, detail::engine::Stream>) {
+        if constexpr (std::is_same_v<std::remove_reference_t<decltype(out)>,
+                                     detail::engine::Stream>) {
             out.emit_packed(signal.value, 2, payload, width);
         } else {
             const auto kind = out.signal_kind(signal.value);
             if (kind.type != detail::wire::SignalKind::bits || kind.width != width)
-                throw Error(ErrorCode::invalid_argument, "Input word width differs from signal declaration");
+                throw Error(ErrorCode::invalid_argument,
+                            "Input word width differs from signal declaration");
             std::array<std::byte, 256> small;
             Bytes large;
             if (payload.size > small.size())
                 large.resize(payload.size);
-            auto bytes = payload.size <= small.size() ? std::span(small).first(payload.size) : std::span(large);
+            auto bytes = payload.size <= small.size() ? std::span(small).first(payload.size)
+                                                      : std::span(large);
             payload.copy_to(bytes);
             out.emit_packed(signal.value, 2, detail::view(bytes));
         }
@@ -614,7 +681,8 @@ WriterStats Writer::stats() {
 }
 
 std::optional<std::uint64_t> Writer::backend_cpu_nanoseconds() const {
-    if (!context_->stream) return 0;
+    if (!context_->stream)
+        return 0;
     return detail::translate([&] { return context_->stream->backend_cpu_nanoseconds(); });
 }
 

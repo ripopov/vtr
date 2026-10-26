@@ -960,7 +960,8 @@ bool TransactionBlockView::decode_page(
             stage.attributes = d::read_column_attrs(attributes);
             tx.stages.push_back(std::move(stage));
         }
-        tx.payload = arguments.read(types_, generators_[tx.generator].payload_type);
+        const auto& generator = generators_[tx.generator];
+        tx.payload = arguments.read(types_, generator.payload_type);
         count = c[29].var();
         require(count <= c[30].data.size(), "invalid located block count");
         std::uint64_t block = 0;
@@ -970,7 +971,7 @@ bool TransactionBlockView::decode_page(
             block += delta;
             tx.child_blocks.push_back(block);
         }
-        valid(tx, generators_[tx.generator], string_count_);
+        valid(tx, generator, string_count_);
         require(!i || previous_id < tx.id, "unsorted transaction IDs");
         previous_id = tx.id;
         previous_begin = tx.begin;

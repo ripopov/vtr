@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use vtr::{
     NodeId,
-    attributes::{Attribute, Value},
     declarations::NodeData,
     recording::{EncodingOptions, ExecutionMode, Recorder, SourceOptions, Writer, WriterOptions},
     trace::Reader,
@@ -183,26 +182,24 @@ fn transactions_clocks_logs_and_window_bounds() {
     );
     let mut w = Writer::create(d.join("logs.vtr")).unwrap();
     let stream = w.scope("messages", None).unwrap();
-    let severity = w.intern("log.severity").unwrap();
+    let logger = w
+        .logger(SourceOptions::new("diagnostics", Some(stream)))
+        .unwrap();
     let site = w
-        .logs::<u64>(SourceOptions {
-            name: "hello {}".into(),
-            parent: Some(stream),
-            attributes: vec![Attribute {
-                key: severity,
-                value: Value::U64(3),
-            }],
+        .callsite::<u64>(vtr::CallsiteOptions {
+            severity: 3,
+            ..vtr::CallsiteOptions::new("hello {}")
         })
         .unwrap();
     w.advance_time(5).unwrap();
-    w.log(site, &1, None).unwrap();
+    w.log(logger, site, &1, None).unwrap();
     w.advance_time(10).unwrap();
-    w.log(site, &2, None).unwrap();
+    w.log(logger, site, &2, None).unwrap();
     let bytes = w
-        .logs::<i16>(SourceOptions::new("{:c}", Some(stream)))
+        .callsite::<i16>(vtr::CallsiteOptions::new("{:c}"))
         .unwrap();
     let raw = if std::ffi::c_char::MIN == 0 { 255 } else { -1 };
-    w.log(bytes, &raw, None).unwrap();
+    w.log(logger, bytes, &raw, None).unwrap();
     w.close().unwrap();
     let logs = ok(d, &["logs", "logs.vtr", "--to", "5"]);
     assert!(logs.contains("hello 1"));

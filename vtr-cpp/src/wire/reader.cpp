@@ -208,7 +208,8 @@ struct Reader::Impl {
                 auto n = r.var();
                 require(n <= r.data.size(), "invalid string count");
                 if (strings.size() + n > strings.capacity()) {
-                    strings.reserve(std::max(strings.size() + static_cast<std::size_t>(n), strings.capacity() * 2));
+                    strings.reserve(std::max(strings.size() + static_cast<std::size_t>(n),
+                                             strings.capacity() * 2));
                 }
                 for (std::uint64_t i = 0; i < n; ++i) {
                     auto text = r.blob();
@@ -373,7 +374,8 @@ struct Reader::Impl {
         auto count = r.var();
         require(count <= r.data.size() / 4, "invalid node count");
         if (nodes.size() + count > nodes.capacity()) {
-            nodes.reserve(std::max(nodes.size() + static_cast<std::size_t>(count), nodes.capacity() * 2));
+            nodes.reserve(
+                std::max(nodes.size() + static_cast<std::size_t>(count), nodes.capacity() * 2));
         }
         for (std::uint64_t i = 0; i < count; ++i) {
             Node n;
@@ -390,6 +392,10 @@ struct Reader::Impl {
                 n.type = static_cast<std::uint16_t>(r.id());
                 n.aux = r.id();
                 string_id(n.aux);
+                break;
+            case Node::callsite:
+                require(n.parent == none, "callsite cannot have a design parent");
+                n.payload_type = r.id();
                 break;
             case Node::generator:
                 n.aux = r.id();

@@ -237,7 +237,8 @@ void mixed_transactions(const fs::path& dir) {
         auto scope = writer.add_scope(vtr::detail::wire::none, "top");
         auto ordinary = writer.add_generator(scope, "instruction", "INSTRUCTION");
         auto stage = writer.add_generator(scope, "execute", "STAGE");
-        auto log = writer.add_generator(scope, "request {} {}", "LOG", schema);
+        auto log = writer.add_generator(scope, "diagnostics", "LOG");
+        auto callsite = writer.add_callsite("request {} {}", schema);
         auto clock = writer.add_generator(scope, "clock", "CLOCK");
         auto event_name = writer.intern("local_note"), stage_name = writer.intern("local_wait"),
              lane = writer.intern("main");
@@ -245,7 +246,8 @@ void mixed_transactions(const fs::path& dir) {
         Generators generators;
         generators.declare({ordinary, RecordKind::ordinary, 0});
         generators.declare({stage, RecordKind::stage, 0});
-        generators.declare({log, RecordKind::log, schema});
+        generators.declare({log, RecordKind::log, 0});
+        generators.declare_callsite(callsite, schema);
         generators.declare({clock, RecordKind::clock, 0});
         Transaction owner;
         owner.id = 1;
@@ -267,7 +269,7 @@ void mixed_transactions(const fs::path& dir) {
         diagnostic.scalar(std::uint64_t(42));
         diagnostic.append(std::string("retry"));
         std::array children{LocatedRecord{4, stage, 6, 8, 1, {}},
-                            LocatedRecord{5, log, 7, 7, 1, std::move(diagnostic).take()}};
+                            LocatedRecord{5, log, 7, 7, 1, std::move(diagnostic).take(), callsite}};
         auto tx_block = encode_transaction_block(51, types, generators, txs, relations, {},
                                                  writer.string_count());
         auto record_block =

@@ -35,11 +35,20 @@ fn fixture(source: &str) -> (Types, Generators, Vec<LocatedRecord>, Vec<u8>) {
             })
             .unwrap();
     }
+    for callsite in fixture["callsites"].as_array().unwrap() {
+        generators
+            .declare_callsite(
+                callsite[0].as_u64().unwrap() as u32,
+                callsite[1].as_u64().unwrap() as u32,
+            )
+            .unwrap();
+    }
     let records = fixture["rows"]
         .as_array()
         .unwrap()
         .iter()
         .map(|row| LocatedRecord {
+            callsite_id: row[6].as_u64().map_or(u32::MAX, |id| id as u32),
             id: row[0].as_u64().unwrap(),
             generator: row[1].as_u64().unwrap() as u32,
             begin: row[2].as_u64().unwrap(),
@@ -75,9 +84,12 @@ fn sparse_generator_ids_roundtrip_and_failed_redeclarations_preserve_schema() {
         let generator = Generator {
             id,
             kind: RecordKind::Log,
-            payload_type: vtr::schema::Primitive::U64.id(),
+            payload_type: 0,
         };
         generators.declare(generator).unwrap();
+        generators
+            .declare_callsite(id, vtr::schema::Primitive::U64.id())
+            .unwrap();
         assert!(
             generators
                 .declare(Generator {
@@ -88,6 +100,7 @@ fn sparse_generator_ids_roundtrip_and_failed_redeclarations_preserve_schema() {
         );
         assert_eq!(*generators.get(id).unwrap(), generator);
         records.push(LocatedRecord {
+            callsite_id: id,
             id: index as u64 + 1,
             generator: id,
             begin: index as u64,

@@ -14,7 +14,7 @@ for name in ("identity-0", "windows"):
     trace = (root / f"{name}.vtr").read_bytes()
     sidecar = (root / f"{name}.index").read_bytes()
     assert trace[:8] == b"\x89VTR\r\n\x1a\n"
-    assert struct.unpack_from("<HHI", trace, 8) == (3, 2, 0)
+    assert struct.unpack_from("<HHI", trace, 8) == (3, 3, 0)
     assert any(trace[16:32])
     trace_directory = struct.unpack_from("<Q", trace, len(trace) - 24)[0]
     trace_length = struct.unpack_from("<Q", trace, trace_directory + 8)[0]

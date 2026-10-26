@@ -81,24 +81,29 @@ class ProducerId {
   private:
     friend class Writer;
 
-    ProducerId(std::uint32_t value, const void* origin) noexcept : value_(value), origin_(origin) {}
+    ProducerId(std::uint32_t value, std::uint64_t origin) noexcept
+        : value_(value), origin_(origin) {}
 
     std::uint32_t value_;
-    const void* origin_;
+    std::uint64_t origin_;
 };
 
 // Sources and active handles belong to the writer that created them; cross-
 // writer use is an error. Only ordinary transactions can supply an OwnerRef.
 class OwnerRef {
   public:
-    [[nodiscard]] RecordId id() const noexcept { return id_; }
+    [[nodiscard]] RecordId id() const noexcept {
+        return id_;
+    }
 
   private:
     friend class Writer;
     template <class, SourceKind> friend class ActiveRecord;
-    OwnerRef(RecordId id, const void* origin) noexcept : id_(id), origin_(origin) {}
+
+    OwnerRef(RecordId id, std::uint64_t origin) noexcept : id_(id), origin_(origin) {}
+
     RecordId id_;
-    const void* origin_;
+    std::uint64_t origin_;
 };
 
 template <class T, SourceKind Kind> class Source {
@@ -109,9 +114,34 @@ template <class T, SourceKind Kind> class Source {
 
   private:
     friend class Writer;
-    Source(GeneratorId id, const void* origin) noexcept;
+    Source(GeneratorId id, std::uint64_t origin) noexcept;
     GeneratorId id_;
-    const void* origin_;
+    std::uint64_t origin_;
+};
+
+using Logger = Source<Unit, SourceKind::log>;
+
+struct CallsiteOptions {
+    std::string_view format;
+    std::uint64_t severity = 2;
+    std::optional<std::string_view> file = {};
+    std::optional<std::uint64_t> line = {};
+    std::optional<std::string_view> function = {};
+};
+
+template <class T> class Callsite {
+  public:
+    [[nodiscard]] CallsiteId id() const noexcept {
+        return id_;
+    }
+
+  private:
+    friend class Writer;
+
+    Callsite(CallsiteId id, std::uint64_t origin) : id_(id), origin_(origin) {}
+
+    CallsiteId id_;
+    std::uint64_t origin_;
 };
 
 // Handles do not own a C++ lifetime and may cross producer timestamp boundaries.
@@ -128,9 +158,9 @@ template <class T, SourceKind Kind> class ActiveRecord {
 
   private:
     friend class Writer;
-    ActiveRecord(RecordId id, const void* origin) noexcept;
+    ActiveRecord(RecordId id, std::uint64_t origin) noexcept;
     RecordId id_;
-    const void* origin_;
+    std::uint64_t origin_;
 };
 
 template <class T = Unit> using Transaction = ActiveRecord<T, SourceKind::transaction>;
@@ -142,9 +172,9 @@ class ClockSource {
 
   private:
     friend class Writer;
-    ClockSource(GeneratorId id, const void* origin) noexcept;
+    ClockSource(GeneratorId id, std::uint64_t origin) noexcept;
     GeneratorId id_;
-    const void* origin_;
+    std::uint64_t origin_;
 };
 
 struct SourceOptions {
@@ -299,13 +329,13 @@ class Writer final {
     }
 
     template <class T>
-    RecordId log(Source<T, SourceKind::log> site, const T& payload,
+    RecordId log(Logger logger, Callsite<T> callsite, const T& payload,
                  std::optional<OwnerRef> owner = {}) {
-        return log_at(site, time(), payload, owner);
+        return log_at(logger, callsite, time(), payload, owner);
     }
 
-    RecordId log(Source<Unit, SourceKind::log> site, std::optional<OwnerRef> owner = {}) {
-        return log_at(site, time(), owner);
+    RecordId log(Logger logger, Callsite<Unit> callsite, std::optional<OwnerRef> owner = {}) {
+        return log(logger, callsite, Unit{}, owner);
     }
 
     template <class T>
@@ -338,17 +368,25 @@ class Writer final {
                       const T& payload);
     RecordId event_at(Source<Unit, SourceKind::event> site, OwnerRef owner, Timestamp time);
     template <class T>
-    RecordId log_at(Source<T, SourceKind::log> site, Timestamp time, const T& payload,
-                    std::optional<OwnerRef> owner = {});
-    RecordId log_at(Source<Unit, SourceKind::log> site, Timestamp time,
+    RecordId log_at(Logger logger, Callsite<T> callsite, Timestamp time, const T& payload,
                     std::optional<OwnerRef> owner = {});
 
+    RecordId log_at(Logger logger, Callsite<Unit> callsite, Timestamp time,
+                    std::optional<OwnerRef> owner = {}) {
+        return log_at(logger, callsite, time, Unit{}, owner);
+    }
+
+    RecordId log_raw(Logger logger, CallsiteId callsite, Timestamp time, ByteView payload,
+                     std::optional<OwnerRef> owner = {});
+
     void attribute(OwnerRef owner, StringId key, const Value& data);
+
     template <class T>
         requires std::same_as<std::remove_cvref_t<T>, std::uint64_t>
     void attribute(OwnerRef owner, StringId key, T&& data) {
         attribute_u64(owner, key, data);
     }
+
     void classify(OwnerRef owner, SpanKind kind);
 
     // nullopt denotes an endpoint outside this recording, encoded as zero.
@@ -393,15 +431,22 @@ class Writer final {
     [[nodiscard]] Source<T, SourceKind::stage> stages(SourceOptions options);
     template <class T = Unit>
     [[nodiscard]] Source<T, SourceKind::event> events(SourceOptions options);
-    // LOG names are format strings; metadata uses log.severity/file/line/func.
-    template <class T = Unit> [[nodiscard]] Source<T, SourceKind::log> logs(SourceOptions options);
+    [[nodiscard]] Logger logger(SourceOptions options);
+
+    template <class T = Unit>
+    [[nodiscard]] Callsite<T> callsite(CallsiteOptions options, const void* descriptor = nullptr) {
+        return {declare_callsite(options, bind<T>(), descriptor), recording_origin()};
+    }
+
+    [[nodiscard]] CallsiteId declare_callsite(CallsiteOptions options, TypeId datatype,
+                                              const void* descriptor = nullptr);
     [[nodiscard]] ClockSource clock(SourceOptions options);
     // Set before recording or flush publishes the source.
     template <class T, SourceKind K> void associate_clock(Source<T, K> site, ClockSource clock);
     [[nodiscard]] SignalId signal(SourceOptions options, SignalKind kind = {},
                                   VariableDeclaration declaration = {});
     [[nodiscard]] NodeId alias(SignalId signal, SourceOptions options,
-                              VariableDeclaration declaration = {});
+                               VariableDeclaration declaration = {});
 
     // Embedded detail has global IDs but no location generator. An absent stage
     // end stays absent on disk and resolves to max(stage.begin, owner.end).
@@ -425,38 +470,45 @@ class Writer final {
     [[nodiscard]] std::optional<std::uint64_t> backend_cpu_nanoseconds() const;
 
   private:
+    void check_callsite(std::uint64_t origin) const;
     void attribute_u64(OwnerRef owner, StringId key, std::uint64_t data);
-    RecordId begin_transaction(GeneratorId site, const void* origin, Timestamp time,
+    RecordId begin_transaction(GeneratorId site, std::uint64_t origin, Timestamp time,
                                std::optional<detail::EncodedPayload> payload,
                                TransactionOptions options);
-    RecordId begin_stage(GeneratorId site, const void* origin, OwnerRef owner, Timestamp time,
+    RecordId begin_stage(GeneratorId site, std::uint64_t origin, OwnerRef owner, Timestamp time,
                          std::optional<detail::EncodedPayload> payload);
-    void set_payload(RecordId record, const void* origin, SourceKind kind,
+    void set_payload(RecordId record, std::uint64_t origin, SourceKind kind,
                      detail::EncodedPayload payload);
-    void finish(RecordId record, const void* origin, SourceKind kind, Timestamp time, Status result,
-                std::optional<detail::EncodedPayload> payload);
-    RecordId instant(GeneratorId site, const void* origin, SourceKind kind, Timestamp time,
-                     detail::EncodedPayload payload, std::optional<OwnerRef> owner);
-    const void* recording_origin() const noexcept { return context_; }
+    void finish(RecordId record, std::uint64_t origin, SourceKind kind, Timestamp time,
+                Status result, std::optional<detail::EncodedPayload> payload);
+    RecordId instant(GeneratorId site, std::uint64_t origin, SourceKind kind, Timestamp time,
+                     detail::EncodedPayload payload, std::optional<OwnerRef> owner,
+                     std::optional<CallsiteId> callsite = {});
+
+    std::uint64_t recording_origin() const noexcept {
+        return origin_;
+    }
+
     detail::RecordingContext* context_ = nullptr;
     TypeId bind_builtin(TypeId id);
     TypeId cached_type(std::type_index type, const std::function<TypeId()>& declare);
     TypeId declare_type(std::string name, decltype(DataType::definition) definition);
     GeneratorId source(SourceOptions options, std::string_view kind, TypeId payload);
-    void associate_clock_impl(GeneratorId site, const void* origin, ClockSource clock);
+    void associate_clock_impl(GeneratorId site, std::uint64_t origin, ClockSource clock);
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    std::uint64_t origin_ = 0;
 };
 
 template <class T, SourceKind K>
-Source<T, K>::Source(GeneratorId id, const void* origin) noexcept : id_(id), origin_(origin) {}
+Source<T, K>::Source(GeneratorId id, std::uint64_t origin) noexcept : id_(id), origin_(origin) {}
 
 template <class T, SourceKind K> GeneratorId Source<T, K>::id() const noexcept {
     return id_;
 }
 
 template <class T, SourceKind K>
-ActiveRecord<T, K>::ActiveRecord(RecordId id, const void* origin) noexcept
+ActiveRecord<T, K>::ActiveRecord(RecordId id, std::uint64_t origin) noexcept
     : id_(id), origin_(origin) {}
 
 template <class T, SourceKind K> RecordId ActiveRecord<T, K>::id() const noexcept {
@@ -531,10 +583,6 @@ template <class T> Source<T, SourceKind::event> Writer::events(SourceOptions opt
     return {source(std::move(options), "EVENT", bind<T>()), recording_origin()};
 }
 
-template <class T> Source<T, SourceKind::log> Writer::logs(SourceOptions options) {
-    return {source(std::move(options), "LOG", bind<T>()), recording_origin()};
-}
-
 template <class T, SourceKind K>
 void Writer::associate_clock(Source<T, K> site, ClockSource clock) {
     associate_clock_impl(site.id_, site.origin_, clock);
@@ -599,10 +647,12 @@ RecordId Writer::event_at(Source<T, SourceKind::event> site, OwnerRef owner, Tim
 }
 
 template <class T>
-RecordId Writer::log_at(Source<T, SourceKind::log> site, Timestamp time, const T& value,
+RecordId Writer::log_at(Logger logger, Callsite<T> callsite, Timestamp time, const T& value,
                         std::optional<OwnerRef> owner) {
+    check_callsite(callsite.origin_);
     detail::PayloadCapture capture(value);
-    return instant(site.id_, site.origin_, SourceKind::log, time, capture.payload(), owner);
+    return instant(logger.id_, logger.origin_, SourceKind::log, time, capture.payload(), owner,
+                   callsite.id_);
 }
 
 } // namespace vtr

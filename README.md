@@ -87,8 +87,8 @@ developed separately.
 | `vtr-convert-wasm` | Browser conversion host |
 | `vtr-progress` | Conversion progress reporting |
 
-Recordings use VTR 3.2, including scalar-page and shared-text encodings.
-The C++ package is version 4.0;
+Recordings use VTR 3.3, including scalar-page and shared-text encodings.
+The C++ package is version 5.0;
 activity sidecars have their own VTI 3.0 format. Older trace assets must be
 regenerated. Rust and C++ implementations are independent and tested in both
 writer/reader directions.

@@ -612,8 +612,9 @@ impl Severity {
     }
 }
 #[derive(Clone, Debug)]
-pub struct LogSource {
-    pub generator: u32,
+pub struct LogCallsite {
+    pub callsite: u32,
+    pub format: u32,
     pub payload_type: u32,
     pub severity: Severity,
     pub file: Option<u32>,
@@ -622,17 +623,15 @@ pub struct LogSource {
 }
 
 impl Reader {
-    pub fn log_sources(&self) -> Result<Vec<LogSource>> {
+    pub fn log_callsites(&self) -> Result<Vec<LogCallsite>> {
         let mut sources = Vec::new();
         for (id, node) in self.declarations.nodes.iter().enumerate() {
-            let NodeData::Generator { payload_type, .. } = node.data else {
+            let NodeData::Callsite { payload_type } = node.data else {
                 continue;
             };
-            if self.declarations.generators.get(id as u32)?.kind != RecordKind::Log {
-                continue;
-            }
-            let mut source = LogSource {
-                generator: id as u32,
+            let mut source = LogCallsite {
+                callsite: id as u32,
+                format: node.name,
                 payload_type,
                 severity: Severity::Info,
                 file: None,
@@ -677,17 +676,17 @@ impl Reader {
         record: &Record,
         locale: &FormatLocale<'_>,
     ) -> Result<Vec<u8>> {
-        if record.data.origin != self.identity() {
+        if record.data.types.origin != self.identity() {
             return Err(Error::invalid("log belongs to another recording"));
         }
         if record.kind() != RecordKind::Log {
             return Err(Error::invalid("log formatting requires a LOG record"));
         }
-        let generator = record
-            .generator()
-            .ok_or_else(|| Error::invalid("log has no source"))?;
-        let node = self.node(crate::NodeId(generator))?;
-        if !matches!(node.data, NodeData::Generator { .. }) {
+        let callsite = record
+            .callsite()
+            .ok_or_else(|| Error::invalid("log has no callsite"))?;
+        let node = self.node(crate::NodeId(callsite))?;
+        if !matches!(node.data, NodeData::Callsite { .. }) {
             return Err(Error::invalid(
                 "log source is unavailable in this recording",
             ));

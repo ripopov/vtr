@@ -3,7 +3,7 @@
 mod format;
 mod hierarchy;
 mod payload;
-pub use format::{FormatLocale, LogSource, Severity};
+pub use format::{FormatLocale, LogCallsite, Severity};
 mod validation;
 mod waveform;
 
@@ -52,14 +52,29 @@ impl Default for ReadOptions {
     }
 }
 
+#[derive(Debug)]
+struct RecordTypes {
+    types: Types,
+    origin: RecordingId,
+    allocation_limit: usize,
+}
+
+impl std::ops::Deref for RecordTypes {
+    type Target = Types;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.types
+    }
+}
+
 #[derive(Clone, Debug)]
 struct RecordData {
-    origin: RecordingId,
     raw: Transaction,
     kind: RecordKind,
-    types: Arc<Types>,
+    types: Arc<RecordTypes>,
     datatype: crate::schema::TypeId,
-    allocation_limit: usize,
+    callsite: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -102,6 +117,14 @@ impl Record {
             self.data.raw.parent
         };
         (parent != 0).then_some(parent)
+    }
+    #[must_use]
+    #[inline]
+    pub fn callsite(&self) -> Option<u32> {
+        self.embedded
+            .is_none()
+            .then_some(self.data.callsite)
+            .flatten()
     }
     #[must_use]
     #[inline]
@@ -165,7 +188,7 @@ impl Record {
             &self.data.types,
             datatype,
             bytes,
-            self.data.allocation_limit,
+            self.data.types.allocation_limit,
         )
     }
     #[must_use]
@@ -181,7 +204,7 @@ impl Record {
             storage: self.data.clone(),
             datatype,
             range: 0..length,
-            allocation_limit: self.data.allocation_limit,
+            allocation_limit: self.data.types.allocation_limit,
         }
     }
     #[must_use]
@@ -270,7 +293,7 @@ pub struct Reader {
     container: Container,
     declarations: Declarations,
     metadata: Metadata,
-    types: Arc<Types>,
+    types: Arc<RecordTypes>,
     blocks: BTreeMap<u64, usize>,
     availability: HashMap<u64, Availability>,
     tree: hierarchy::Tree,
@@ -298,7 +321,11 @@ impl Reader {
     }
     fn from_container(container: Container, options: ReadOptions) -> Result<Self> {
         let (declarations, metadata) = Declarations::from_container(&container)?;
-        let types = Arc::new(declarations.types.clone());
+        let types = Arc::new(RecordTypes {
+            origin: container.identity,
+            types: declarations.types.clone(),
+            allocation_limit: options.max_payload_bytes,
+        });
         let mut available = Availability {
             strings: 0,
             types: crate::schema::FIRST_DECLARED_TYPE as usize,
@@ -410,8 +437,12 @@ impl Reader {
             ending::{MARKER, RunEnding, SCOPE},
         };
         let mut sources = Vec::new();
-        for source in self.log_sources()? {
-            let node = &self.declarations.nodes[source.generator as usize];
+        for (id, node) in self.declarations.nodes.iter().enumerate() {
+            if !matches!(node.data, NodeData::Generator { .. })
+                || self.declarations.generators.get(id as u32)?.kind != RecordKind::Log
+            {
+                continue;
+            }
             if node
                 .attributes
                 .iter()
@@ -431,7 +462,7 @@ impl Reader {
                 {
                     return Err(Error::Corrupt("invalid run-ending source"));
                 }
-                sources.push(source.generator);
+                sources.push(id as u32);
             }
         }
         let mut ending = None;
@@ -584,36 +615,61 @@ impl Reader {
         }
         for segment in view.segments() {
             self.available_generator(segment.generator, available)?;
+            if let Some(id) = segment.callsite
+                && (id as usize >= available.nodes
+                    || self.declarations.generators.callsite_type(id)? as usize >= available.types)
+            {
+                return Err(Error::Corrupt(
+                    "log uses a callsite or datatype before its declaration",
+                ));
+            }
         }
         Ok(view)
     }
 
+    #[inline]
     fn retain(&self, raw: Transaction, kind: RecordKind) -> Record {
         let NodeData::Generator { payload_type, .. } =
             self.declarations.nodes[raw.generator as usize].data
         else {
             unreachable!("validated record generator");
         };
+        self.retain_payload(raw, kind, payload_type, None)
+    }
+    #[inline]
+    fn retain_payload(
+        &self,
+        raw: Transaction,
+        kind: RecordKind,
+        datatype: crate::TypeId,
+        callsite: Option<u32>,
+    ) -> Record {
         Record {
             data: Arc::new(RecordData {
-                origin: self.identity(),
                 raw,
                 kind,
                 types: self.types.clone(),
-                datatype: payload_type,
-                allocation_limit: self.options.max_payload_bytes,
+                datatype,
+                callsite,
             }),
             embedded: None,
         }
     }
+    #[inline]
     fn retain_located(&self, raw: LocatedRecord) -> Record {
-        let kind = self
+        let source = self
             .declarations
             .generators
             .get(raw.generator)
-            .unwrap()
-            .kind;
-        self.retain(
+            .expect("validated generator");
+        let callsite = raw.callsite();
+        let datatype = callsite.map_or(source.payload_type, |id| {
+            self.declarations
+                .generators
+                .callsite_type(id)
+                .expect("validated callsite")
+        });
+        self.retain_payload(
             Transaction {
                 id: raw.id,
                 parent: raw.parent,
@@ -623,7 +679,9 @@ impl Reader {
                 payload: raw.payload,
                 ..Transaction::default()
             },
-            kind,
+            source.kind,
+            datatype,
+            callsite,
         )
     }
 

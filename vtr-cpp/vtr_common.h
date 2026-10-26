@@ -26,7 +26,7 @@
 namespace vtr {
 
 inline constexpr unsigned format_major = 3;
-inline constexpr unsigned format_minor = 2;
+inline constexpr unsigned format_minor = 3;
 using Timestamp = std::uint64_t;
 using Bytes = std::vector<std::byte>;
 using ByteView = std::span<const std::byte>;
@@ -38,6 +38,7 @@ struct SignalTag;
 struct GeneratorTag;
 struct StringTag;
 struct TypeTag;
+struct CallsiteTag;
 struct RecordTag;
 struct BlockTag;
 } // namespace detail
@@ -57,6 +58,7 @@ using NodeId = Identifier<detail::NodeTag, std::uint32_t>;
 using SignalId = Identifier<detail::SignalTag, std::uint32_t>;
 using GeneratorId = Identifier<detail::GeneratorTag, std::uint32_t>;
 using StringId = Identifier<detail::StringTag, std::uint32_t>;
+using CallsiteId = Identifier<detail::CallsiteTag, std::uint32_t>;
 using TypeId = Identifier<detail::TypeTag, std::uint32_t>;
 using RecordId = Identifier<detail::RecordTag, std::uint64_t>;
 using BlockId = Identifier<detail::BlockTag, std::uint64_t>;

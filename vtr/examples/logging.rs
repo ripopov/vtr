@@ -1,6 +1,6 @@
 //! Typed log fields, severity metadata, and retained record decoding.
 
-use vtr::{Attribute, FormatLocale, Reader, Recorder, Result, SourceOptions, Value, Writer};
+use vtr::{FormatLocale, Reader, Recorder, Result, SourceOptions, Writer};
 
 struct Step {
     phase: String,
@@ -16,20 +16,23 @@ fn main() -> Result<()> {
     );
     let mut writer = Writer::create(&path)?;
     let cpu = writer.scope("cpu", None)?;
-    let severity = writer.intern("log.severity")?;
-    let mut source = SourceOptions::new("{} completed in {:L} cycles", Some(cpu));
-    source.attributes.push(Attribute {
-        key: severity,
-        value: Value::U64(2),
-    });
-    let source = writer.logs::<Step>(source)?;
+    let logger = writer.logger(SourceOptions::new("cpu", Some(cpu)))?;
+    let source =
+        writer.callsite::<Step>(vtr::CallsiteOptions::new("{} completed in {:L} cycles"))?;
+    let retry = writer.callsite::<u32>(vtr::CallsiteOptions {
+        severity: 3,
+        ..vtr::CallsiteOptions::new("retry bank {}")
+    })?;
     for time in 0..10 {
         writer.advance_time(time)?;
         let mut step = Step {
             phase: format!("step {time}"),
             cycles: time * 3000,
         };
-        writer.log(source, &step, None)?;
+        writer.log(logger, source, &step, None)?;
+        if time % 3 == 0 {
+            writer.log(logger, retry, &3, None)?;
+        }
         step.phase.clear();
     }
     writer.close()?;
@@ -54,7 +57,9 @@ fn main() -> Result<()> {
                     .format_log_with_locale(&record, &locale)
                     .expect("log format")
             );
-            retained.push(record);
+            if record.callsite() == Some(source.id()) {
+                retained.push(record);
+            }
             true
         },
     )?;
