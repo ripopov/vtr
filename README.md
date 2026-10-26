@@ -79,13 +79,13 @@ developed separately.
 
 | Package | Purpose |
 |---|---|
-| [vtr](vtr/) | Rust format implementation, reader, writer, recovery, and activity indexes |
-| [vtr-cpp](vtr-cpp/) | Independent C++20 reader/writer and SystemVerilog/DPI helpers |
-| [vtr-guard](vtr-guard/) | Linux crash and stop guard |
-| [vtr-cli](vtr-cli/) | Inspection, queries, indexing, and conversion |
-| [vtr-convert](vtr-convert/) | FST, Kanata, and VCD importers |
-| [vtr-convert-wasm](vtr-convert-wasm/) | Browser conversion host |
-| [vtr-progress](vtr-progress/) | Conversion progress reporting |
+| `vtr` | Rust format implementation, reader, writer, recovery, and activity indexes |
+| `vtr-cpp` | Independent C++20 reader/writer and SystemVerilog/DPI helpers |
+| `vtr-guard` | Linux crash and stop guard |
+| `vtr-cli` | Inspection, queries, indexing, and conversion |
+| `vtr-convert` | FST, Kanata, and VCD importers |
+| `vtr-convert-wasm` | Browser conversion host |
+| `vtr-progress` | Conversion progress reporting |
 
 Recordings use VTR 3.2, including scalar-page and shared-text encodings.
 The C++ package is version 4.0;
