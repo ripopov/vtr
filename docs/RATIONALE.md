@@ -19,20 +19,25 @@ A **signal** describes a value that persists until it changes, such as a wire or
 register in a VCD waveform. Assigning `0` to a signal already holding `0` adds no
 transition. A history can suppress that assignment while preserving the state.
 
-A **record** describes an individual occurrence. Two requests issued at the same
-timestamp with identical address, byte-enable, and operation fields are still
-two requests. Each needs its own identity. Logs and events have the same
-occurrence semantics; repeated messages must survive even when their timestamps
-and arguments match. Verilog event variables (`VCD_EVENT`) likewise preserve
-repeated occurrences rather than applying held-value deduplication.
+A **record** is an individual captured observation with its own identity. It
+describes a point occurrence, such as an event or log message, or an interval,
+such as a stage. Two requests issued at the same timestamp with identical
+address, byte-enable, and operation fields still produce two distinct records.
+Repeated messages likewise remain distinct even when their timestamps and
+arguments match. Verilog event variables (`VCD_EVENT`) also preserve repeated
+occurrences rather than applying held-value deduplication.
 
-A **transaction** is a record for a logical unit of work with a lifetime.
+A **transaction** is a logical unit of work with a lifetime and stable identity.
+While active, it can accumulate attributes, embedded events and stages, and
+attached located events and stages. Attributes describe a transaction or record;
+they are not themselves records. A transaction's payload describes the work,
+its events and stages describe progress, and relations connect it to other work.
+
 Transactions can be nested to represent work at different scales. In a GPU
 simulator, for example, a dispatch can own warps, and each warp can own
-instructions. An instruction can visit fetch, decode, and execute resources
+instructions. An instruction is a transaction; its retry event and execute stage
+are records belonging to it. It can visit fetch, decode, and execute resources
 before it retires.
-Its payload describes the work; stages and events describe its progress;
-relations connect it to other work.
 
 ![A held signal value, two identical request occurrences, and an instruction lifetime with fetch, decode, execute, and retire activity.](diagrams/signals-records-transactions.drawio.svg)
 
@@ -52,10 +57,11 @@ histories compact and efficient to read.
 The **design hierarchy** is a tree of scopes and sources. It answers where an
 observation belongs: the module containing a signal, the source issuing
 requests, or the execute slot occupied by an instruction. A generator identifies
-a source of records. It can be a root or belong to a scope; an additional stream
-node between every scope and generator would often add no meaning. Ordinary
-scopes already provide grouping when it is useful. Declarations can also appear
-during execution, so capture does not require a complete hierarchy at startup.
+a source of transactions or records. It can be a root or belong to an ordinary
+scope. Unlike FTR, VTR has no special transaction stream (TX Stream) scopes:
+ordinary scopes already provide grouping, so a separate stream node would add
+no meaning. Declarations can also appear during execution, so capture does not
+require a complete hierarchy at startup.
 
 The **ownership hierarchy** describes runtime work. An execute visit belongs to
 an instruction even though many instructions use that execute resource over
@@ -90,11 +96,11 @@ enumeration. Several request generators can share the same address and operation
 fields. Declaring those fields once saves repeated names and tags and gives
 consumers a consistent structure for filtering and comparison.
 
-The datatype answers how to decode a value. A generator answers where records
-come from. Ownership answers which runtime work they belong to. These are
-different identities. Changing a name, moving a source in the design hierarchy,
-or choosing a different logger should not require inventing a different argument
-layout.
+The datatype answers how to decode a value. A generator answers where
+transactions or records come from. Ownership answers which runtime work they
+belong to. These are different identities. Changing a name, moving a source in
+the design hierarchy, or choosing a different logger should not require
+inventing a different argument layout.
 
 Canonical payloads specify field order, widths, byte order, and sequence lengths
 independently of Rust/C++ object layout. They preserve integer signedness,
@@ -104,12 +110,12 @@ Optional tagged attributes remain useful for exceptional details that do not
 belong in a common payload schema.
 
 Declarations are immutable. A changed argument layout needs a new datatype;
-records already written retain their original interpretation. Ordinary typed
+payloads already written retain their original interpretation. Ordinary typed
 sources can bind a fixed datatype. For logging, that binding belongs to the
 callsite, allowing one logger to carry messages with different layouts.
 
 Typed native bindings must finish capture before returning. Borrowed text or
-arrays can then be changed or destroyed without affecting accepted records.
+arrays can then be changed or destroyed without affecting captured data.
 Reader payload views retain both their schema and storage after cache eviction
 or reader destruction. Ownership of capture data and ownership of retained read
 data are explicit parts of the interface, not consequences of a convenient
@@ -157,7 +163,8 @@ all its messages, with each message retaining its callsite provenance.
 A callsite descriptor references a VTR datatype for its arguments. It does not
 need a second schema language or a private argument serialization format. The
 same datatype traversal, canonical encoding, allocation limits, and typed
-payload inspection should apply to log arguments as they do to other records.
+payload inspection should apply to log arguments as they do to transaction,
+event, and stage payloads.
 
 Several callsites can share one argument datatype while having different format
 strings, severities, or source locations. Conversely, one logger can emit
@@ -290,10 +297,11 @@ would leave the underlying stream model unresolved.
 
 ## Time and ordering describe different facts
 
-Record IDs identify creations. Observation timestamps place activity in simulated
-time. Producer time certifies progress for assembly. Completion order determines
-when an owner becomes ready to write. Physical storage order reflects bounded
-buffers and compression policy. None of these orders can substitute for another.
+Global IDs identify transaction and record creations. Observation timestamps
+place activity in simulated time. Producer time certifies progress for assembly.
+Completion order determines when an owner becomes ready to write. Physical
+storage order reflects bounded buffers and compression policy. None of these
+orders can substitute for another.
 
 A producer advancing to T promises that no more capture operations below T will
 arrive from it. With several producers, the minimum frontier determines which
@@ -368,9 +376,9 @@ balance; owner lookup, related records, labels, checksums, and I/O all contribut
 
 Most tracing work should run away from simulator threads. Their repeated job is
 to capture observations with stable ownership and publish them through a cheap
-handoff. The backend assembles records, encodes columns, compresses pages, and
-writes sections. Optional encoding workers can increase throughput while output
-publication remains ordered.
+handoff. The backend assembles transactions and records, encodes columns,
+compresses pages, and writes sections. Optional encoding workers can increase
+throughput while output publication remains ordered.
 
 Each logical producer exclusively owns its capture queue and recording time.
 Its physical thread can change through an explicit release/attachment protocol.
@@ -410,12 +418,12 @@ does not promise `fsync` durability. Retrying an already accepted message can
 duplicate the occurrence rather than repair the recording.
 
 Recovery retains the contiguous verified section prefix. It does not salvage
-individual rows from an incomplete page, invent missing records, or renumber
-surviving identities. An owner, its child block, and a relation endpoint can
-become durable at different times. Incomplete recordings preserve available
-evidence and report unresolved references; complete recordings require those
-references to resolve. Checksums establish byte integrity, while full validation
-also checks semantic invariants.
+individual rows from an incomplete page, invent missing transactions or records,
+or renumber surviving identities. An owner, its child block, and a relation
+endpoint can become durable at different times. Incomplete recordings preserve
+available evidence and report unresolved references; complete recordings require
+those references to resolve. Checksums establish byte integrity, while full
+validation also checks semantic invariants.
 
 A log is ordinary evidence, not a completion protocol. Neither a fatal message
 nor the absence of a final message proves that a run was sealed successfully.
