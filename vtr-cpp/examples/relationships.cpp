@@ -1,6 +1,5 @@
 #include "instruction.h"
-#include "vtr_reader.h"
-#include "vtr_writer.h"
+#include "vtr_logging.h"
 
 #include <iostream>
 
@@ -13,7 +12,8 @@ int main(int argc, char** argv) {
         auto instructions =
             trace.transactions<Instruction>({.name = "instructions", .parent = core});
         auto logger = trace.logger({.name = "diagnostics"});
-        auto messages = trace.callsite<Instruction>({.format = "pc={0:#x} opcode={1}"});
+        auto messages =
+            vtr::logging::declare<Instruction>(trace, {.format = "pc={0:#x} opcode={1}"});
         auto clock = trace.clock({.name = "clock", .parent = core});
         trace.associate_clock(instructions, clock);
         auto label = trace.intern("vtr.label");
@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
             return vt::Flow::next;
         });
         input.logs(parent.id(), {}, [&](const vt::Record& record) {
-            std::cout << input.format_log(record) << '\n';
+            std::cout << vtr::logging::format_log(input, record) << '\n';
             return vt::Flow::next;
         });
         input.relations(parent.id(), vt::Direction::outgoing, [](const vt::Relation& relation) {

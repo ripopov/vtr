@@ -61,9 +61,9 @@ class Stream {
     RecordId event(GeneratorId generator, RecordId owner, Timestamp time, View payload = {});
     RecordId event(GeneratorId generator, RecordId owner, Timestamp time,
                    const EncodedPayload& payload);
-    RecordId log(GeneratorId generator, std::uint32_t callsite, Timestamp time, View payload = {},
+    RecordId log(GeneratorId generator, std::uint32_t datatype, Timestamp time, View payload = {},
                  RecordId owner = 0);
-    RecordId log(GeneratorId generator, std::uint32_t callsite, Timestamp time,
+    RecordId log(GeneratorId generator, std::uint32_t datatype, Timestamp time,
                  const EncodedPayload& payload, RecordId owner = 0);
     void payload(RecordId record, View payload);
     void payload(RecordId record, const EncodedPayload& payload);

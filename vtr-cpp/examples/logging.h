@@ -1,7 +1,7 @@
 #pragma once
 
 // Static callsites share argument encoders and writer-bound declarations.
-#include "vtr_writer.h"
+#include "vtr_logging.h"
 
 #include <array>
 #include <atomic>
@@ -72,12 +72,12 @@ template <class... Args> auto arguments(const Args&... args) {
 } // namespace logging
 
 template <std::size_t... Indices, class... Args>
-struct vtr::Schema<logging::Arguments<std::index_sequence<Indices...>, Args...>> {
+struct vtr::Schema<::logging::Arguments<std::index_sequence<Indices...>, Args...>> {
     static constexpr std::string_view name = "LogArguments";
     static constexpr auto fields = std::tuple{
-        vtr::field(std::string_view{logging::Argument<Indices, Args>::name.data(),
-                                    logging::Argument<Indices, Args>::name.size()},
-                   &logging::Argument<Indices, Args>::value)...,
+        vtr::field(std::string_view{::logging::Argument<Indices, Args>::name.data(),
+                                    ::logging::Argument<Indices, Args>::name.size()},
+                   &::logging::Argument<Indices, Args>::value)...,
     };
 };
 
@@ -151,9 +151,9 @@ class Logger {
     };
 
     template <class Payload> struct Binding : BindingBase {
-        explicit Binding(vtr::Callsite<Payload> source) : source(source) {}
+        explicit Binding(vtr::PayloadType<Payload> source) : source(source) {}
 
-        vtr::Callsite<Payload> source;
+        vtr::PayloadType<Payload> source;
     };
 
     template <class Payload> [[gnu::noinline]] std::size_t bind(const Callsite<Payload>& site) {
@@ -162,13 +162,14 @@ class Logger {
         if (slot >= sources_.size()) {
             sources_.resize(slot + 1);
         }
-        auto source =
-            writer_.callsite<Payload>({.format = metadata.format,
-                                       .severity = static_cast<std::uint64_t>(metadata.severity),
-                                       .file = metadata.location.file_name(),
-                                       .line = metadata.location.line(),
-                                       .function = metadata.location.function_name()},
-                                      &site);
+        auto source = vtr::logging::declare<Payload>(
+            writer_,
+            {.format = metadata.format,
+             .severity = static_cast<std::uint64_t>(metadata.severity),
+             .file = metadata.location.file_name(),
+             .line = metadata.location.line(),
+             .function = metadata.location.function_name()},
+            &site);
         sources_[slot] = std::make_unique<Binding<Payload>>(source);
         return slot;
     }
@@ -186,17 +187,17 @@ class Logger {
     do {                                                                                           \
         auto& vtr_log_logger = (logger);                                                           \
         if (vtr_log_logger.enabled(severity)) {                                                    \
-            using vtr_log_payload = decltype(logging::arguments(__VA_ARGS__));                     \
-            static constexpr logging::Metadata vtr_log_metadata{fmt, severity,                     \
-                                                                std::source_location::current()};  \
+            using vtr_log_payload = decltype(::logging::arguments(__VA_ARGS__));                   \
+            static constexpr ::logging::Metadata vtr_log_metadata{                                 \
+                fmt, severity, std::source_location::current()};                                   \
             static_assert(vtr_log_payload::valid_format(vtr_log_metadata.format));                 \
-            static constinit const logging::Callsite<vtr_log_payload> vtr_log_callsite{            \
+            static constinit const ::logging::Callsite<vtr_log_payload> vtr_log_callsite{          \
                 vtr_log_metadata};                                                                 \
-            vtr_log_logger.write(vtr_log_callsite, logging::arguments(__VA_ARGS__));               \
+            vtr_log_logger.write(vtr_log_callsite, ::logging::arguments(__VA_ARGS__));             \
         }                                                                                          \
     } while (false)
 
 #define LOG_INFO(logger, format, ...)                                                              \
-    LOG_AT(logger, logging::Severity::info, format __VA_OPT__(, ) __VA_ARGS__)
+    LOG_AT(logger, ::logging::Severity::info, format __VA_OPT__(, ) __VA_ARGS__)
 #define LOG_WARNING(logger, format, ...)                                                           \
-    LOG_AT(logger, logging::Severity::warning, format __VA_OPT__(, ) __VA_ARGS__)
+    LOG_AT(logger, ::logging::Severity::warning, format __VA_OPT__(, ) __VA_ARGS__)

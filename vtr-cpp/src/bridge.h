@@ -95,6 +95,7 @@ wire::Attributes encode_attributes(AttributeView attributes);
 Attributes decode_attributes(std::span<const wire::Attribute> attributes);
 wire::Meta encode_metadata(const Metadata& metadata);
 Metadata decode_metadata(const wire::Meta& metadata);
-DataType decode_type(std::uint32_t id, const engine::Type& type);
+DataType decode_type(std::uint32_t id, const engine::Type& type,
+                     const wire::Attributes& attributes);
 
 } // namespace vtr::detail

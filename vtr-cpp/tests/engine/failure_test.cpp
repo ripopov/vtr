@@ -1,6 +1,6 @@
 #include "engine/vtr.h"
 #include "stream.h"
-#include "vtr_writer.h"
+#include "vtr_logging.h"
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
@@ -287,7 +287,7 @@ void allocation_free_recording(const fs::path& dir) {
     const auto signal = writer.signal({.name = "signal"}, {.width = 32});
     const auto source = writer.transactions<std::array<std::uint64_t, 4>>({.name = "request"});
     auto logger = writer.logger({.name = "diagnostics"});
-    const auto logs = writer.callsite<std::string>({.format = "message"});
+    const auto logs = vtr::logging::declare<std::string>(writer, {.format = "message"});
     const auto key = writer.intern("sequence");
     writer.advance_time(1);
     writer.flush();
@@ -328,7 +328,7 @@ void allocation_free_large_capture(const fs::path& dir) {
     const auto stages = writer.stages<Payload>({.name = "stage"});
     const auto events = writer.events<Payload>({.name = "event"});
     auto logger = writer.logger({.name = "diagnostics"});
-    const auto logs = writer.callsite<Payload>({.format = "log"});
+    const auto logs = vtr::logging::declare<Payload>(writer, {.format = "log"});
     std::array<std::string, 4> storage;
     Payload value;
     for (auto& part : storage) {
@@ -379,9 +379,8 @@ void failed_direct_capture(const fs::path& dir) {
         Stream stream(path, {}, {.queue_bytes = 512});
         const auto generator = stream.control(
             [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
-        const auto callsite = stream.control([](Writer& backend) {
-            return backend.add_callsite("{}", backend.bind<std::string>());
-        });
+        const auto callsite =
+            stream.control([](Writer& backend) { return backend.bind<std::string>(); });
         stream.advance_time(1);
         stream.log(generator, callsite, 1, capture(std::string("before")));
         stream.advance_time(2);
@@ -419,8 +418,8 @@ void oversized_publication_failure(const fs::path& dir) {
     Stream stream(path, {}, {.queue_bytes = 256});
     const auto generator = stream.control(
         [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
-    const auto callsite = stream.control(
-        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
+    const auto callsite =
+        stream.control([](Writer& backend) { return backend.bind<std::string>(); });
     stream.advance_time(1);
     const auto value = capture(std::string(4096, 'x'));
     fail_after = 0;

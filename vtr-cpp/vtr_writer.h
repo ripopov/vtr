@@ -121,26 +121,24 @@ template <class T, SourceKind Kind> class Source {
 
 using Logger = Source<Unit, SourceKind::log>;
 
-struct CallsiteOptions {
-    std::string_view format;
-    std::uint64_t severity = 2;
-    std::optional<std::string_view> file = {};
-    std::optional<std::uint64_t> line = {};
-    std::optional<std::string_view> function = {};
+struct DatatypeOptions {
+    std::string name;
+    Attributes attributes = {};
 };
 
-template <class T> class Callsite {
+// A writer-bound handle to a one-field datatype wrapping T.
+template <class T> class PayloadType {
   public:
-    [[nodiscard]] CallsiteId id() const noexcept {
+    [[nodiscard]] TypeId id() const noexcept {
         return id_;
     }
 
   private:
     friend class Writer;
 
-    Callsite(CallsiteId id, std::uint64_t origin) : id_(id), origin_(origin) {}
+    PayloadType(TypeId id, std::uint64_t origin) : id_(id), origin_(origin) {}
 
-    CallsiteId id_;
+    TypeId id_;
     std::uint64_t origin_;
 };
 
@@ -329,13 +327,13 @@ class Writer final {
     }
 
     template <class T>
-    RecordId log(Logger logger, Callsite<T> callsite, const T& payload,
+    RecordId log(Logger logger, PayloadType<T> datatype, const T& payload,
                  std::optional<OwnerRef> owner = {}) {
-        return log_at(logger, callsite, time(), payload, owner);
+        return log_at(logger, datatype, time(), payload, owner);
     }
 
-    RecordId log(Logger logger, Callsite<Unit> callsite, std::optional<OwnerRef> owner = {}) {
-        return log(logger, callsite, Unit{}, owner);
+    RecordId log(Logger logger, PayloadType<Unit> datatype, std::optional<OwnerRef> owner = {}) {
+        return log(logger, datatype, Unit{}, owner);
     }
 
     template <class T>
@@ -368,15 +366,15 @@ class Writer final {
                       const T& payload);
     RecordId event_at(Source<Unit, SourceKind::event> site, OwnerRef owner, Timestamp time);
     template <class T>
-    RecordId log_at(Logger logger, Callsite<T> callsite, Timestamp time, const T& payload,
+    RecordId log_at(Logger logger, PayloadType<T> datatype, Timestamp time, const T& payload,
                     std::optional<OwnerRef> owner = {});
 
-    RecordId log_at(Logger logger, Callsite<Unit> callsite, Timestamp time,
+    RecordId log_at(Logger logger, PayloadType<Unit> datatype, Timestamp time,
                     std::optional<OwnerRef> owner = {}) {
-        return log_at(logger, callsite, time, Unit{}, owner);
+        return log_at(logger, datatype, time, Unit{}, owner);
     }
 
-    RecordId log_raw(Logger logger, CallsiteId callsite, Timestamp time, ByteView payload,
+    RecordId log_raw(Logger logger, TypeId datatype, Timestamp time, ByteView payload,
                      std::optional<OwnerRef> owner = {});
 
     void attribute(OwnerRef owner, StringId key, const Value& data);
@@ -433,13 +431,16 @@ class Writer final {
     [[nodiscard]] Source<T, SourceKind::event> events(SourceOptions options);
     [[nodiscard]] Logger logger(SourceOptions options);
 
+    // Descriptor addresses must identify immutable objects for this writer's lifetime.
     template <class T = Unit>
-    [[nodiscard]] Callsite<T> callsite(CallsiteOptions options, const void* descriptor = nullptr) {
-        return {declare_callsite(options, bind<T>(), descriptor), recording_origin()};
+    [[nodiscard]] PayloadType<T> datatype(DatatypeOptions options,
+                                          const void* descriptor = nullptr) {
+        return {declare_payload_type(options, bind<T>(), descriptor), recording_origin()};
     }
 
-    [[nodiscard]] CallsiteId declare_callsite(CallsiteOptions options, TypeId datatype,
-                                              const void* descriptor = nullptr);
+    [[nodiscard]] TypeId declare_datatype(DatatypeOptions options,
+                                          decltype(DataType::definition) definition);
+
     [[nodiscard]] ClockSource clock(SourceOptions options);
     // Set before recording or flush publishes the source.
     template <class T, SourceKind K> void associate_clock(Source<T, K> site, ClockSource clock);
@@ -470,7 +471,8 @@ class Writer final {
     [[nodiscard]] std::optional<std::uint64_t> backend_cpu_nanoseconds() const;
 
   private:
-    void check_callsite(std::uint64_t origin) const;
+    void check_datatype(std::uint64_t origin) const;
+    TypeId declare_payload_type(DatatypeOptions options, TypeId arguments, const void* descriptor);
     void attribute_u64(OwnerRef owner, StringId key, std::uint64_t data);
     RecordId begin_transaction(GeneratorId site, std::uint64_t origin, Timestamp time,
                                std::optional<detail::EncodedPayload> payload,
@@ -483,7 +485,7 @@ class Writer final {
                 Status result, std::optional<detail::EncodedPayload> payload);
     RecordId instant(GeneratorId site, std::uint64_t origin, SourceKind kind, Timestamp time,
                      detail::EncodedPayload payload, std::optional<OwnerRef> owner,
-                     std::optional<CallsiteId> callsite = {});
+                     std::optional<TypeId> datatype = {});
 
     std::uint64_t recording_origin() const noexcept {
         return origin_;
@@ -647,12 +649,12 @@ RecordId Writer::event_at(Source<T, SourceKind::event> site, OwnerRef owner, Tim
 }
 
 template <class T>
-RecordId Writer::log_at(Logger logger, Callsite<T> callsite, Timestamp time, const T& value,
+RecordId Writer::log_at(Logger logger, PayloadType<T> datatype, Timestamp time, const T& value,
                         std::optional<OwnerRef> owner) {
-    check_callsite(callsite.origin_);
+    check_datatype(datatype.origin_);
     detail::PayloadCapture capture(value);
     return instant(logger.id_, logger.origin_, SourceKind::log, time, capture.payload(), owner,
-                   callsite.id_);
+                   datatype.id_);
 }
 
 } // namespace vtr

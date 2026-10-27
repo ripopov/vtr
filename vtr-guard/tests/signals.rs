@@ -70,12 +70,14 @@ fn signal_child() {
     let logger = writer
         .logger(SourceOptions::new("diagnostics", None))
         .unwrap();
-    let source = writer
-        .callsite::<u64>(vtr::CallsiteOptions::new("step {}"))
-        .unwrap();
-    let fault = writer
-        .callsite::<FaultPayload>(vtr::CallsiteOptions::new("interrupted capture"))
-        .unwrap();
+    let source =
+        vtr::logging::declare::<u64>(&mut writer, vtr::logging::CallsiteOptions::new("step {}"))
+            .unwrap();
+    let fault = vtr::logging::declare::<FaultPayload>(
+        &mut writer,
+        vtr::logging::CallsiteOptions::new("interrupted capture"),
+    )
+    .unwrap();
     writer.advance_time(17).unwrap();
     writer.log(logger, source, &42, None).unwrap();
     writer.flush().unwrap();
@@ -175,6 +177,8 @@ fn native_signals_finish_idle_and_busy_writers() {
                 .unwrap()
                 .unwrap()
                 .payload()
+                .field("value")
+                .unwrap()
                 .decode::<u64>()
                 .unwrap(),
             42

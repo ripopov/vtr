@@ -13,9 +13,10 @@ A VTR recording contains:
 | --- | --- |
 | Metadata | Time scale, time origin, producer identity, and typed attributes |
 | Hierarchy | Scopes, variables, signal aliases, generators, and enum tables |
+| Datatypes | Reusable payload layouts, references to other datatypes, and arbitrary tagged metadata |
 | Waveforms | Value changes of 2-, 4-, and 9-state bit vectors, reals, and byte strings; event occurrences |
 | Transactions | Timed intervals with typed attributes, point events, stages, parent links, and directed relations |
-| Logs | Timestamped log messages with typed arguments and shared call-site metadata |
+| Logs | Timestamped records with datatype-selected payloads and metadata interpreted by logging helpers |
 | Clocks | Clock edges grouped into intervals with a constant period |
 
 The library provides streaming writes with optional background encoding,
@@ -51,8 +52,8 @@ flowchart TB
 
 ![Schematic file order: a 32-byte header, append-only sections, a directory, and a 24-byte trailer; widths do not represent payload sizes.](docs/diagrams/transaction-file-structure.drawio.svg)
 
-VTR stores metadata, strings, hierarchy declarations, waveform data, transactions,
-logs, and blackout intervals in append-only sections. Each section has a 24-byte
+VTR stores metadata, strings, datatype and hierarchy declarations, waveform data,
+transactions, logs, and blackout intervals in append-only sections. Each section has a 24-byte
 header followed by its payload.
 
 When recording finishes, the writer appends a directory that indexes the preceding
@@ -87,8 +88,8 @@ developed separately.
 | `vtr-convert-wasm` | Browser conversion host |
 | `vtr-progress` | Conversion progress reporting |
 
-Recordings use VTR 3.3, including scalar-page and shared-text encodings.
-The C++ package is version 5.0;
+Recordings use VTR 3.4, including scalar-page and shared-text encodings.
+The C++ package is version 6.0;
 activity sidecars have their own VTI 3.0 format. Older trace assets must be
 regenerated. Rust and C++ implementations are independent and tested in both
 writer/reader directions.

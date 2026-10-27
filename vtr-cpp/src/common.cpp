@@ -178,8 +178,10 @@ Metadata decode_metadata(const wire::Meta& metadata) {
             metadata.date,      metadata.comment,   decode_attributes(metadata.attrs)};
 }
 
-DataType decode_type(std::uint32_t id, const engine::Type& type) {
-    DataType result{TypeId(id), type.name, static_cast<Primitive>(type.primitive)};
+DataType decode_type(std::uint32_t id, const engine::Type& type,
+                     const wire::Attributes& attributes) {
+    DataType result{TypeId(id), type.name, static_cast<Primitive>(type.primitive),
+                    decode_attributes(attributes)};
     switch (type.kind) {
     case engine::TypeKind::scalar:
         break;

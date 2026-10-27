@@ -3,8 +3,9 @@ use std::{collections::BTreeMap, path::Path};
 use vtr::{
     Direction, NodeId, ScopeType, VarType,
     declarations::NodeData,
+    logging::Severity,
     records::{RecordKind, RecordQuery},
-    trace::{Reader, Record, Severity},
+    trace::{Reader, Record},
     transactions::TransactionQuery,
 };
 
@@ -47,7 +48,7 @@ pub fn info(path: &Path) -> Result<()> {
             NodeData::Scope { .. } => scopes += 1,
             NodeData::Signal { .. } => variables += 1,
             NodeData::Generator { .. } => generators += 1,
-            NodeData::EnumTable { .. } | NodeData::Callsite { .. } => (),
+            NodeData::EnumTable { .. } => (),
         }
     }
     println!(
@@ -155,9 +156,6 @@ pub fn hierarchy(path: &Path, max_depth: usize, variables: bool, sizes: bool) ->
                 "{indent}{name} [generator {} type#{payload_type}]",
                 reader.string(*kind)?
             ),
-            NodeData::Callsite { payload_type } => {
-                println!("{indent}{name} [callsite type#{payload_type}]");
-            }
             NodeData::EnumTable { entries } => {
                 println!("{indent}{name} [enum {} literals]", entries.len());
             }
@@ -318,20 +316,19 @@ pub fn logs(
 ) -> Result<()> {
     let reader = Reader::open(path)?;
     let scope = find_scope(&reader, scope)?;
-    let sources: BTreeMap<_, _> = reader
-        .log_callsites()?
+    let sources: BTreeMap<_, _> = vtr::logging::callsites(&reader)?
         .into_iter()
         .filter(|source| source.severity >= severity)
-        .map(|source| (source.callsite, source))
+        .map(|source| (source.datatype, source))
         .collect();
     if sites {
         for source in sources.values() {
             println!(
                 "site {} {} {} type#{}",
-                source.callsite,
-                reader.full_path(NodeId(source.callsite))?,
+                source.datatype,
+                source.format,
                 source.severity.name(),
-                source.payload_type
+                source.datatype
             );
         }
         return Ok(());
@@ -359,7 +356,7 @@ pub fn logs(
                 RecordQuery {
                     kind: Some(RecordKind::Log),
                     generator: Some(generator),
-                    callsite: Some(source.callsite),
+                    datatype: Some(source.datatype),
                     begin: window.0,
                     end: window.1,
                     ..Default::default()
@@ -368,7 +365,7 @@ pub fn logs(
                     if shown >= max {
                         return false;
                     }
-                    match reader.format_log_bytes(&record) {
+                    match vtr::logging::format_log_bytes(&reader, &record) {
                         Ok(bytes) => {
                             let message = String::from_utf8(bytes).unwrap_or_else(|error| {
                                 use std::fmt::Write;

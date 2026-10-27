@@ -79,6 +79,9 @@ impl Reader {
             missing: Vec::new(),
         };
         self.validate_labels(&self.metadata.attributes)?;
+        for id in crate::schema::FIRST_DECLARED_TYPE..self.types.len() as u32 {
+            self.validate_labels(&self.types.get(id)?.attributes)?;
+        }
         for (index, node) in self.declarations.nodes.iter().enumerate() {
             self.validate_labels(&node.attributes)?;
             let NodeData::Generator { payload_type, .. } = node.data else {
@@ -106,18 +109,6 @@ impl Reader {
                         )?;
                     } else if self.declarations.generators.get(target)?.kind != RecordKind::Clock {
                         return Err(Error::Corrupt("associated generator is not a clock"));
-                    }
-                }
-                if self.declarations.generators.get(index as u32)?.kind == RecordKind::Log {
-                    if matches!(name, "log.severity" | "log.line")
-                        && !matches!(attribute.value, Value::U64(_))
-                    {
-                        return Err(Error::Corrupt("invalid numeric log metadata"));
-                    }
-                    if matches!(name, "log.file" | "log.func")
-                        && !matches!(attribute.value, Value::Str(_))
-                    {
-                        return Err(Error::Corrupt("invalid log source metadata"));
                     }
                 }
             }

@@ -17,12 +17,17 @@ fn main() -> Result<()> {
     let mut writer = Writer::create(&path)?;
     let cpu = writer.scope("cpu", None)?;
     let logger = writer.logger(SourceOptions::new("cpu", Some(cpu)))?;
-    let source =
-        writer.callsite::<Step>(vtr::CallsiteOptions::new("{} completed in {:L} cycles"))?;
-    let retry = writer.callsite::<u32>(vtr::CallsiteOptions {
-        severity: 3,
-        ..vtr::CallsiteOptions::new("retry bank {}")
-    })?;
+    let source = vtr::logging::declare::<Step>(
+        &mut writer,
+        vtr::logging::CallsiteOptions::new("{} completed in {:L} cycles"),
+    )?;
+    let retry = vtr::logging::declare::<u32>(
+        &mut writer,
+        vtr::logging::CallsiteOptions {
+            severity: 3,
+            ..vtr::logging::CallsiteOptions::new("retry bank {}")
+        },
+    )?;
     for time in 0..10 {
         writer.advance_time(time)?;
         let mut step = Step {
@@ -53,22 +58,21 @@ fn main() -> Result<()> {
             println!(
                 "{}: {}",
                 record.begin(),
-                reader
-                    .format_log_with_locale(&record, &locale)
+                vtr::logging::format_log_with_locale(&reader, &record, &locale)
                     .expect("log format")
             );
-            if record.callsite() == Some(source.id()) {
+            if record.datatype() == source.id() {
                 retained.push(record);
             }
             true
         },
     )?;
     assert_eq!(
-        reader.format_log(&retained[3])?,
+        vtr::logging::format_log(&reader, &retained[3])?,
         "step 3 completed in 9000 cycles"
     );
     assert_eq!(
-        reader.format_log_with_locale(&retained[3], &locale)?,
+        vtr::logging::format_log_with_locale(&reader, &retained[3], &locale)?,
         "step 3 completed in 9_000 cycles"
     );
     drop(reader);

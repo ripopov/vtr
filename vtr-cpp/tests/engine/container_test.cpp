@@ -238,7 +238,7 @@ void mixed_transactions(const fs::path& dir) {
         auto ordinary = writer.add_generator(scope, "instruction", "INSTRUCTION");
         auto stage = writer.add_generator(scope, "execute", "STAGE");
         auto log = writer.add_generator(scope, "diagnostics", "LOG");
-        auto callsite = writer.add_callsite("request {} {}", schema);
+        auto callsite = schema;
         auto clock = writer.add_generator(scope, "clock", "CLOCK");
         auto event_name = writer.intern("local_note"), stage_name = writer.intern("local_wait"),
              lane = writer.intern("main");
@@ -247,7 +247,7 @@ void mixed_transactions(const fs::path& dir) {
         generators.declare({ordinary, RecordKind::ordinary, 0});
         generators.declare({stage, RecordKind::stage, 0});
         generators.declare({log, RecordKind::log, 0});
-        generators.declare_callsite(callsite, schema);
+
         generators.declare({clock, RecordKind::clock, 0});
         Transaction owner;
         owner.id = 1;

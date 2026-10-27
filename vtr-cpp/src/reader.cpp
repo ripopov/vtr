@@ -38,7 +38,7 @@ struct RecordStorage {
     std::vector<EmbeddedEvent> events;
     std::vector<EmbeddedStage> stages;
     std::vector<BlockId> child_blocks;
-    std::variant<std::monostate, StringId, CallsiteId> annotation;
+    std::optional<StringId> name;
     std::optional<StringId> lane;
     std::optional<Timestamp> explicit_end;
 };
@@ -141,13 +141,9 @@ std::shared_ptr<RecordStorage> record_storage(const engine::LocatedRecord& recor
                                               std::shared_ptr<const PayloadSchema> schema,
                                               const engine::ContainerReader& container) {
     const auto& generator = container.generators()[record.generator];
-    const auto callsite = record.callsite();
-    const auto datatype =
-        callsite ? container.generators().callsite_type(*callsite) : generator.payload_type;
+    const auto datatype = record.datatype().value_or(generator.payload_type);
     auto result = base_storage(record.id, record.parent, record.generator, record.begin, record.end,
                                generator.kind, datatype, record.payload, {}, std::move(schema));
-    if (callsite)
-        result->annotation = CallsiteId(*callsite);
     return result;
 }
 
@@ -164,9 +160,9 @@ std::shared_ptr<RecordStorage> record_storage(const engine::RecordRef& record,
         base_storage(record.id(), record.parent(), record.generator(), record.begin(), record.end(),
                      record.kind(), 0, record.payload(), record.attributes(), std::move(schema));
     if (auto event = record.event()) {
-        result->annotation = StringId(event->name);
+        result->name = StringId(event->name);
     } else if (auto stage = record.stage()) {
-        result->annotation = StringId(stage->name);
+        result->name = StringId(stage->name);
         result->lane = StringId(stage->lane);
         result->explicit_end = stage->end;
     }
@@ -384,9 +380,8 @@ std::optional<RecordId> Record::parent() const noexcept {
     return storage_->parent;
 }
 
-std::optional<CallsiteId> Record::callsite() const noexcept {
-    const auto callsite = std::get_if<CallsiteId>(&storage_->annotation);
-    return callsite ? std::optional(*callsite) : std::nullopt;
+TypeId Record::datatype() const noexcept {
+    return storage_->type;
 }
 
 std::optional<GeneratorId> Record::generator() const noexcept {
@@ -431,8 +426,7 @@ std::span<const BlockId> Record::child_blocks() const noexcept {
 }
 
 std::optional<StringId> Record::name() const noexcept {
-    const auto name = std::get_if<StringId>(&storage_->annotation);
-    return name ? std::optional(*name) : std::nullopt;
+    return storage_->name;
 }
 
 std::optional<StringId> Record::lane() const noexcept {
@@ -449,7 +443,6 @@ struct Reader::Impl {
     vtr::Metadata metadata;
     std::vector<Node> nodes;
     std::vector<Generator> generators;
-    std::vector<LogCallsite> callsites;
     std::vector<DataType> types;
     std::vector<SignalKind> signals;
     Provenance ending;
@@ -471,7 +464,8 @@ struct Reader::Impl {
             if (i == static_cast<std::uint32_t>(Primitive::enumeration)) {
                 types.push_back({TypeId(i), {}, Primitive::enumeration});
             } else {
-                types.push_back(detail::decode_type(i, schema->types[i]));
+                types.push_back(
+                    detail::decode_type(i, schema->types[i], backend.types().attributes(i)));
             }
         }
         signals.reserve(backend.signals().size());
@@ -486,7 +480,6 @@ struct Reader::Impl {
             auto kind = node.kind == detail::wire::Node::scope        ? NodeKind::scope
                         : node.kind == detail::wire::Node::generator  ? NodeKind::generator
                         : node.kind == detail::wire::Node::enum_table ? NodeKind::enum_table
-                        : node.kind == detail::wire::Node::callsite   ? NodeKind::callsite
                                                                       : NodeKind::signal;
             nodes.push_back(
                 {NodeId(i),
@@ -513,21 +506,6 @@ struct Reader::Impl {
             } else if (node.kind == detail::wire::Node::enum_table) {
                 for (const auto& [name, value] : node.entries)
                     declared.enum_entries.push_back({StringId(name), StringId(value)});
-            }
-            if (node.kind == detail::wire::Node::callsite) {
-                LogCallsite site{CallsiteId(i), StringId(node.name), TypeId(node.payload_type), 2};
-                for (const auto& attribute : node.attrs) {
-                    auto key = backend.string(attribute.key);
-                    if (key == "log.severity")
-                        site.severity = attribute.value.number;
-                    else if (key == "log.file")
-                        site.file = StringId(attribute.value.literal);
-                    else if (key == "log.func")
-                        site.function = StringId(attribute.value.literal);
-                    else if (key == "log.line")
-                        site.line = attribute.value.number;
-                }
-                callsites.push_back(site);
             }
             if (node.kind == detail::wire::Node::generator) {
                 auto id = GeneratorId(i);
@@ -575,10 +553,6 @@ std::span<const Node> Reader::nodes() const noexcept {
 
 std::span<const Generator> Reader::generators() const noexcept {
     return impl_->generators;
-}
-
-std::span<const LogCallsite> Reader::callsites() const noexcept {
-    return impl_->callsites;
 }
 
 std::span<const DataType> Reader::types() const noexcept {
@@ -646,8 +620,8 @@ void Reader::records(RecordQuery query, const std::function<Flow(const Record&)>
         if (query.generator) {
             selected.generator = query.generator->value;
         }
-        if (query.callsite)
-            selected.callsite = query.callsite->value;
+        if (query.datatype)
+            selected.datatype = query.datatype->value;
         if (query.parent) {
             selected.parent = query.parent->value;
         }
@@ -1018,21 +992,9 @@ std::string render_payload(const PayloadView& payload, const Reader& reader,
 }
 } // namespace
 
-std::string Reader::format_log(const Record& log) const {
-    if (log.kind() != RecordKind::log || !log.generator()) {
-        throw Error(ErrorCode::invalid_argument, "Log formatting requires a LOG record");
-    }
-    if (log.storage_->payload.schema->origin != identity()) {
-        throw Error(ErrorCode::wrong_recording, "Log belongs to another recording");
-    }
-    if (!log.callsite())
-        throw Error(ErrorCode::corrupt_data, "Log has no callsite");
-    auto callsite = log.callsite()->value;
-    if (callsite >= nodes().size() || nodes()[callsite].kind != NodeKind::callsite) {
-        throw Error(ErrorCode::wrong_recording, "Log generator is absent from this recording");
-    }
-    auto format = string(nodes()[callsite].name);
-    auto payload = log.payload();
+std::string Reader::format_arguments(std::string_view format, const PayloadView& payload) const {
+    if (payload.storage_->schema->origin != identity())
+        throw Error(ErrorCode::wrong_recording, "Payload belongs to another recording");
     const auto& type = types()[payload.type().value];
     bool structure = std::holds_alternative<StructDefinition>(type.definition);
     auto count = structure ? payload.size() : payload.type().value == 0 ? 0u : 1u;

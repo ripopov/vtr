@@ -1,8 +1,9 @@
 //! Rendering reads typed fields and checks their recording identity.
 
 use vtr::{
+    logging::Severity,
     recording::{ExecutionMode, Recorder, SourceOptions, Writer, WriterOptions},
-    trace::{Reader, Severity},
+    trace::Reader,
 };
 
 struct Arguments {
@@ -48,12 +49,14 @@ fn typed_fields_escaping_specs_and_wrong_recording_checks() {
     ];
     let mut ids = Vec::new();
     for (format, _) in cases {
-        let source = writer
-            .callsite::<Arguments>(vtr::CallsiteOptions {
+        let source = vtr::logging::declare::<Arguments>(
+            &mut writer,
+            vtr::logging::CallsiteOptions {
                 severity: 3,
-                ..vtr::CallsiteOptions::new(format)
-            })
-            .unwrap();
+                ..vtr::logging::CallsiteOptions::new(format)
+            },
+        )
+        .unwrap();
         ids.push(
             writer
                 .log(
@@ -78,31 +81,38 @@ fn typed_fields_escaping_specs_and_wrong_recording_checks() {
     writer.close().unwrap();
     let reader = Reader::open(&path).unwrap();
     reader.validate().unwrap();
-    assert_eq!(reader.log_callsites().unwrap().len(), cases.len());
+    assert_eq!(vtr::logging::callsites(&reader).unwrap().len(), cases.len());
     assert!(
-        reader
-            .log_callsites()
+        vtr::logging::callsites(&reader)
             .unwrap()
             .iter()
             .all(|source| source.severity == Severity::Warn)
     );
     for (id, (_, expected)) in ids.into_iter().zip(cases) {
         let record = reader.lookup(id).unwrap().unwrap();
-        assert_eq!(reader.format_log(&record).unwrap(), expected);
         assert_eq!(
-            record.payload().at(0).unwrap().decode::<u64>().unwrap(),
+            vtr::logging::format_log(&reader, &record).unwrap(),
+            expected
+        );
+        assert_eq!(
+            record
+                .payload()
+                .field("value")
+                .unwrap()
+                .at(0)
+                .unwrap()
+                .decode::<u64>()
+                .unwrap(),
             255
         );
         let foreign = directory.path().join("foreign.vtr");
         let mut foreign_writer = Writer::create(&foreign).unwrap();
         foreign_writer.close().unwrap();
         let foreign = Reader::open(foreign).unwrap();
-        assert!(foreign.format_log(&record).is_err());
+        assert!(vtr::logging::format_log(&foreign, &record).is_err());
     }
     assert!(
-        reader
-            .format_log(&reader.lookup(owner.id()).unwrap().unwrap())
-            .is_err()
+        vtr::logging::format_log(&reader, &reader.lookup(owner.id()).unwrap().unwrap()).is_err()
     );
 }
 
@@ -239,21 +249,22 @@ fn scalar_presentations_match_the_independent_cpp_format_oracle() {
             true_name: &true_name,
             false_name: &false_name,
         };
-        let actual = reader
-            .format_log_bytes_with_locale(&record, &locale)
-            .unwrap();
+        let actual = vtr::logging::format_log_bytes_with_locale(&reader, &record, &locale).unwrap();
         if case.get("locale").is_none() {
-            assert_eq!(reader.format_log_bytes(&record).unwrap(), actual);
+            assert_eq!(
+                vtr::logging::format_log_bytes(&reader, &record).unwrap(),
+                actual
+            );
         }
         let expected = unhex(case["expected_hex"].as_str().unwrap());
         if actual == expected {
             if let Ok(text) = std::str::from_utf8(&expected) {
                 assert_eq!(
-                    reader.format_log_with_locale(&record, &locale).unwrap(),
+                    vtr::logging::format_log_with_locale(&reader, &record, &locale).unwrap(),
                     text
                 );
             } else {
-                assert!(reader.format_log_with_locale(&record, &locale).is_err());
+                assert!(vtr::logging::format_log_with_locale(&reader, &record, &locale).is_err());
             }
         }
         if actual != expected {
@@ -280,14 +291,16 @@ fn scalar_presentations_match_the_independent_cpp_format_oracle() {
 fn oracle_log<T: vtr::Payload + 'static>(
     writer: &mut Writer,
     logger: vtr::Logger,
-    sources: &mut std::collections::HashMap<String, vtr::Callsite<T>>,
+    sources: &mut std::collections::HashMap<String, vtr::PayloadType<T>>,
     spec: &str,
     value: &T,
 ) -> u64 {
     let source = *sources.entry(spec.into()).or_insert_with(|| {
-        writer
-            .callsite::<T>(vtr::CallsiteOptions::new(format!("{{:{spec}}}")))
-            .unwrap()
+        vtr::logging::declare::<T>(
+            writer,
+            vtr::logging::CallsiteOptions::new(format!("{{:{spec}}}")),
+        )
+        .unwrap()
     });
     writer.log(logger, source, value, None).unwrap()
 }
@@ -317,23 +330,30 @@ fn retained_log_from_a_later_publication_is_rejected_by_an_earlier_prefix() {
         let logger = writer
             .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        let early = writer
-            .callsite::<u64>(vtr::CallsiteOptions::new("early {}"))
-            .unwrap();
+        let early = vtr::logging::declare::<u64>(
+            &mut writer,
+            vtr::logging::CallsiteOptions::new("early {}"),
+        )
+        .unwrap();
         writer.log(logger, early, &1, None).unwrap();
         writer.flush().unwrap();
         let prefix = std::fs::read(&path).unwrap();
-        let late = writer
-            .callsite::<u64>(vtr::CallsiteOptions::new("late {}"))
-            .unwrap();
+        let late = vtr::logging::declare::<u64>(
+            &mut writer,
+            vtr::logging::CallsiteOptions::new("late {}"),
+        )
+        .unwrap();
         let id = writer.log(logger, late, &2, None).unwrap();
         writer.close().unwrap();
         let reader = Reader::open(&path).unwrap();
         let retained = reader.lookup(id).unwrap().unwrap();
-        assert_eq!(reader.format_log(&retained).unwrap(), "late 2");
+        assert_eq!(
+            vtr::logging::format_log(&reader, &retained).unwrap(),
+            "late 2"
+        );
         let prefix = Reader::from_bytes(prefix).unwrap();
         assert_eq!(prefix.identity(), reader.identity());
-        assert!(prefix.format_log(&retained).is_err());
-        assert!(prefix.format_log_bytes(&retained).is_err());
+        assert!(vtr::logging::format_log(&prefix, &retained).is_err());
+        assert!(vtr::logging::format_log_bytes(&prefix, &retained).is_err());
     }
 }

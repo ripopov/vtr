@@ -184,7 +184,7 @@ Bytes default_value(SignalKind kind);
 Bytes repack(View bytes, std::uint32_t width, std::uint8_t from, std::uint8_t to);
 void validate_kind(SignalKind kind);
 using Section = ContainerSection;
-inline constexpr std::uint16_t format_major = 3, format_minor = 3;
+inline constexpr std::uint16_t format_major = 3, format_minor = 4;
 inline constexpr std::array<std::uint8_t, 8> magic{0x89, 'V', 'T', 'R', 13, 10, 26, 10};
 inline constexpr std::array<std::uint8_t, 8> trailer{'V', 'T', 'R', '_', 'E', 'N', 'D', 0};
 using AttributeColumns = std::array<Bytes, 7>;

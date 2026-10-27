@@ -43,5 +43,6 @@ ROOT=$("$PREFIX/bin/verilator" --getenv VERILATOR_ROOT)
 mkdir -p "$ROOT/include/vtr"
 INC=$HERE/../../vtr-cpp
 cp "$INC/vtr_trace.sv" "$INC/vtr_trace_dpi.h" "$INC/vtr_track.h" \
-   "$INC/vtr_common.h" "$INC/vtr_writer.h" "$ROOT/include/vtr/"
+   "$INC/vtr_common.h" "$INC/vtr_writer.h" "$INC/vtr_reader.h" \
+   "$INC/vtr_logging.h" "$ROOT/include/vtr/"
 echo "$PREFIX/bin/verilator"

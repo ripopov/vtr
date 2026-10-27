@@ -111,8 +111,8 @@ belong in a common payload schema.
 
 Declarations are immutable. A changed argument layout needs a new datatype;
 payloads already written retain their original interpretation. Ordinary typed
-sources can bind a fixed datatype. For logging, that binding belongs to the
-callsite, allowing one logger to carry messages with different layouts.
+sources can bind a fixed datatype. Log messages select their datatypes
+independently, allowing one logger to carry messages with different layouts.
 
 Typed native bindings must finish capture before returning. Borrowed text or
 arrays can then be changed or destroyed without affecting captured data.
@@ -128,17 +128,18 @@ shader scheduler and a memory controller may use different loggers in the same
 VTR file. Each logger should remain one generator, regardless of how many log
 statements it contains or how many argument layouts those statements use.
 
-### Logger, callsite, and message are separate identities
+### Logger, datatype, and message are separate identities
 
 The model separates three things:
 
 | Entity | Meaning | Declared or captured information |
 | --- | --- | --- |
 | Logger generator | The named source of a message stream | Name, design scope, and logger metadata |
-| Callsite | A particular logging statement | Format string, argument datatype reference, severity, file, line, and function |
-| Message record | One execution of that statement | Record ID, logger reference, callsite reference, timestamp, argument values, and optional owner |
+| Metadata-bearing datatype | A logging frontend's description of a statement | Argument type reference and attributes for format, severity, file, line, and function |
+| Message record | One execution of that statement | Record ID, logger reference, datatype reference, timestamp, argument values, and optional owner |
 
-The logger selects a stream. The callsite selects how to interpret one message.
+The logger selects a stream. The datatype selects the payload layout; logging
+helpers interpret its attributes to render one message.
 Severity belongs to the statement, while a logger's enabled level is a capture
 policy. A logger is also independent of an execution thread: one producer can
 use several loggers, and several producers can contribute to the same logger.
@@ -147,43 +148,40 @@ Queue ownership must therefore follow producers rather than logger count.
 For example, a request statement and a retry statement can contribute to one
 shader logger. The request helper can also be used by the memory logger:
 
-| Record | Logger | Tick | Callsite | Arguments |
+| Record | Logger | Tick | Statement datatype | Arguments |
 | --- | --- | ---: | --- | --- |
-| R501 | shader | 100 | S17: request | `addr=0x80, bytes=64` |
-| R502 | shader | 100 | S18: retry | `bank=3` |
-| R503 | memory | 104 | S17: request | `addr=0xc0, bytes=32` |
+| R501 | shader | 100 | D27: request | `addr=0x80, bytes=64` |
+| R502 | shader | 100 | D28: retry | `bank=3` |
+| R503 | memory | 104 | D27: request | `addr=0xc0, bytes=32` |
 
-There are two generators and two callsites, not one generator for every
-logger/callsite combination. Repeated executions of S17 create new records;
+There are two generators and two metadata-bearing datatypes. Repeated
+executions of the statement described by D27 create new records;
 they do not create new declarations. Moving through a logger stream must show
-all its messages, with each message retaining its callsite provenance.
+all its messages, with each message retaining its datatype metadata.
 
 ### Share datatype declarations
 
-A callsite descriptor references a VTR datatype for its arguments. It does not
-need a second schema language or a private argument serialization format. The
-same datatype traversal, canonical encoding, allocation limits, and typed
-payload inspection should apply to log arguments as they do to transaction,
-event, and stage payloads.
+Datatype declarations can carry arbitrary tagged attributes and reference other
+datatypes. A logging frontend can declare one structure for its argument layout,
+then declare wrappers referencing that layout with metadata such as
+`kind = "callsite"`, format, severity and provenance. The same datatype traversal,
+canonical encoding, allocation limits and retained payload inspection apply to
+these values as to transaction, event and stage payloads. A one-field wrapper
+adds no canonical payload bytes.
 
-Several callsites can share one argument datatype while having different format
-strings, severities, or source locations. Conversely, one logger can emit
-messages from callsites with unrelated datatypes. Argument order determines
-positional formatting; field names come from the schema or explicit bindings
-and remain available for structured queries. Neither names nor type tags need
-to be resent with each value.
+Several statement datatypes can share one argument datatype while carrying
+different metadata. One logger can emit records using unrelated datatypes.
+Argument order determines positional formatting; field names remain available
+for structured queries. Neither names nor type tags need to be resent with
+each value.
 
-Callsite identity cannot simply be structural datatype identity. Two statements
-with the same `(u64, u32)` arguments can say different things and originate in
-different functions. Attaching the format and source location to a shared
-datatype would conflate value layout with statement provenance. A descriptor
-referencing that datatype preserves both reuse and distinction. Semantic identity
-and physical layout are separate choices: a descriptor can have its own reference
-while sharing a declaration section with other metadata.
-
-Source provenance may be unavailable, and different statements can share the
-same reported file and line. Callsite references must identify declarations
-explicitly rather than rely on reconstructing identity from those text fields.
+Statement metadata must not mutate a shared argument datatype. Separate immutable
+wrapper declarations preserve reuse and distinguish statements, including when
+provenance is unavailable or several statements report the same file and line.
+Record references identify those declarations explicitly. VTR stores generic
+datatype IDs and attributes; recognizing a logging statement is a frontend
+convention. The design hierarchy remains a tree of scopes and observation
+sources.
 
 ### Capture values and defer presentation
 
@@ -195,10 +193,10 @@ void log_request(Logger& logger, std::uint64_t addr, std::uint32_t bytes) {
 }
 ```
 
-![Callsite S17 declares its format, severity, provenance, and argument layout once; repeated records reference S17 and supply timestamps and values.](diagrams/logging-call-site.drawio.svg)
+![Datatype D27 references its argument layout and carries format, severity and provenance; repeated records reference D27 and supply timestamps and values.](diagrams/logging-call-site.drawio.svg)
 
 The format, severity, provenance, and argument schema are static at this
-statement. Invocations need only capture references to the logger and callsite,
+statement. Invocations need only capture references to the logger and datatype,
 the observation time, and the values. That timestamp belongs to the invocation,
 not to the later backend drain. Global record identity and an optional
 owning transaction preserve navigation into the rest of the trace. A message
@@ -228,7 +226,7 @@ the cold path. Shared immutable descriptors must not introduce a global lock
 into every message capture.
 
 This optimization must preserve recording lifetimes. A static C++ callsite can
-outlive several writers, while logger, callsite, and datatype IDs are local to
+outlive several writers, while logger and datatype IDs are local to
 one recording. Caching the first writer's handle in that static object would
 reuse stale identity in a later file. Writer-bound bindings must stay with their
 writer or have explicit recording identity and invalidation. Reusing a writer's

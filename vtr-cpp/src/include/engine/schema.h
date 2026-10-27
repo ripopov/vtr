@@ -83,11 +83,11 @@ template <class T> struct Enum;
 template <class Owner, class Member> struct MemberField {
     using member_type = Member;
     std::string_view name;
-    Member Owner::* member;
+    Member Owner::*member;
 };
 
 template <class Owner, class Member>
-constexpr auto field(std::string_view name, Member Owner::* member) {
+constexpr auto field(std::string_view name, Member Owner::*member) {
     return MemberField<Owner, Member>{name, member};
 }
 template <class T>
@@ -123,12 +123,22 @@ class Types {
         return types_.size();
     }
 
-    TypeId structure(std::string name, std::vector<Field> fields);
-    TypeId array(TypeId element, std::uint32_t count, std::string name = {});
-    TypeId sequence(TypeId element, std::string name = {});
-    TypeId enumeration(std::string name, TypeId underlying, std::vector<Enumerator> values);
+    const vtr::detail::wire::Attributes& attributes(TypeId id) const;
+
+    std::size_t attribute_capacity() const noexcept {
+        return attributes_.capacity();
+    }
+
+    TypeId structure(std::string name, std::vector<Field> fields,
+                     vtr::detail::wire::Attributes attributes = {});
+    TypeId array(TypeId element, std::uint32_t count, std::string name = {},
+                 vtr::detail::wire::Attributes attributes = {});
+    TypeId sequence(TypeId element, std::string name = {},
+                    vtr::detail::wire::Attributes attributes = {});
+    TypeId enumeration(std::string name, TypeId underlying, std::vector<Enumerator> values,
+                       vtr::detail::wire::Attributes attributes = {});
     Bytes declarations(TypeId first = first_declared_type) const;
-    void read_declarations(View data);
+    void read_declarations(View data, std::uint64_t string_count = UINT64_MAX);
     void validate(TypeId type, View payload, std::uint64_t string_count = UINT64_MAX) const;
     void visit_text(TypeId type, View payload,
                     const std::function<void(std::string_view)>& visit) const;
@@ -197,8 +207,10 @@ class Types {
     }
 
   private:
-    TypeId add(Type type);
+    TypeId add(Type type, vtr::detail::wire::Attributes attributes = {});
     std::vector<Type> types_;
+    // Cold metadata does not enlarge the descriptors used for payload decoding.
+    std::vector<vtr::detail::wire::Attributes> attributes_;
     std::unordered_map<std::type_index, TypeId> bindings_;
 };
 
@@ -515,10 +527,12 @@ using TextReferences = wire::detail::HashMap<std::string_view, wire::Id>;
 // One set belongs to one independently compressed segment or transaction page.
 struct ArgumentColumns {
     std::array<Bytes, 5> columns;
+
     struct TextChunk {
         std::shared_ptr<Bytes> bytes;
         std::size_t used = 0;
     };
+
     std::vector<TextChunk> text_chunks;
     wire::detail::HashMap<std::string_view, std::uint32_t> text_ids;
     std::vector<std::string_view> dictionary;

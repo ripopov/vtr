@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use vtr::{
     NodeId,
     declarations::NodeData,
+    logging::Severity,
     recording::{EncodingOptions, Writer, WriterOptions},
-    trace::{Reader, Severity, TimeWindow},
+    trace::{Reader, TimeWindow},
 };
 mod inspect;
 mod progress;

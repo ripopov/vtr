@@ -16,7 +16,9 @@ struct Mapping {
     explicit Mapping(const std::string& path) {
         int fd = ::open(path.c_str(), O_RDONLY);
         require(fd >= 0, "cannot open VTR file", 3);
-        struct stat st{};
+
+        struct stat st {};
+
         if (fstat(fd, &st) != 0 || st.st_size < 32) {
             ::close(fd);
             throw Error("invalid VTR file size", 4);
@@ -392,10 +394,6 @@ struct Reader::Impl {
                 n.type = static_cast<std::uint16_t>(r.id());
                 n.aux = r.id();
                 string_id(n.aux);
-                break;
-            case Node::callsite:
-                require(n.parent == none, "callsite cannot have a design parent");
-                n.payload_type = r.id();
                 break;
             case Node::generator:
                 n.aux = r.id();

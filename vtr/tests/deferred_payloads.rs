@@ -224,9 +224,9 @@ fn missing_payloads_reject_end_and_normal_close_but_sealing_preserves_valid_evid
             let stages = writer
                 .stages::<String>(SourceOptions::new("stages", None))
                 .unwrap();
-            let logs = writer
-                .callsite::<u64>(vtr::CallsiteOptions::new("{}"))
-                .unwrap();
+            let logs =
+                vtr::logging::declare::<u64>(&mut writer, vtr::logging::CallsiteOptions::new("{}"))
+                    .unwrap();
             let good = writer.begin(owners, &42, None).unwrap();
             let missing = writer.begin_deferred(owners, None).unwrap();
             let child = writer.begin(owners, &7, Some(missing.owner())).unwrap();
@@ -296,6 +296,8 @@ fn missing_payloads_reject_end_and_normal_close_but_sealing_preserves_valid_evid
                     .unwrap()
                     .unwrap()
                     .payload()
+                    .field("value")
+                    .unwrap()
                     .decode::<u64>()
                     .unwrap(),
                 99
@@ -357,9 +359,9 @@ fn independent_rescue_drains_deferred_captures_without_fabricating_missing_value
         let stages = writer
             .stages::<String>(SourceOptions::new("stages", None))
             .unwrap();
-        let logs = writer
-            .callsite::<u64>(vtr::CallsiteOptions::new("{}"))
-            .unwrap();
+        let logs =
+            vtr::logging::declare::<u64>(&mut writer, vtr::logging::CallsiteOptions::new("{}"))
+                .unwrap();
         let mut producer = writer.add_producer().unwrap();
         producer.advance_time(5).unwrap();
         let ready = producer.begin_deferred(source, None).unwrap();
@@ -400,6 +402,8 @@ fn independent_rescue_drains_deferred_captures_without_fabricating_missing_value
                 .unwrap()
                 .unwrap()
                 .payload()
+                .field("value")
+                .unwrap()
                 .decode::<u64>()
                 .unwrap(),
             99

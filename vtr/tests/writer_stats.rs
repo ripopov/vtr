@@ -33,9 +33,11 @@ fn live_payload_buffer_queue_and_published_block_statistics_match_the_recording(
             let stages = writer
                 .stages::<String>(SourceOptions::new("stage", None))
                 .unwrap();
-            let logs = writer
-                .callsite::<String>(vtr::CallsiteOptions::new("{}"))
-                .unwrap();
+            let logs = vtr::logging::declare::<String>(
+                &mut writer,
+                vtr::logging::CallsiteOptions::new("{}"),
+            )
+            .unwrap();
             let property = writer.intern("note").unwrap();
             let signal = writer
                 .signal(
@@ -198,9 +200,9 @@ fn owned_worker_cpu_sampling_does_not_wait_for_blocked_output() {
         let logger = writer
             .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        let logs = writer
-            .callsite::<String>(vtr::CallsiteOptions::new("{}"))
-            .unwrap();
+        let logs =
+            vtr::logging::declare::<String>(&mut writer, vtr::logging::CallsiteOptions::new("{}"))
+                .unwrap();
         armed.store(true, Ordering::Relaxed);
         writer
             .log(logger, logs, &"owned worker".repeat(100), None)

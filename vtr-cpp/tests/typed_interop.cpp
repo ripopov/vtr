@@ -1,5 +1,4 @@
-#include "vtr_reader.h"
-#include "vtr_writer.h"
+#include "vtr_logging.h"
 #include <bit>
 #include <fstream>
 #include <iostream>
@@ -48,9 +47,9 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     auto execute = writer.stages<std::string>({.name = "execute", .parent = core});
     auto events = writer.events({.name = "retired", .parent = core});
     auto logger = writer.logger({.name = "diagnostics"});
-    auto logs = writer.callsite<Packet>({.format = "packet {}"});
-    auto retry = writer.callsite<std::string>(
-        {.format = "retry {}", .severity = 3, .file = "shared.cpp", .line = 17});
+    auto logs = vtr::logging::declare<Packet>(writer, {.format = "packet {}"});
+    auto retry = vtr::logging::declare<std::string>(
+        writer, {.format = "retry {}", .severity = 3, .file = "shared.cpp", .line = 17});
     auto memory_logger = writer.logger({.name = "memory"});
     auto clock = writer.clock({.name = "clock", .parent = core});
     writer.associate_clock(requests, clock);
@@ -143,23 +142,23 @@ void read(const char* path) {
         check(reader.lookup(vt::RecordId(3))->payload().as<std::string>() == "execute Δ");
         check(reader.lookup(vt::RecordId(5))->end() == 100);
         check(reader.lookup(vt::RecordId(6))->parent() == owner->id());
-        check(reader.lookup(vt::RecordId(9))->payload().as<Packet>() == packet());
-        check(reader.format_log(*reader.lookup(vt::RecordId(9))) == "packet 32768");
-        check(reader.callsites().size() == 2);
+        check(reader.lookup(vt::RecordId(9))->payload()["value"].as<Packet>() == packet());
+        check(vtr::logging::format_log(reader, *reader.lookup(vt::RecordId(9))) == "packet 32768");
+        check(vtr::logging::callsites(reader).size() == 2);
         auto retry = reader.lookup(vt::RecordId(26));
         auto duplicate = reader.lookup(vt::RecordId(27));
         retained_log = retry;
-        retained_arguments = reader.lookup(vt::RecordId(9))->payload()["data"];
+        retained_arguments = reader.lookup(vt::RecordId(9))->payload()["value"]["data"];
         check(retry->generator() == reader.find_generator("diagnostics") &&
-              retry->payload().as<std::string>() == "bank 3");
-        check(retry->callsite() == duplicate->callsite() && retry->id() != duplicate->id());
+              retry->payload()["value"].as<std::string>() == "bank 3");
+        check(retry->datatype() == duplicate->datatype() && retry->id() != duplicate->id());
         check(reader.lookup(vt::RecordId(28))->generator() == reader.find_generator("memory"));
-        check(reader.lookup(vt::RecordId(28))->callsite() ==
-              reader.lookup(vt::RecordId(9))->callsite());
+        check(reader.lookup(vt::RecordId(28))->datatype() ==
+              reader.lookup(vt::RecordId(9))->datatype());
         unsigned selected = 0;
-        reader.records({.generator = retry->generator(), .callsite = retry->callsite()},
+        reader.records({.generator = retry->generator(), .datatype = retry->datatype()},
                        [&](const vt::Record& record) {
-                           check(reader.format_log(record) == "retry bank 3");
+                           check(vtr::logging::format_log(reader, record) == "retry bank 3");
                            ++selected;
                            return vt::Flow::next;
                        });
@@ -200,8 +199,8 @@ void read(const char* path) {
               wide.packed[16] == std::byte{1});
     }
     check(retained->payload().as<Packet>() == packet());
-    check(retained_log->callsite().has_value() &&
-          retained_log->payload().as<std::string>() == "bank 3");
+    check(retained_log->datatype().value >= 23 &&
+          retained_log->payload()["value"].as<std::string>() == "bank 3");
     check(retained_arguments->as<std::vector<std::int16_t>>() == packet().data);
     std::cout << "29 records, typed payloads, ownership, clocks, relations, waveforms and retained "
                  "schemas verified\n";

@@ -103,9 +103,11 @@ fn dump_suppresses_only_waves_and_preserves_recorded_state_across_spill() {
                 let owners = writer
                     .transactions::<u64>(SourceOptions::new("owners", None), "OWNER")
                     .unwrap();
-                let logs = writer
-                    .callsite::<u64>(vtr::CallsiteOptions::new("step {}"))
-                    .unwrap();
+                let logs = vtr::logging::declare::<u64>(
+                    &mut writer,
+                    vtr::logging::CallsiteOptions::new("step {}"),
+                )
+                .unwrap();
                 let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
                 let scenario = Scenario {
                     logger,
@@ -167,9 +169,7 @@ fn dump_suppresses_only_waves_and_preserves_recorded_state_across_spill() {
                 assert_eq!((owner.begin(), owner.end()), (1, 3));
                 assert_eq!(owner.status(), Status::Ok);
                 assert_eq!(
-                    reader
-                        .format_log(&reader.lookup(3).unwrap().unwrap())
-                        .unwrap(),
+                    vtr::logging::format_log(&reader, &reader.lookup(3).unwrap().unwrap()).unwrap(),
                     "step 2"
                 );
                 assert_eq!(reader.cycle_at(clock.id(), 6).unwrap(), Some(3));
@@ -184,7 +184,7 @@ struct Scenario {
     late: SignalId,
     owners: Source<u64>,
     logger: vtr::Logger,
-    logs: vtr::Callsite<u64>,
+    logs: vtr::PayloadType<u64>,
     clock: ClockSource,
 }
 impl Scenario {

@@ -79,7 +79,7 @@ void hierarchy(const fs::path& dir, unsigned workers = 0) {
         auto other_stage = writer.add_generator(top, "writeback", "STAGE", visit_type);
         event = writer.add_generator(top, "conflict", "EVENT", visit_type);
         log = writer.add_generator(top, "diagnostics", "LOG");
-        callsite = writer.add_callsite("request port={} reason={}", visit_type, 3);
+        callsite = visit_type;
         clock_a = writer.add_clock(top, "clk_a");
         clock_b = writer.add_clock(top, "clk_b");
         writer.associate_clock(instruction_gen, clock_a);
@@ -241,7 +241,7 @@ void long_owner(const fs::path& dir, unsigned workers = 0) {
         auto gen = writer.add_generator(scope, "owner", "TRANSACTION");
         auto event = writer.add_generator(scope, "event", "EVENT", type);
         auto log = writer.add_generator(scope, "log", "LOG");
-        auto callsite = writer.add_callsite("{}", type);
+        auto callsite = type;
         owner = writer.begin(gen, 0);
         auto data = capture(Visit{0, std::string(128, 'x')});
         for (unsigned i = 0; i < 5000; ++i) {

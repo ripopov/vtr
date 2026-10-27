@@ -71,8 +71,7 @@ int main(int argc, char** argv) {
             });
             log = writer.control(
                 [&](auto& backend) { return backend.add_generator(none, "diagnostics", "LOG"); });
-            auto callsite = writer.control(
-                [&](auto& backend) { return backend.add_callsite("p={} i={} text={}", type, 3); });
+            const auto datatype = type;
             writer.control([&](auto& backend) { backend.associate_clock(ordinary, clock); });
             auto extra = writer.control([](auto& backend) { return backend.intern("extra"); }),
                  note = writer.control([](auto& backend) { return backend.intern("note"); }),
@@ -123,7 +122,7 @@ int main(int argc, char** argv) {
                         auto owner = writer.begin(ordinary, time, payload, roots[producer]);
                         auto visit = writer.begin_stage(stage, owner, time + 10);
                         auto point = writer.event(event, owner, time + 11, payload);
-                        auto message = writer.log(log, callsite, time + 3, payload, owner);
+                        auto message = writer.log(log, datatype, time + 3, payload, owner);
                         auto local = writer.embedded_event(owner, time + 90, note);
                         auto local_stage = writer.embedded_stage(owner, wait, lane, time + 100);
                         std::array values{Value(std::uint64_t(i)), Value::text("nested")};

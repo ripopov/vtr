@@ -15,6 +15,7 @@ pub use values::{
 
 use crate::{
     Error, Result,
+    attributes::{Attributes, encode_attributes, read_attributes, validate_attributes},
     varint::{put_blob, put_u64},
     wire::Cursor,
 };
@@ -185,6 +186,7 @@ pub enum TypeKind {
 pub struct Datatype {
     pub name: String,
     pub kind: TypeKind,
+    pub attributes: Attributes,
     pub minimum_size: u32,
     pub fixed_size: Option<u32>,
     pub depth: u8,
@@ -238,6 +240,7 @@ impl Default for Types {
                                 Datatype {
                                     name: String::new(),
                                     kind: TypeKind::Scalar(primitive),
+                                    attributes: vec![],
                                     minimum_size: fixed_size.unwrap_or(
                                         if matches!(primitive, Primitive::Text | Primitive::Bytes) {
                                             4
@@ -275,6 +278,7 @@ impl Types {
                 .iter()
                 .map(|datatype| {
                     datatype.name.capacity()
+                        + crate::attributes::memory_charge(&datatype.attributes)
                         + datatype.scalars.as_ref().map_or(0, |leaves| {
                             leaves.capacity() * std::mem::size_of::<Primitive>()
                         })
@@ -420,9 +424,20 @@ impl Types {
     }
 
     fn declare(&mut self, name: String, kind: TypeKind) -> Result<TypeId> {
+        self.declare_with_attributes(name, kind, vec![])
+    }
+
+    pub fn declare_with_attributes(
+        &mut self,
+        name: String,
+        kind: TypeKind,
+        attributes: Attributes,
+    ) -> Result<TypeId> {
+        validate_attributes(&attributes, u64::MAX)?;
         let mut datatype = Datatype {
             name,
             kind,
+            attributes,
             minimum_size: 0,
             fixed_size: Some(0),
             depth: 1,
@@ -436,6 +451,12 @@ impl Types {
             TypeKind::Scalar(_) => return Err(Error::Corrupt("declared scalar datatype")),
             TypeKind::Struct(fields) => {
                 unique_names(fields.iter().map(|f| f.name.as_str()))?;
+                if fields
+                    .iter()
+                    .any(|field| field.name == "vtr.label" && !matches!(field.datatype, 12 | 13))
+                {
+                    return Err(Error::Corrupt("invalid payload label datatype"));
+                }
                 children.extend(fields.iter().map(|f| (f.datatype, 1)));
             }
             TypeKind::Array { element, count } => children.push((*element, *count)),
@@ -509,7 +530,9 @@ impl Types {
             .iter()
             .enumerate()
             .skip(FIRST_DECLARED_TYPE as usize)
-            .find(|(_, datatype)| datatype.name == name && datatype.kind == kind)
+            .find(|(_, datatype)| {
+                datatype.name == name && datatype.kind == kind && datatype.attributes.is_empty()
+            })
         {
             return Ok(id as TypeId);
         }
@@ -524,13 +547,20 @@ impl Types {
         put_u64(&mut out, u64::from(first));
         put_u64(&mut out, (self.len() - first as usize) as u64);
         for datatype in &self.types[first as usize..] {
-            out.push(match datatype.kind {
+            let kind = match datatype.kind {
                 TypeKind::Struct(_) => 1,
                 TypeKind::Array { .. } => 2,
                 TypeKind::Sequence { .. } => 3,
                 TypeKind::Enum { .. } => 4,
                 TypeKind::Scalar(_) => unreachable!(),
-            });
+            };
+            out.push(
+                kind | if datatype.attributes.is_empty() {
+                    0
+                } else {
+                    0x80
+                },
+            );
             put_blob(&mut out, datatype.name.as_bytes());
             match &datatype.kind {
                 TypeKind::Struct(fields) => {
@@ -555,12 +585,19 @@ impl Types {
                 }
                 TypeKind::Scalar(_) => unreachable!(),
             }
+            if !datatype.attributes.is_empty() {
+                encode_attributes(&mut out, &datatype.attributes, u64::MAX, 0)?;
+            }
         }
         Ok(out)
     }
 
     /// Invalid chunks leave all previously published declarations intact.
     pub fn read_declarations(&mut self, data: &[u8]) -> Result<()> {
+        self.read_declarations_with_strings(data, u64::MAX)
+    }
+
+    pub fn read_declarations_with_strings(&mut self, data: &[u8], strings: u64) -> Result<()> {
         let mut cursor = Cursor::new(data);
         if cursor.id()? as usize != self.len() {
             return Err(Error::Corrupt("noncontiguous datatype chunk"));
@@ -573,7 +610,7 @@ impl Types {
         for _ in 0..count {
             let tag = cursor.byte()?;
             let name = cursor.text()?.to_owned();
-            let kind = match tag {
+            let kind = match tag & 0x7f {
                 1 => {
                     let count = cursor.id()?;
                     if count as usize > cursor.remaining() / 2 {
@@ -609,7 +646,17 @@ impl Types {
                 }
                 _ => return Err(Error::Corrupt("invalid declared datatype kind")),
             };
-            next.declare(name, kind)?;
+            let attributes = if tag & 0x80 != 0 {
+                let mut budget = DEFAULT_PAYLOAD_LIMIT;
+                let attributes = read_attributes(&mut cursor, strings, 0, &mut budget)?;
+                if attributes.is_empty() {
+                    return Err(Error::Corrupt("empty flagged datatype attributes"));
+                }
+                attributes
+            } else {
+                vec![]
+            };
+            next.declare_with_attributes(name, kind, attributes)?;
         }
         cursor.done()?;
         *self = next;

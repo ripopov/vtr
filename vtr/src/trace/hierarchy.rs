@@ -12,27 +12,15 @@ pub(super) struct Tree {
 impl Tree {
     pub fn new(nodes: &[Node]) -> Self {
         let mut offsets = vec![0; nodes.len() + 2];
-        for node in nodes
-            .iter()
-            .filter(|node| !matches!(node.data, NodeData::Callsite { .. }))
-        {
+        for node in nodes {
             offsets[node.parent.map_or(0, |parent| parent.0 as usize + 1) + 1] += 1;
         }
         for index in 1..offsets.len() {
             offsets[index] += offsets[index - 1];
         }
         let mut next = offsets.clone();
-        let mut children = vec![
-            NodeId(0);
-            nodes
-                .iter()
-                .filter(|node| !matches!(node.data, NodeData::Callsite { .. }))
-                .count()
-        ];
+        let mut children = vec![NodeId(0); nodes.len()];
         for (index, node) in nodes.iter().enumerate() {
-            if matches!(node.data, NodeData::Callsite { .. }) {
-                continue;
-            }
             let bucket = node.parent.map_or(0, |parent| parent.0 as usize + 1);
             children[next[bucket]] = NodeId(index as u32);
             next[bucket] += 1;

@@ -462,3 +462,27 @@ impl<'a> AttributeReader<'a> {
         Ok(())
     }
 }
+
+pub(crate) fn value_charge(value: &Value) -> usize {
+    match value {
+        Value::Text(value) => value.capacity(),
+        Value::Bytes(value)
+        | Value::Bits { data: value, .. }
+        | Value::Logic { data: value, .. }
+        | Value::Logic9 { data: value, .. } => value.capacity(),
+        Value::List(values) => {
+            values.capacity() * std::mem::size_of::<Value>()
+                + values.iter().map(value_charge).sum::<usize>()
+        }
+        Value::Map(values) => memory_charge(values),
+        _ => 0,
+    }
+}
+pub(crate) fn memory_charge(attributes: &crate::attributes::Attributes) -> usize {
+    // Spare slots move with the capture and remain part of its admission charge.
+    attributes.capacity() * std::mem::size_of::<crate::attributes::Attribute>()
+        + attributes
+            .iter()
+            .map(|attr| value_charge(&attr.value))
+            .sum::<usize>()
+}

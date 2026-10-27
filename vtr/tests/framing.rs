@@ -105,7 +105,7 @@ fn invalid_headers_and_final_directories_are_rejected() {
         let error = Container::from_bytes(wrong_version, false).err().unwrap();
         assert_eq!(
             error.to_string(),
-            format!("unsupported VTR version {major}.{minor} (expected 3.3)")
+            format!("unsupported VTR version {major}.{minor} (expected 3.4)")
         );
     }
     let mut corrupt = bytes.to_vec();

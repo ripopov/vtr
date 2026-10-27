@@ -59,7 +59,7 @@ try {
             assert.deepEqual(bytes.subarray(0, 16), native.subarray(0, 16));
             assert.notDeepEqual(bytes.subarray(16, 32), native.subarray(16, 32));
             assert.equal(bytes.readUInt16LE(8), 3);
-            assert.equal(bytes.readUInt16LE(10), 2);
+            assert.equal(bytes.readUInt16LE(10), 4);
             const output = join(temporary, `${name}.wasm.vtr`);
             writeFileSync(output, bytes);
             // Native and WASM LZ4 encoders can produce different compressed bytes.

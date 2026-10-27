@@ -279,9 +279,9 @@ fn metadata(action: PayloadOperation) -> (u64, u32, u64, u64) {
             generator,
             time,
             parent,
-            callsite,
+            datatype,
         } => (
-            if callsite.is_some() { LOG } else { POINT },
+            if datatype.is_some() { LOG } else { POINT },
             generator,
             time,
             parent,
@@ -297,7 +297,7 @@ fn action(
     time: u64,
     parent: u64,
     id: u64,
-    callsite: Option<u32>,
+    datatype: Option<u32>,
 ) -> PayloadOperation {
     match tag {
         BEGIN => PayloadOperation::Begin {
@@ -314,7 +314,7 @@ fn action(
             generator: source,
             time,
             parent,
-            callsite,
+            datatype,
         },
         END => PayloadOperation::End {
             id,
@@ -412,11 +412,11 @@ impl Sender {
         payload: Option<&[u8]>,
         check: impl Fn() -> Result<()>,
     ) -> Result<()> {
-        let callsite = match action {
-            PayloadOperation::Point { callsite, .. } => callsite,
+        let datatype = match action {
+            PayloadOperation::Point { datatype, .. } => datatype,
             _ => None,
         };
-        let base = if callsite.is_some() { 3 } else { 2 };
+        let base = if datatype.is_some() { 3 } else { 2 };
         let length = payload.map_or(NONE, <[u8]>::len);
         let cells = base + payload.map_or(0, |bytes| bytes.len().div_ceil(size_of::<Entry>()));
         if payload.is_some() && length >= NONE || cells > self.channel.slots {
@@ -440,9 +440,9 @@ impl Sender {
         unsafe {
             (*self.channel.entries[slot].get()).write(first);
             (*self.channel.entries[slot + 1].get()).write(second);
-            if let Some(callsite) = callsite {
+            if let Some(datatype) = datatype {
                 (*self.channel.entries[slot + 2].get()).write(Entry {
-                    header: u64::from(callsite),
+                    header: u64::from(datatype),
                     value: Content { bits: 0 },
                 });
             }
@@ -610,13 +610,13 @@ impl Sender {
                 time,
                 parent,
                 payload,
-                callsite,
+                datatype,
             } => self.payload_owned(
                 PayloadOperation::Point {
                     generator,
                     time,
                     parent,
-                    callsite,
+                    datatype,
                 },
                 id,
                 Some(payload),
@@ -728,7 +728,7 @@ impl Capture<'_> {
         let second = unsafe { (*self.receiver.channel.entries[slot + 1].get()).assume_init_read() };
         // SAFETY: Non-owned payload headers store scalar record and parent IDs.
         let (id, parent) = unsafe { (self.entry.value.bits, second.value.bits) };
-        let callsite = if tag == LOG {
+        let datatype = if tag == LOG {
             // SAFETY: The LOG tag requires three metadata cells initialized before publication.
             Some(unsafe {
                 (*self.receiver.channel.entries[slot + 2].get())
@@ -744,7 +744,7 @@ impl Capture<'_> {
             second.header,
             parent,
             id,
-            callsite,
+            datatype,
         );
         let length = (self.entry.header >> 40) as usize;
         let payload = if length == NONE {

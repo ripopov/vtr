@@ -1,5 +1,4 @@
-#include "vtr_reader.h"
-#include "vtr_writer.h"
+#include "vtr_logging.h"
 
 #include <algorithm>
 #include <atomic>
@@ -204,7 +203,7 @@ void lifecycle(const std::filesystem::path& path, unsigned workers, vt::Codec co
     auto stages = out.stages<std::uint32_t>({.name = "execute", .parent = scope});
     auto events = out.events<std::string>({.name = "events", .parent = scope});
     auto logger = out.logger({.name = "diagnostics"});
-    auto messages = out.callsite<Message>({.format = "{1} {0:#x} {} {1} {9} {{ok}}"});
+    auto messages = vtr::logging::declare<Message>(out, {.format = "{1} {0:#x} {} {1} {9} {{ok}}"});
     auto clock = out.clock({.name = "clock", .parent = scope});
     out.associate_clock(owners, clock);
     auto wave = out.signal({.name = "counter", .parent = scope}, {.width = 8});
@@ -323,7 +322,7 @@ void lifecycle(const std::filesystem::path& path, unsigned workers, vt::Codec co
         std::size_t logs = 0;
         in.logs(owner.id(), {}, [&](const vt::Record& log) {
             ++logs;
-            check(in.format_log(log) == "message 0x8000 32768 message {?} {ok}",
+            check(vtr::logging::format_log(in, log) == "message 0x8000 32768 message {?} {ok}",
                   "indexed log formatting");
             return vt::Flow::next;
         });
@@ -873,10 +872,10 @@ class LogPunctuation : public std::numpunct<char> {
 void log_locale_and_limits(const std::filesystem::path& path) {
     vt::Writer writer(path);
     auto logger = writer.logger({.name = "diagnostics"});
-    auto integers = writer.callsite<std::uint64_t>({.format = "{:L}"});
-    auto floats = writer.callsite<double>({.format = "{:.1Lf}"});
-    auto booleans = writer.callsite<bool>({.format = "{:L}"});
-    auto wide = writer.callsite<std::uint64_t>({.format = "{:65537}"});
+    auto integers = vtr::logging::declare<std::uint64_t>(writer, {.format = "{:L}"});
+    auto floats = vtr::logging::declare<double>(writer, {.format = "{:.1Lf}"});
+    auto booleans = vtr::logging::declare<bool>(writer, {.format = "{:L}"});
+    auto wide = vtr::logging::declare<std::uint64_t>(writer, {.format = "{:65537}"});
     const std::array expected{
         std::pair{writer.log(logger, integers, std::uint64_t{1234567}), "1_234_567"},
         std::pair{writer.log(logger, floats, 1234.5), "1_234,5"},
@@ -904,15 +903,15 @@ void log_locale_and_limits(const std::filesystem::path& path) {
                       return zero;
                   }()},
              }) {
-            auto site = writer.callsite<double>({.format = "{:" + spec + "}"});
+            auto site = vtr::logging::declare<double>(writer, {.format = "{:" + spec + "}"});
             fixed_expected.emplace_back(writer.log(logger, site, value), text);
         }
     }
-    auto hash_fill = writer.callsite<double>({.format = "{:#>8.0f}"});
+    auto hash_fill = vtr::logging::declare<double>(writer, {.format = "{:#>8.0f}"});
     fixed_expected.emplace_back(writer.log(logger, hash_fill, 12.0), "######12");
-    auto signed_fixed = writer.callsite<double>({.format = "{:+#012.0Lf}"});
+    auto signed_fixed = vtr::logging::declare<double>(writer, {.format = "{:+#012.0Lf}"});
     fixed_expected.emplace_back(writer.log(logger, signed_fixed, 1234.0), "+000001_234,");
-    auto stop_group = writer.callsite<double>({.format = "{:*^#20.0Lf}"});
+    auto stop_group = vtr::logging::declare<double>(writer, {.format = "{:*^#20.0Lf}"});
     const auto stop_group_id = writer.log(logger, stop_group, 123456789.5);
     writer.close();
     vt::Reader reader(path);
@@ -927,14 +926,14 @@ void log_locale_and_limits(const std::filesystem::path& path) {
 
     std::locale::global(std::locale(std::locale::classic(), new LogPunctuation));
     for (const auto& [id, text] : expected)
-        check(reader.format_log(*reader.lookup(id)) == text,
+        check(vtr::logging::format_log(reader, *reader.lookup(id)) == text,
               "log formatting ignores the global locale or exceeds limits");
     for (const auto& [id, text] : fixed_expected)
-        check(reader.format_log(*reader.lookup(id)) == text,
+        check(vtr::logging::format_log(reader, *reader.lookup(id)) == text,
               "alternate fixed precision-zero formatting is corrupted");
     std::locale::global(
         std::locale(std::locale::classic(), new LogPunctuation(std::string("\3\0", 2))));
-    check(reader.format_log(*reader.lookup(stop_group_id)) == "****123456_790,*****",
+    check(vtr::logging::format_log(reader, *reader.lookup(stop_group_id)) == "****123456_790,*****",
           "alternate fixed formatting repeats a stopped digit group");
     for (const auto& [groups, text] : std::vector<std::pair<std::string, std::string>>{
              {"", "1234567"},
@@ -944,7 +943,7 @@ void log_locale_and_limits(const std::filesystem::path& path) {
              {std::string(1, 0), "1234567"},
              {std::string(1, static_cast<char>(-1)), "1234567"}}) {
         std::locale::global(std::locale(std::locale::classic(), new LogPunctuation(groups)));
-        check(reader.format_log(*reader.lookup(expected[0].first)) == text,
+        check(vtr::logging::format_log(reader, *reader.lookup(expected[0].first)) == text,
               "localized integers ignore unlimited-group boundaries");
     }
 }

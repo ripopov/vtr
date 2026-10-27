@@ -72,9 +72,9 @@ fn runtime_navigation_filters_parent_kind_and_time_and_honors_cancellation() {
     let source = writer
         .transactions::<()>(SourceOptions::new("requests", None), "REQUEST")
         .unwrap();
-    let logs = writer
-        .callsite::<u64>(vtr::CallsiteOptions::new("time {}"))
-        .unwrap();
+    let logs =
+        vtr::logging::declare::<u64>(&mut writer, vtr::logging::CallsiteOptions::new("time {}"))
+            .unwrap();
     let stages = writer
         .stages::<()>(SourceOptions::new("stage", None))
         .unwrap();
@@ -123,7 +123,14 @@ fn runtime_navigation_filters_parent_kind_and_time_and_honors_cancellation() {
     let time = vtr::TimeWindow { first: 3, last: 5 };
     reader
         .logs(parent.id(), time, |record| {
-            actual.push(record.payload().decode::<u64>().unwrap());
+            actual.push(
+                record
+                    .payload()
+                    .field("value")
+                    .unwrap()
+                    .decode::<u64>()
+                    .unwrap(),
+            );
             true
         })
         .unwrap();

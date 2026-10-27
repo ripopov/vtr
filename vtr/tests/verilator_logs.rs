@@ -1,6 +1,7 @@
 //! Read actual Verilator output, including traces closed by fatal exit callbacks.
 
 use std::path::PathBuf;
+use vtr::logging::Severity;
 use vtr::*;
 
 fn fixture(scenario: &str, execution: &str) -> Reader {
@@ -15,7 +16,7 @@ fn fixture(scenario: &str, execution: &str) -> Reader {
 fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
     for execution in ["inline", "threaded"] {
         let reader = fixture("normal", execution);
-        let sources = reader.log_callsites().unwrap();
+        let sources = vtr::logging::callsites(&reader).unwrap();
         assert_eq!(sources.len(), 6);
         let logger = reader.find_generator("simulation_log").unwrap();
         assert_eq!(
@@ -36,9 +37,26 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
             Severity::Fatal,
         ]) {
             assert_eq!(source.severity, severity);
-            assert_eq!(reader.node(NodeId(source.callsite)).unwrap().parent, None);
-            assert_eq!(reader.name(NodeId(source.callsite)).unwrap(), "{}");
-            assert_eq!(source.payload_type, 13);
+            assert_eq!(source.format, "{}");
+            assert!(
+                reader
+                    .declarations()
+                    .types
+                    .get(source.datatype)
+                    .unwrap()
+                    .attributes
+                    .len()
+                    >= 3
+            );
+            assert_eq!(
+                reader
+                    .declarations()
+                    .types
+                    .get(source.datatype)
+                    .unwrap()
+                    .fixed_size,
+                None
+            );
         }
         let mut records = Vec::new();
         reader
@@ -55,9 +73,18 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
             .unwrap();
         records.sort_unstable_by_key(Record::id);
         assert_eq!(records.len(), 9);
-        assert_eq!(reader.format_log(&records[0]).unwrap(), "boot complete\n");
-        assert_eq!(reader.format_log(&records[3]).unwrap(), "fragment ");
-        assert_eq!(reader.format_log(&records[4]).unwrap(), "complete\n");
+        assert_eq!(
+            vtr::logging::format_log(&reader, &records[0]).unwrap(),
+            "boot complete\n"
+        );
+        assert_eq!(
+            vtr::logging::format_log(&reader, &records[3]).unwrap(),
+            "fragment "
+        );
+        assert_eq!(
+            vtr::logging::format_log(&reader, &records[4]).unwrap(),
+            "complete\n"
+        );
         assert_eq!(records.last().unwrap().begin(), 7);
         let warning = sources
             .iter()
@@ -67,15 +94,14 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
         reader
             .records(
                 RecordQuery {
-                    callsite: Some(warning.callsite),
+                    datatype: Some(warning.datatype),
                     begin: 0,
                     end: 0,
                     ..RecordQuery::default()
                 },
                 |record| {
                     assert!(
-                        reader
-                            .format_log(&record)
+                        vtr::logging::format_log(&reader, &record)
                             .unwrap()
                             .contains("retry pending")
                     );
@@ -95,7 +121,12 @@ fn verilator_declares_typed_text_sources_and_preserves_partial_output() {
         reader.validate().unwrap();
         drop(reader);
         assert_eq!(
-            records[0].payload().decode::<String>().unwrap(),
+            records[0]
+                .payload()
+                .field("value")
+                .unwrap()
+                .decode::<String>()
+                .unwrap(),
             "boot complete\n"
         );
     }
@@ -113,7 +144,7 @@ fn terminating_tasks_binary_output_and_runtime_warnings_remain_readable() {
             ("repeat", 3, Severity::Warn, "previous dump"),
         ] {
             let reader = fixture(scenario, execution);
-            let sources = reader.log_callsites().unwrap();
+            let sources = vtr::logging::callsites(&reader).unwrap();
             let mut found = false;
             reader
                 .records(
@@ -124,11 +155,13 @@ fn terminating_tasks_binary_output_and_runtime_warnings_remain_readable() {
                     |record| {
                         let source = sources
                             .iter()
-                            .find(|source| Some(source.callsite) == record.callsite())
+                            .find(|source| source.datatype == record.datatype())
                             .unwrap();
                         found |= record.begin() == time
                             && source.severity == severity
-                            && reader.format_log(&record).unwrap().contains(text);
+                            && vtr::logging::format_log(&reader, &record)
+                                .unwrap()
+                                .contains(text);
                         true
                     },
                 )

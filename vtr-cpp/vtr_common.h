@@ -26,7 +26,7 @@
 namespace vtr {
 
 inline constexpr unsigned format_major = 3;
-inline constexpr unsigned format_minor = 3;
+inline constexpr unsigned format_minor = 4;
 using Timestamp = std::uint64_t;
 using Bytes = std::vector<std::byte>;
 using ByteView = std::span<const std::byte>;
@@ -38,7 +38,6 @@ struct SignalTag;
 struct GeneratorTag;
 struct StringTag;
 struct TypeTag;
-struct CallsiteTag;
 struct RecordTag;
 struct BlockTag;
 } // namespace detail
@@ -58,7 +57,6 @@ using NodeId = Identifier<detail::NodeTag, std::uint32_t>;
 using SignalId = Identifier<detail::SignalTag, std::uint32_t>;
 using GeneratorId = Identifier<detail::GeneratorTag, std::uint32_t>;
 using StringId = Identifier<detail::StringTag, std::uint32_t>;
-using CallsiteId = Identifier<detail::CallsiteTag, std::uint32_t>;
 using TypeId = Identifier<detail::TypeTag, std::uint32_t>;
 using RecordId = Identifier<detail::RecordTag, std::uint64_t>;
 using BlockId = Identifier<detail::BlockTag, std::uint64_t>;
@@ -181,11 +179,11 @@ template <class T> struct Schema;
 
 template <class Owner, class Member> struct MemberField {
     std::string_view name;
-    Member Owner::* member;
+    Member Owner::*member;
 };
 
 template <class Owner, class Member>
-[[nodiscard]] constexpr auto field(std::string_view name, Member Owner::* member) noexcept {
+[[nodiscard]] constexpr auto field(std::string_view name, Member Owner::*member) noexcept {
     return MemberField<Owner, Member>{name, member};
 }
 
@@ -255,6 +253,7 @@ struct DataType {
     std::string name;
     std::variant<Primitive, StructDefinition, ArrayDefinition, SequenceDefinition, EnumDefinition>
         definition;
+    Attributes attributes = {};
 };
 
 struct Metadata {

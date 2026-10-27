@@ -45,9 +45,11 @@ fn independent_sealing_drains_accepted_captures_with_live_producers() {
             let source = writer
                 .transactions::<u64>(SourceOptions::new("requests", None), "REQUEST")
                 .unwrap();
-            let logs = writer
-                .callsite::<String>(vtr::CallsiteOptions::new("message {}"))
-                .unwrap();
+            let logs = vtr::logging::declare::<String>(
+                &mut writer,
+                vtr::logging::CallsiteOptions::new("message {}"),
+            )
+            .unwrap();
             let clock = writer.clock(SourceOptions::new("clock", None)).unwrap();
             let signal = writer
                 .signal(
@@ -177,9 +179,11 @@ fn schema_panics_never_finalize_a_partly_mutated_backend() {
         let logger = writer
             .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        let logs = writer
-            .callsite::<u64>(vtr::CallsiteOptions::new("good {}"))
-            .unwrap();
+        let logs = vtr::logging::declare::<u64>(
+            &mut writer,
+            vtr::logging::CallsiteOptions::new("good {}"),
+        )
+        .unwrap();
         let id = writer.log(logger, logs, &42, None).unwrap();
         writer.flush().unwrap();
         let outcome = catch_unwind(AssertUnwindSafe(|| {
@@ -205,6 +209,8 @@ fn schema_panics_never_finalize_a_partly_mutated_backend() {
                 .unwrap()
                 .unwrap()
                 .payload()
+                .field("value")
+                .unwrap()
                 .decode::<u64>()
                 .unwrap(),
             42
@@ -222,12 +228,16 @@ fn payload_panics_poison_the_entire_frontend_call_and_preserve_owned_records() {
         let logger = writer
             .logger(SourceOptions::new("diagnostics", None))
             .unwrap();
-        let good = writer
-            .callsite::<u64>(vtr::CallsiteOptions::new("good {}"))
-            .unwrap();
-        let bad = writer
-            .callsite::<PanicPayload>(vtr::CallsiteOptions::new("bad"))
-            .unwrap();
+        let good = vtr::logging::declare::<u64>(
+            &mut writer,
+            vtr::logging::CallsiteOptions::new("good {}"),
+        )
+        .unwrap();
+        let bad = vtr::logging::declare::<PanicPayload>(
+            &mut writer,
+            vtr::logging::CallsiteOptions::new("bad"),
+        )
+        .unwrap();
         let id = writer.log(logger, good, &42, None).unwrap();
         writer.flush().unwrap();
         assert!(
@@ -252,6 +262,8 @@ fn payload_panics_poison_the_entire_frontend_call_and_preserve_owned_records() {
                 .unwrap()
                 .unwrap()
                 .payload()
+                .field("value")
+                .unwrap()
                 .decode::<u64>()
                 .unwrap(),
             42
@@ -292,7 +304,10 @@ fn abnormal_endings_are_typed_and_sealed_in_both_modes() {
             );
             reader
                 .records(RecordQuery::default(), |record| {
-                    assert_eq!(reader.format_log(&record).unwrap(), format!("run {ending}"));
+                    assert_eq!(
+                        vtr::logging::format_log(&reader, &record).unwrap(),
+                        format!("run {ending}")
+                    );
                     true
                 })
                 .unwrap();
@@ -354,9 +369,11 @@ fn rescue_wakes_capture_waiting_for_queue_space_before_output_resumes() {
     let logger = writer
         .logger(SourceOptions::new("diagnostics", None))
         .unwrap();
-    let source = writer
-        .callsite::<String>(vtr::CallsiteOptions::new("message {}"))
-        .unwrap();
+    let source = vtr::logging::declare::<String>(
+        &mut writer,
+        vtr::logging::CallsiteOptions::new("message {}"),
+    )
+    .unwrap();
     writer.flush().unwrap();
     let mut producer = writer.add_producer().unwrap();
     writer.finish_producer().unwrap();
@@ -437,9 +454,9 @@ fn output_panics_wake_producers_and_never_finalize_a_damaged_backend() {
     let logger = writer
         .logger(SourceOptions::new("diagnostics", None))
         .unwrap();
-    let source = writer
-        .callsite::<String>(vtr::CallsiteOptions::new("{}"))
-        .unwrap();
+    let source =
+        vtr::logging::declare::<String>(&mut writer, vtr::logging::CallsiteOptions::new("{}"))
+            .unwrap();
     let good = writer
         .log(logger, source, &"published".into(), None)
         .unwrap();
@@ -461,6 +478,8 @@ fn output_panics_wake_producers_and_never_finalize_a_damaged_backend() {
             .unwrap()
             .unwrap()
             .payload()
+            .field("value")
+            .unwrap()
             .decode::<String>()
             .unwrap(),
         "published"

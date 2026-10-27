@@ -185,19 +185,20 @@ fn transactions_clocks_logs_and_window_bounds() {
     let logger = w
         .logger(SourceOptions::new("diagnostics", Some(stream)))
         .unwrap();
-    let site = w
-        .callsite::<u64>(vtr::CallsiteOptions {
+    let site = vtr::logging::declare::<u64>(
+        &mut w,
+        vtr::logging::CallsiteOptions {
             severity: 3,
-            ..vtr::CallsiteOptions::new("hello {}")
-        })
-        .unwrap();
+            ..vtr::logging::CallsiteOptions::new("hello {}")
+        },
+    )
+    .unwrap();
     w.advance_time(5).unwrap();
     w.log(logger, site, &1, None).unwrap();
     w.advance_time(10).unwrap();
     w.log(logger, site, &2, None).unwrap();
-    let bytes = w
-        .callsite::<i16>(vtr::CallsiteOptions::new("{:c}"))
-        .unwrap();
+    let bytes =
+        vtr::logging::declare::<i16>(&mut w, vtr::logging::CallsiteOptions::new("{:c}")).unwrap();
     let raw = if std::ffi::c_char::MIN == 0 { 255 } else { -1 };
     w.log(logger, bytes, &raw, None).unwrap();
     w.close().unwrap();

@@ -1,9 +1,7 @@
-//! Typed log rendering and source metadata.
+//! Typed value and argument rendering.
 
-use super::{PayloadView, Reader, Record};
-use crate::{
-    Error, Result, attributes::Value, declarations::NodeData, records::RecordKind, schema::TypeKind,
-};
+use super::{PayloadView, Reader};
+use crate::{Error, Result, attributes::Value, schema::TypeKind};
 use std::{borrow::Cow, fmt::Write};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthChar;
@@ -563,136 +561,16 @@ fn write_float(out: &mut RenderBuffer, value: Float, spec: &Spec, locale: &Forma
     pad_number(out, sign, "", &body, &effective);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum Severity {
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-    Fatal,
-    Other(u64),
-}
-impl Severity {
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Trace => "trace",
-            Self::Debug => "debug",
-            Self::Info => "info",
-            Self::Warn => "warn",
-            Self::Error => "error",
-            Self::Fatal => "fatal",
-            Self::Other(_) => "other",
-        }
-    }
-    #[must_use]
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "trace" => Some(Self::Trace),
-            "debug" => Some(Self::Debug),
-            "info" => Some(Self::Info),
-            "warn" => Some(Self::Warn),
-            "error" => Some(Self::Error),
-            "fatal" => Some(Self::Fatal),
-            _ => None,
-        }
-    }
-    fn from_code(code: u64) -> Self {
-        match code {
-            0 => Self::Trace,
-            1 => Self::Debug,
-            2 => Self::Info,
-            3 => Self::Warn,
-            4 => Self::Error,
-            5 => Self::Fatal,
-            _ => Self::Other(code),
-        }
-    }
-}
-#[derive(Clone, Debug)]
-pub struct LogCallsite {
-    pub callsite: u32,
-    pub format: u32,
-    pub payload_type: u32,
-    pub severity: Severity,
-    pub file: Option<u32>,
-    pub line: Option<u64>,
-    pub function: Option<u32>,
-}
-
 impl Reader {
-    pub fn log_callsites(&self) -> Result<Vec<LogCallsite>> {
-        let mut sources = Vec::new();
-        for (id, node) in self.declarations.nodes.iter().enumerate() {
-            let NodeData::Callsite { payload_type } = node.data else {
-                continue;
-            };
-            let mut source = LogCallsite {
-                callsite: id as u32,
-                format: node.name,
-                payload_type,
-                severity: Severity::Info,
-                file: None,
-                line: None,
-                function: None,
-            };
-            for attribute in &node.attributes {
-                match (self.string(attribute.key)?, &attribute.value) {
-                    ("log.severity", Value::U64(code)) => {
-                        source.severity = Severity::from_code(*code);
-                    }
-                    ("log.file", Value::Str(file)) => source.file = Some(*file),
-                    ("log.line", Value::U64(line)) => source.line = Some(*line),
-                    ("log.func", Value::Str(function)) => source.function = Some(*function),
-                    ("log.severity" | "log.file" | "log.line" | "log.func", _) => {
-                        return Err(Error::Corrupt("invalid log metadata"));
-                    }
-                    _ => (),
-                }
-            }
-            sources.push(source);
-        }
-        Ok(sources)
-    }
-    pub fn format_log(&self, record: &Record) -> Result<String> {
-        self.format_log_with_locale(record, &FormatLocale::default())
-    }
-    pub fn format_log_with_locale(
+    pub fn format_arguments_bytes(
         &self,
-        record: &Record,
-        locale: &FormatLocale<'_>,
-    ) -> Result<String> {
-        RenderBuffer(self.format_log_bytes_with_locale(record, locale)?).text()
-    }
-
-    /// Render exact bytes, including integer `c` presentations outside UTF-8.
-    pub fn format_log_bytes(&self, record: &Record) -> Result<Vec<u8>> {
-        self.format_log_bytes_with_locale(record, &FormatLocale::default())
-    }
-    pub fn format_log_bytes_with_locale(
-        &self,
-        record: &Record,
+        format: &str,
+        payload: &PayloadView,
         locale: &FormatLocale<'_>,
     ) -> Result<Vec<u8>> {
-        if record.data.types.origin != self.identity() {
-            return Err(Error::invalid("log belongs to another recording"));
+        if payload.types.origin != self.identity() {
+            return Err(Error::invalid("payload belongs to another recording"));
         }
-        if record.kind() != RecordKind::Log {
-            return Err(Error::invalid("log formatting requires a LOG record"));
-        }
-        let callsite = record
-            .callsite()
-            .ok_or_else(|| Error::invalid("log has no callsite"))?;
-        let node = self.node(crate::NodeId(callsite))?;
-        if !matches!(node.data, NodeData::Callsite { .. }) {
-            return Err(Error::invalid(
-                "log source is unavailable in this recording",
-            ));
-        }
-        let format = self.string(node.name)?;
-        let payload = record.payload();
         let structure = matches!(
             payload.schema().get(payload.datatype())?.kind,
             TypeKind::Struct(_)
@@ -732,7 +610,7 @@ impl Reader {
                     let value = if structure {
                         payload.at(index)?
                     } else {
-                        payload.clone()
+                        (*payload).clone()
                     };
                     match value.scalar() {
                         Ok(value) => self.write_scalar(&mut output, &value, &spec, locale)?,

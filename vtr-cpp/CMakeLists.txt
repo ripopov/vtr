@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(vtr VERSION 5.0.0 LANGUAGES CXX)
+project(vtr VERSION 6.0.0 LANGUAGES CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -162,7 +162,7 @@ install(TARGETS vtr EXPORT vtrTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES vtr_common.h vtr_reader.h vtr_writer.h vtr_track.h vtr_trace_dpi.h vtr_trace.sv
+install(FILES vtr_common.h vtr_reader.h vtr_writer.h vtr_logging.h vtr_track.h vtr_trace_dpi.h vtr_trace.sv
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/vtr)
 install(EXPORT vtrTargets NAMESPACE vtr:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/vtr)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vtrConfig.cmake

@@ -56,13 +56,19 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
         writer.transactions::<[u64; 3]>(SourceOptions::new("scalar", Some(core)), "SCALAR")?;
     let execute = writer.stages::<String>(SourceOptions::new("execute", Some(core)))?;
     let events = writer.events::<()>(SourceOptions::new("retired", Some(core)))?;
-    let logs = writer.callsite::<Packet>(vtr::CallsiteOptions::new("packet {}"))?;
-    let retry = writer.callsite::<String>(vtr::CallsiteOptions {
-        severity: 3,
-        file: Some("shared.cpp".into()),
-        line: Some(17),
-        ..vtr::CallsiteOptions::new("retry {}")
-    })?;
+    let logs = vtr::logging::declare::<Packet>(
+        &mut writer,
+        vtr::logging::CallsiteOptions::new("packet {}"),
+    )?;
+    let retry = vtr::logging::declare::<String>(
+        &mut writer,
+        vtr::logging::CallsiteOptions {
+            severity: 3,
+            file: Some("shared.cpp".into()),
+            line: Some(17),
+            ..vtr::logging::CallsiteOptions::new("retry {}")
+        },
+    )?;
     let memory_logger = writer.logger(SourceOptions::new("memory", None))?;
     let clock = writer.clock(SourceOptions::new("clock", Some(core)))?;
     writer.associate_clock(requests, clock)?;
@@ -200,35 +206,49 @@ fn read(path: &str) -> vtr::Result<()> {
     assert_eq!(reader.lookup(3)?.unwrap().decode::<String>()?, "execute Δ");
     assert_eq!(reader.lookup(5)?.unwrap().end(), 100);
     assert_eq!(reader.lookup(6)?.unwrap().parent(), Some(2));
-    assert_eq!(reader.lookup(9)?.unwrap().decode::<Packet>()?, packet());
     assert_eq!(
-        reader.format_log(&reader.lookup(9)?.unwrap())?,
+        reader
+            .lookup(9)?
+            .unwrap()
+            .payload()
+            .field("value")?
+            .decode::<Packet>()?,
+        packet()
+    );
+    assert_eq!(
+        vtr::logging::format_log(&reader, &reader.lookup(9)?.unwrap())?,
         "packet 32768"
     );
-    assert_eq!(reader.log_callsites()?.len(), 2);
+    assert_eq!(vtr::logging::callsites(&reader)?.len(), 2);
     let retry = reader.lookup(26)?.unwrap();
     let duplicate = reader.lookup(27)?.unwrap();
     assert_eq!(retry.generator(), reader.find_generator("diagnostics"));
-    assert_eq!(retry.decode::<String>()?, "bank 3");
-    assert_eq!(retry.callsite(), duplicate.callsite());
+    assert_eq!(
+        retry.payload().field("value")?.decode::<String>()?,
+        "bank 3"
+    );
+    assert_eq!(retry.datatype(), duplicate.datatype());
     assert_ne!(retry.id(), duplicate.id());
     assert_eq!(
         reader.lookup(28)?.unwrap().generator(),
         reader.find_generator("memory")
     );
     assert_eq!(
-        reader.lookup(28)?.unwrap().callsite(),
-        reader.lookup(9)?.unwrap().callsite()
+        reader.lookup(28)?.unwrap().datatype(),
+        reader.lookup(9)?.unwrap().datatype()
     );
     let mut selected = 0;
     reader.records(
         vtr::RecordQuery {
             generator: retry.generator(),
-            callsite: retry.callsite(),
+            datatype: Some(retry.datatype()),
             ..Default::default()
         },
         |record| {
-            assert_eq!(reader.format_log(&record).unwrap(), "retry bank 3");
+            assert_eq!(
+                vtr::logging::format_log(&reader, &record).unwrap(),
+                "retry bank 3"
+            );
             selected += 1;
             true
         },

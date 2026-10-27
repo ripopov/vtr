@@ -173,7 +173,7 @@ struct SignalData {
 };
 
 struct Node {
-    enum Kind : std::uint8_t { scope = 1, variable, generator, enum_table, callsite } kind = scope;
+    enum Kind : std::uint8_t { scope = 1, variable, generator, enum_table } kind = scope;
 
     Id parent = none, name = 0, signal = none, aux = 0;
     Id payload_type = 0;
@@ -242,7 +242,6 @@ class Writer {
                               std::uint16_t type = 16, std::uint8_t direction = 0);
     Id add_alias(Id parent, std::string_view name, Id signal, std::uint16_t type = 16,
                  std::uint8_t direction = 0);
-    Id add_callsite(std::string_view format, Id payload_type, std::uint64_t severity = 2);
     Id add_generator(Id parent, std::string_view name, std::string_view kind, Id payload_type = 0);
     Id add_enum_table(Id parent, std::string_view name, std::span<const std::pair<Id, Id>> entries);
     void node_attr(Id node, Id key, const Value& value);

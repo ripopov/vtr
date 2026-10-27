@@ -259,39 +259,34 @@ impl<T, K> Source<T, K> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CallsiteOptions {
-    pub format: String,
-    pub severity: u64,
-    pub file: Option<String>,
-    pub line: Option<u64>,
-    pub function: Option<String>,
+#[derive(Clone, Debug, Default)]
+pub struct DatatypeOptions {
+    pub name: String,
+    pub attributes: crate::Attributes,
 }
-impl CallsiteOptions {
-    pub fn new(format: impl Into<String>) -> Self {
+impl DatatypeOptions {
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
-            format: format.into(),
-            severity: 2,
-            file: None,
-            line: None,
-            function: None,
+            name: name.into(),
+            attributes: vec![],
         }
     }
 }
 
 pub type Logger = Source<(), source::Log>;
-pub struct Callsite<T> {
+/// A writer-bound handle to a one-field datatype wrapping `T`.
+pub struct PayloadType<T> {
     id: u32,
     origin: Origin,
     marker: PhantomData<fn() -> T>,
 }
-impl<T> Copy for Callsite<T> {}
-impl<T> Clone for Callsite<T> {
+impl<T> Copy for PayloadType<T> {}
+impl<T> Clone for PayloadType<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T> Callsite<T> {
+impl<T> PayloadType<T> {
     #[must_use]
     pub fn id(self) -> u32 {
         self.id
@@ -561,21 +556,21 @@ impl Writer {
         let _guard = self.crash.guard();
         self.source::<(), source::Log>(options, "LOG")
     }
-    pub fn declare_callsite(
+    pub fn declare_datatype(
         &mut self,
-        options: CallsiteOptions,
-        datatype: crate::TypeId,
-    ) -> Result<u32> {
+        options: DatatypeOptions,
+        kind: crate::schema::TypeKind,
+    ) -> Result<crate::TypeId> {
         let _guard = self.crash.guard();
-        self.control(move |backend| backend.declare_callsite(options, datatype))
+        self.control(move |backend| backend.declare_datatype(options, kind))
     }
-    pub fn callsite<T: Payload + 'static>(
+    pub fn datatype<T: Payload + 'static>(
         &mut self,
-        options: CallsiteOptions,
-    ) -> Result<Callsite<T>> {
+        options: DatatypeOptions,
+    ) -> Result<PayloadType<T>> {
         let _guard = self.crash.guard();
-        let id = self.control(move |backend| backend.callsite::<T>(options))?;
-        Ok(Callsite {
+        let id = self.control(move |backend| backend.datatype::<T>(options))?;
+        Ok(PayloadType {
             id,
             origin: self.front.origin,
             marker: PhantomData,

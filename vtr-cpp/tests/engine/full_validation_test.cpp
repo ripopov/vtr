@@ -34,6 +34,11 @@ void write_case(const fs::path& path, const std::string& name) {
         fields.push_back({"address", 9});
         payload_type = types.structure("Request", std::move(fields));
     }
+    if (name == "datatype-metadata") {
+        const auto kind = core.intern("kind"), severity = core.intern("log.severity");
+        payload_type = types.structure("Opaque", {},
+                                       {{kind, Value::text("callsite")}, {severity, Value(true)}});
+    }
     if (types.size() > first_declared_type) {
         core.append_section(10, types.declarations());
     }
@@ -41,16 +46,13 @@ void write_case(const fs::path& path, const std::string& name) {
     auto ordinary = core.add_generator(scope, "owner", "TRANSACTION", payload_type);
     auto event = core.add_generator(scope, "event", "EVENT");
     auto log = core.add_generator(scope, "log", "LOG");
-    auto callsite = core.add_callsite("{}", 0);
+    auto datatype = TypeId{0};
     auto clock = core.add_generator(scope, "clock", "CLOCK", name == "clock-schema" ? 9 : 0);
     auto period = core.intern("vtr.period"), edge = core.intern("dependency"),
          label = core.intern("vtr.label"), address = core.intern("address");
     if (name == "clock-schema") {
         core.close();
         return;
-    }
-    if (name == "log-metadata") {
-        core.node_attr(callsite, core.intern("log.file"), Value(std::uint64_t(3)));
     }
     if (name == "clock-association-missing") {
         Value value(std::uint64_t(999));
@@ -66,7 +68,7 @@ void write_case(const fs::path& path, const std::string& name) {
     generators.declare({ordinary, RecordKind::ordinary, payload_type});
     generators.declare({event, RecordKind::event, 0});
     generators.declare({log, RecordKind::log, 0});
-    generators.declare_callsite(callsite, 0);
+
     generators.declare({clock, RecordKind::clock, 0});
     Transaction root;
     root.id = 1;
@@ -93,7 +95,7 @@ void write_case(const fs::path& path, const std::string& name) {
     }
     if (name == "locator-extra-log") {
         root.child_blocks = {2};
-        rows.push_back({2, log, 5, 5, 1, {}, callsite});
+        rows.push_back({2, log, 5, 5, 1, {}, datatype});
     }
     if (name == "locator-wrong-kind") {
         root.child_blocks = {1};
@@ -245,10 +247,13 @@ int main(int argc, char** argv) {
         }
         fs::create_directories(argv[1]);
         auto dir = fs::path(argv[1]);
+        const auto opaque = dir / "datatype-metadata.vtr";
+        write_case(opaque, "datatype-metadata");
+        Reader(opaque).validate();
         for (std::string name :
              {"duplicate-id", "locator-missing", "locator-extra-log", "locator-wrong-kind",
               "parent-wrong-kind", "clock-period", "clock-overlap", "attribute-collision",
-              "label-type", "clock-schema", "clock-association-wrong-kind", "log-metadata"}) {
+              "label-type", "clock-schema", "clock-association-wrong-kind"}) {
             auto path = dir / (name + ".vtr"), recovered = dir / (name + ".recovered.vtr");
             write_case(path, name);
             rejects([&] {

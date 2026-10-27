@@ -1,5 +1,8 @@
 # Independent log schema validation
 
+This is historical evidence for VTR 3.3 at commit `b1495df`. Its callsite-node
+model was replaced by generic datatype metadata in VTR 3.4.
+
 Measured 2026-10-26 on Intel Core Ultra 7 265K, Linux 7.0.0-38, glibc 2.43. All timed processes used logical CPU 0. Builds, static analysis, browser tests and simulator regressions finished before the final timing runs.
 
 The fixed-source wire representation has no additional per-row selector. EVENT/STAGE segment headers remain 68 bytes; only LOG headers carry the extra 4-byte callsite reference. All six standard workloads and both additional fixed-record workloads have exactly equal baseline/candidate file sizes.

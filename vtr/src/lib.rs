@@ -28,15 +28,15 @@ pub use error::{Error, Result};
 pub use framing::{Completion, Fingerprint, RecordingId, recover};
 pub use hierarchy::{Direction, NodeId, ScopeType, SignalId, SignalKind, VarType};
 pub use recording::{
-    ActiveRecord, BufferOptions, Callsite, CallsiteOptions, ClockSource, CrashState,
-    EncodingOptions, Ending, ExecutionMode, Keyspace, Logger, OwnerRef, Producer, ProducerId,
-    QueueStats, Recorder, Sealer, SignalUpdate, Source, SourceOptions, Stage, Status, Tracker,
+    ActiveRecord, BufferOptions, ClockSource, CrashState, DatatypeOptions, EncodingOptions, Ending,
+    ExecutionMode, Keyspace, Logger, OwnerRef, PayloadType, Producer, ProducerId, QueueStats,
+    Recorder, Sealer, SignalUpdate, Source, SourceOptions, Stage, Status, Tracker,
     TrackerDiagnostic, Transaction, Writer, WriterOptions, WriterStats, ending,
 };
 pub use records::{GeneratorId, RecordId, RecordKind, RecordQuery, SpanKind};
 pub use schema::{Payload, PayloadReader, TypeId, Types};
 pub use signal::{Logic, LogicStates, OwnedSignalValue, SignalValue};
-pub use trace::{
-    Blackout, FormatLocale, PayloadView, ReadOptions, Reader, Record, Severity, TimeWindow,
-};
+pub use trace::{Blackout, FormatLocale, PayloadView, ReadOptions, Reader, Record, TimeWindow};
 pub use transactions::{Relation, TransactionQuery};
+
+pub mod logging;

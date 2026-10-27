@@ -25,12 +25,12 @@ fn truncated_and_corrupt_traces_retain_only_published_verified_sections() {
             Direction::Output,
         )
         .unwrap();
-    let source = writer
-        .callsite::<String>(vtr::CallsiteOptions::new("step {}"))
-        .unwrap();
-    let retry = writer
-        .callsite::<u64>(CallsiteOptions::new("retry {}"))
-        .unwrap();
+    let source =
+        vtr::logging::declare::<String>(&mut writer, vtr::logging::CallsiteOptions::new("step {}"))
+            .unwrap();
+    let retry =
+        vtr::logging::declare::<u64>(&mut writer, vtr::logging::CallsiteOptions::new("retry {}"))
+            .unwrap();
     for time in 0..50 {
         writer.advance_time(time).unwrap();
         writer.emit_u64(signal, time).unwrap();
@@ -72,14 +72,27 @@ fn truncated_and_corrupt_traces_retain_only_published_verified_sections() {
         truncated.validate().unwrap();
         truncated
             .records(RecordQuery::default(), |record| {
-                if record.callsite() == Some(source.id()) {
+                if record.datatype() == source.id() {
                     assert_eq!(
-                        record.decode::<String>().unwrap(),
+                        record
+                            .payload()
+                            .field("value")
+                            .unwrap()
+                            .decode::<String>()
+                            .unwrap(),
                         record.begin().to_string()
                     );
                 } else {
-                    assert_eq!(record.callsite(), Some(retry.id()));
-                    assert_eq!(record.decode::<u64>().unwrap(), record.begin());
+                    assert_eq!(record.datatype(), retry.id());
+                    assert_eq!(
+                        record
+                            .payload()
+                            .field("value")
+                            .unwrap()
+                            .decode::<u64>()
+                            .unwrap(),
+                        record.begin()
+                    );
                 }
                 true
             })

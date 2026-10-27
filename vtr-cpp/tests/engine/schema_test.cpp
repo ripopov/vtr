@@ -631,6 +631,49 @@ void fixture(bool shared = false) {
     std::cout << "]}\n";
 }
 
+void datatype_metadata() {
+    using vtr::detail::wire::Attributes;
+    using vtr::detail::wire::Value;
+    Types types;
+    const auto arguments = types.structure("Arguments", {{"request", 9}});
+    auto metadata = [](std::string_view text) {
+        const std::array nested{Value(std::int64_t{-7}), Value::bytes(Bytes{0, 255})};
+        return Attributes{{0, Value::string(1)}, {2, Value::text(text)}, {3, Value::list(nested)}};
+    };
+    const auto first = types.structure("Message", {{"args", arguments}}, metadata("started {}"));
+    const auto second = types.structure("Message", {{"args", arguments}}, metadata("failed {}"));
+    check(first != second && types[first].fixed_size == 8 && types[second].fixed_size == 8,
+          "metadata changed type identity or canonical layout");
+    const auto bytes = capture(std::uint64_t{42});
+    for (auto id : {arguments, first, second})
+        types.validate(id, bytes, 4);
+    const Attributes generic{{0, Value(true)}};
+    types.array(arguments, 2, "custom", generic);
+    types.sequence(arguments, "custom", generic);
+    types.enumeration("custom", 4, {}, generic);
+    const auto declarations = types.declarations();
+    Types decoded;
+    decoded.read_declarations(declarations, 4);
+    check(decoded.declarations() == declarations, "metadata declaration roundtrip changed bytes");
+    Types invalid;
+    rejects([&] { invalid.read_declarations(declarations, 1); });
+    check(invalid.size() == first_declared_type, "invalid metadata published a partial chunk");
+    for (std::size_t end = 0; end < declarations.size(); ++end) {
+        rejects([&] { invalid.read_declarations(View(declarations).first(end), 4); });
+        check(invalid.size() == first_declared_type, "truncated metadata changed declarations");
+    }
+    rejects([&] { types.structure("bad", {}, {{0, Value(true)}, {0, Value(false)}}); });
+    Types plain, explicit_empty;
+    plain.structure("A", {{"x", 9}});
+    explicit_empty.structure("A", {{"x", 9}}, {});
+    check(plain.declarations() == explicit_empty.declarations(),
+          "empty metadata changes fixed-source declaration bytes");
+    auto flagged_empty = plain.declarations();
+    flagged_empty[2] |= 0x80;
+    flagged_empty.push_back(0);
+    rejects([&] { Types{}.read_declarations(flagged_empty); });
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && (std::string_view(argv[1]) == "--fixture" ||
                       std::string_view(argv[1]) == "--shared-fixture")) {
@@ -639,6 +682,7 @@ int main(int argc, char** argv) {
     }
 
     try {
+        datatype_metadata();
         aggregates();
         primitives();
         declarations_and_limits();

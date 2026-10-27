@@ -86,6 +86,7 @@ class PayloadView {
 
   private:
     friend class Record;
+    friend class Reader;
     template <class T> friend T detail::decode_owned(const PayloadView&, std::size_t&);
     std::optional<ByteView> fixed_array(TypeId element, std::size_t count) const;
     PayloadView first_element() const;
@@ -127,7 +128,7 @@ class Record {
     [[nodiscard]] RecordKind kind() const noexcept;
     [[nodiscard]] std::optional<RecordId> parent() const noexcept;
     [[nodiscard]] std::optional<GeneratorId> generator() const noexcept;
-    [[nodiscard]] std::optional<CallsiteId> callsite() const noexcept;
+    [[nodiscard]] TypeId datatype() const noexcept;
     [[nodiscard]] Timestamp begin() const noexcept;
     [[nodiscard]] Timestamp end() const noexcept;
     [[nodiscard]] vtr::Status status() const noexcept;
@@ -167,7 +168,7 @@ struct RecordQuery {
     std::optional<RecordId> parent = {};
     std::optional<RecordKind> kind = {};
     TimeWindow time = {};
-    std::optional<CallsiteId> callsite = {};
+    std::optional<TypeId> datatype = {};
 };
 
 enum class Flow { next, stop };
@@ -187,7 +188,7 @@ struct Expansion {
     bool complete;
 };
 
-enum class NodeKind { scope, signal, generator, enum_table, callsite };
+enum class NodeKind { scope, signal, generator, enum_table };
 
 struct Node {
     NodeId id;
@@ -209,15 +210,6 @@ struct Generator {
     StringId kind_name;
     TypeId payload;
     std::optional<GeneratorId> clock;
-};
-
-struct LogCallsite {
-    CallsiteId id;
-    StringId format;
-    TypeId arguments;
-    std::uint64_t severity;
-    std::optional<StringId> file = {}, function = {};
-    std::optional<std::uint64_t> line = {};
 };
 
 struct SignalSample {
@@ -330,7 +322,6 @@ class Reader {
     [[nodiscard]] const vtr::Metadata& metadata() const noexcept;
     [[nodiscard]] std::span<const Node> nodes() const noexcept;
     [[nodiscard]] std::span<const Generator> generators() const noexcept;
-    [[nodiscard]] std::span<const LogCallsite> callsites() const noexcept;
     [[nodiscard]] std::span<const DataType> types() const noexcept;
     [[nodiscard]] std::span<const SignalKind> signals() const noexcept;
     [[nodiscard]] std::string_view string(StringId id) const;
@@ -354,7 +345,8 @@ class Reader {
     void children(RecordId parent, const std::function<Flow(const Record&)>& visit) const;
     void logs(RecordId parent, TimeWindow time,
               const std::function<Flow(const Record&)>& visit) const;
-    [[nodiscard]] std::string format_log(const Record& log) const;
+    [[nodiscard]] std::string format_arguments(std::string_view format,
+                                               const PayloadView& payload) const;
     [[nodiscard]] std::optional<std::uint64_t> cycle_at(GeneratorId clock, Timestamp time) const;
 
     void changes(std::optional<SignalId> signal, TimeWindow time,
@@ -382,7 +374,7 @@ class Reader {
 [[nodiscard]] Provenance recover(const std::filesystem::path& source,
                                  const std::filesystem::path& destination);
 
-// Source-bound VTI 3.0 sidecars are derived data, separate from the 3.3 trace.
+// Source-bound VTI 3.0 sidecars are derived data, separate from the 3.4 trace.
 // Build/load require a finalized fingerprint; recovery invalidates old sidecars.
 class ActivityIndex {
   public:

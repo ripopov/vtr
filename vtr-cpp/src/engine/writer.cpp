@@ -84,18 +84,24 @@ std::size_t tx_upper(const Transaction& tx, std::size_t numeric = 0) {
 std::size_t schema_memory(const Types& types, const Generators& generators) {
     auto bytes =
         memory_add(memory_mul(types.size(), 2 * sizeof(Type)), memory_mul(types.size() + 64, 128));
+    bytes = memory_add(
+        bytes, memory_mul(types.attribute_capacity(), 2 * sizeof(vtr::detail::wire::Attributes)));
     bytes = memory_add(bytes, sizeof(Generators));
-    bytes = memory_add(bytes, memory_mul(generators.size() + generators.callsite_count() + 1, 128));
+    bytes = memory_add(bytes, memory_mul(generators.size() + 1, 128));
     for (TypeId id = 0; id < types.size(); ++id) {
         if (id == unsigned(Primitive::enumeration)) {
             continue;
         }
         const auto& type = types[id];
+        const auto& attributes = types.attributes(id);
         for (auto n : {type.name.capacity(), memory_mul(type.fields.capacity(), sizeof(Field)),
                        memory_mul(type.enumerators.capacity(), sizeof(Enumerator)),
-                       type.scalar_program.capacity()}) {
+                       type.scalar_program.capacity(),
+                       memory_mul(attributes.capacity(), sizeof(vtr::detail::wire::Attribute))}) {
             bytes = memory_add(bytes, n);
         }
+        for (const auto& attribute : attributes)
+            bytes = memory_add(bytes, attribute.value.payload.capacity());
         for (const auto& field : type.fields) {
             bytes = memory_add(bytes, field.name.capacity());
         }
@@ -820,7 +826,7 @@ void Writer::declare_types(View data) {
     auto& p = *impl_;
     return p.call([&] {
         p.alive();
-        p.types.read_declarations(data);
+        p.types.read_declarations(data, p.native.string_count());
         p.write_types();
     });
 }
@@ -835,21 +841,6 @@ TypeId Writer::bind_type(const std::function<TypeId(Types&)>& bind) {
         p.alive();
         auto id = bind(p.types);
         p.write_types();
-        return id;
-    });
-}
-
-std::uint32_t Writer::add_callsite(std::string_view format, TypeId type, std::uint64_t severity) {
-    auto& p = *impl_;
-    return p.call([&] {
-        p.alive();
-        for (const auto& field : p.types[type].fields) {
-            if (field.name == "vtr.label")
-                require(field.type == 12 || field.type == 13, "invalid payload label type");
-        }
-        auto id = p.native.add_callsite(format, type, severity);
-        p.generators.declare_callsite(id, type);
-        p.snapshot.reset();
         return id;
     });
 }
@@ -1114,7 +1105,7 @@ RecordId Writer::event(GeneratorId gen, RecordId owner, Timestamp time, View pay
     });
 }
 
-RecordId Writer::log(GeneratorId gen, std::uint32_t callsite, Timestamp time, View payload,
+RecordId Writer::log(GeneratorId gen, std::uint32_t datatype, Timestamp time, View payload,
                      RecordId owner) {
     auto& p = *impl_;
     return p.call([&] {
@@ -1123,10 +1114,10 @@ RecordId Writer::log(GeneratorId gen, std::uint32_t callsite, Timestamp time, Vi
             p.owner(owner);
         }
         require(p.generators[gen].kind == RecordKind::log, "log requires LOG generator");
-        p.types.validate(p.generators.payload_type(gen, callsite), payload,
+        p.types.validate(p.generators.payload_type(gen, datatype), payload,
                          p.native.string_count());
         auto id = p.allocate();
-        p.submit(LocatedRecord{id, gen, time, time, owner, p.copy_payload(payload), callsite});
+        p.submit(LocatedRecord{id, gen, time, time, owner, p.copy_payload(payload), datatype});
         return id;
     });
 }

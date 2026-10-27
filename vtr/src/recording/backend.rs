@@ -237,58 +237,34 @@ impl Backend {
             },
         )
     }
-    pub fn callsite<T: Payload + 'static>(
+    pub fn datatype<T: Payload + 'static>(
         &mut self,
-        options: super::CallsiteOptions,
+        options: super::DatatypeOptions,
     ) -> Result<u32> {
-        let payload_type = self.bind::<T>()?;
-        self.declare_callsite(options, payload_type)
+        let argument_type = self.bind::<T>()?;
+        self.declare_datatype(
+            options,
+            crate::schema::TypeKind::Struct(vec![crate::schema::Field::new(
+                "value",
+                argument_type,
+            )]),
+        )
     }
-    pub fn declare_callsite(
+
+    pub fn declare_datatype(
         &mut self,
-        options: super::CallsiteOptions,
-        payload_type: u32,
+        options: super::DatatypeOptions,
+        kind: crate::schema::TypeKind,
     ) -> Result<u32> {
-        self.declarations.types.get(payload_type)?;
-        let mut attributes = vec![Attribute {
-            key: self.intern("log.severity")?,
-            value: Value::U64(options.severity),
-        }];
-        if let Some(file) = options.file {
-            let value = Value::Str(self.intern(&file)?);
-            attributes.push(Attribute {
-                key: self.intern("log.file")?,
-                value,
-            });
-        }
-        if let Some(line) = options.line {
-            attributes.push(Attribute {
-                key: self.intern("log.line")?,
-                value: Value::U64(line),
-            });
-        }
-        if let Some(function) = options.function {
-            let value = Value::Str(self.intern(&function)?);
-            attributes.push(Attribute {
-                key: self.intern("log.func")?,
-                value,
-            });
-        }
-        self.declarations
-            .validate_callsite(payload_type, &attributes)?;
-        let id = self
-            .node(
-                SourceOptions {
-                    name: options.format,
-                    parent: None,
-                    attributes,
-                },
-                NodeData::Callsite { payload_type },
-            )?
-            .0;
-        self.declarations
-            .generators
-            .declare_callsite(id, payload_type)?;
+        crate::attributes::validate_attributes(
+            &options.attributes,
+            self.declarations.strings.len() as u64,
+        )?;
+        let id = self.declarations.types.declare_with_attributes(
+            options.name,
+            kind,
+            options.attributes,
+        )?;
         self.snapshot = None;
         Ok(id)
     }
@@ -665,7 +641,7 @@ impl Backend {
                     id,
                     ActiveStage {
                         value: LocatedRecord {
-                            callsite_id: u32::MAX,
+                            datatype_id: u32::MAX,
                             id,
                             generator,
                             begin: time,
@@ -681,12 +657,12 @@ impl Backend {
                 generator,
                 time,
                 parent,
-                callsite,
+                datatype,
             } => {
                 let payload = payload.expect("point payload");
                 let source = self.declarations.generators.get(generator)?;
                 if source.kind
-                    != if callsite.is_some() {
+                    != if datatype.is_some() {
                         RecordKind::Log
                     } else {
                         RecordKind::Event
@@ -694,24 +670,24 @@ impl Backend {
                 {
                     return Err(Error::invalid("source kind does not match point operation"));
                 }
-                let datatype = self
+                let payload_type = self
                     .declarations
                     .generators
-                    .payload_type(generator, callsite)?;
+                    .payload_type(generator, datatype)?;
                 self.declarations.types.validate(
-                    datatype,
+                    payload_type,
                     &payload,
                     self.declarations.strings.len() as u64,
                 )?;
                 if parent != 0 && !self.owners.contains_key(parent) {
                     return Err(Error::invalid("point owner is not active"));
                 }
-                if callsite.is_none() && parent == 0 {
+                if datatype.is_none() && parent == 0 {
                     return Err(Error::invalid("located event requires an owner"));
                 }
                 self.created(id)?;
                 self.submit_record(LocatedRecord {
-                    callsite_id: callsite.unwrap_or(u32::MAX),
+                    datatype_id: datatype.unwrap_or(u32::MAX),
                     id,
                     generator,
                     begin: time,
@@ -801,7 +777,7 @@ impl Backend {
                 time,
                 parent,
                 payload,
-                callsite,
+                datatype,
             } => {
                 self.apply_owned_payload(
                     producer,
@@ -810,7 +786,7 @@ impl Backend {
                         generator,
                         time,
                         parent,
-                        callsite,
+                        datatype,
                     },
                     id,
                     Some(payload),
@@ -1444,9 +1420,11 @@ impl Backend {
                 value: Value::Bool(true),
             }];
             let generator = self.source::<()>(options, "LOG")?;
-            let mut callsite_options = super::CallsiteOptions::new("run {}");
-            callsite_options.severity = 5;
-            let callsite = self.callsite::<super::ending::RunEnding>(callsite_options)?;
+            let mut options = crate::logging::CallsiteOptions::new("run {}");
+            options.severity = 5;
+            let datatype_options =
+                crate::logging::datatype_options(options, |text| self.intern(text))?;
+            let datatype = self.datatype::<super::ending::RunEnding>(datatype_options)?;
             let payload = crate::schema::capture(&super::ending::RunEnding::from(ending))?;
             self.apply(
                 ProducerId(0),
@@ -1457,7 +1435,7 @@ impl Backend {
                     time: self.captured_time,
                     parent: 0,
                     payload,
-                    callsite: Some(callsite),
+                    datatype: Some(datatype),
                 },
             )?;
         }

@@ -298,6 +298,7 @@ Types::Types() {
         compile_scalars(*this, type);
         types_.push_back(std::move(type));
     }
+    attributes_.resize(types_.size());
 }
 
 const Type& Types::operator[](TypeId id) const {
@@ -306,8 +307,16 @@ const Type& Types::operator[](TypeId id) const {
     return types_[id];
 }
 
-TypeId Types::add(Type type) {
+const vtr::detail::wire::Attributes& Types::attributes(TypeId id) const {
+    require(id < attributes_.size(), "unknown datatype attributes");
+    return attributes_[id];
+}
+
+TypeId Types::add(Type type, vtr::detail::wire::Attributes attributes) {
     require(types_.size() < no_type, "datatype identifier exhaustion");
+    d::validate_attrs(attributes);
+    for (const auto& attribute : attributes)
+        d::validate_value(attribute.value, SIZE_MAX);
     utf8(type.name);
     require(type.kind != TypeKind::scalar, "declared scalar datatype");
     auto add_child = [&](TypeId id, std::uint64_t count) {
@@ -337,6 +346,8 @@ TypeId Types::add(Type type) {
             utf8(field.name);
             require(!field.name.empty() && names.insert(field.name).second,
                     "duplicate or empty datatype field");
+            require(field.name != "vtr.label" || field.type == 12 || field.type == 13,
+                    "invalid payload label datatype");
             add_child(field.type, 1);
         }
     } else if (type.kind == TypeKind::array) {
@@ -363,42 +374,51 @@ TypeId Types::add(Type type) {
     }
     compile_scalars(*this, type);
     auto id = static_cast<TypeId>(types_.size());
-    types_.push_back(std::move(type));
+    attributes_.push_back(std::move(attributes));
+    try {
+        types_.push_back(std::move(type));
+    } catch (...) {
+        attributes_.pop_back();
+        throw;
+    }
     return id;
 }
 
-TypeId Types::structure(std::string name, std::vector<Field> fields) {
+TypeId Types::structure(std::string name, std::vector<Field> fields,
+                        vtr::detail::wire::Attributes attributes) {
     Type type;
     type.kind = TypeKind::structure;
     type.name = std::move(name);
     type.fields = std::move(fields);
-    return add(std::move(type));
+    return add(std::move(type), std::move(attributes));
 }
 
-TypeId Types::array(TypeId element, std::uint32_t count, std::string name) {
+TypeId Types::array(TypeId element, std::uint32_t count, std::string name,
+                    vtr::detail::wire::Attributes attributes) {
     Type type;
     type.kind = TypeKind::array;
     type.name = std::move(name);
     type.element = element;
     type.count = count;
-    return add(std::move(type));
+    return add(std::move(type), std::move(attributes));
 }
 
-TypeId Types::sequence(TypeId element, std::string name) {
+TypeId Types::sequence(TypeId element, std::string name, vtr::detail::wire::Attributes attributes) {
     Type type;
     type.kind = TypeKind::sequence;
     type.name = std::move(name);
     type.element = element;
-    return add(std::move(type));
+    return add(std::move(type), std::move(attributes));
 }
 
-TypeId Types::enumeration(std::string name, TypeId underlying, std::vector<Enumerator> values) {
+TypeId Types::enumeration(std::string name, TypeId underlying, std::vector<Enumerator> values,
+                          vtr::detail::wire::Attributes attributes) {
     Type type;
     type.kind = TypeKind::enumeration;
     type.name = std::move(name);
     type.element = underlying;
     type.enumerators = std::move(values);
-    return add(std::move(type));
+    return add(std::move(type), std::move(attributes));
 }
 
 Bytes Types::declarations(TypeId first) const {
@@ -408,7 +428,8 @@ Bytes Types::declarations(TypeId first) const {
     d::put(data, types_.size() - first);
     for (std::size_t i = first; i < types_.size(); ++i) {
         const auto& type = types_[i];
-        data.push_back(static_cast<std::uint8_t>(type.kind));
+        const auto& attributes = attributes_[i];
+        data.push_back(static_cast<std::uint8_t>(type.kind) | (attributes.empty() ? 0 : 0x80));
         d::blob(data, type.name);
         if (type.kind == TypeKind::structure) {
             d::put(data, type.fields.size());
@@ -429,11 +450,13 @@ Bytes Types::declarations(TypeId first) const {
                 }
             }
         }
+        if (!attributes.empty())
+            d::encode_attrs(data, attributes);
     }
     return data;
 }
 
-void Types::read_declarations(View data) {
+void Types::read_declarations(View data, std::uint64_t string_count) {
     Cursor r(data);
     require(id(r) == types_.size(), "noncontiguous datatype chunk");
     auto count = id(r);
@@ -441,7 +464,8 @@ void Types::read_declarations(View data) {
     auto next = *this;
     for (std::uint32_t i = 0; i < count; ++i) {
         Type type;
-        type.kind = static_cast<TypeKind>(r.byte());
+        const auto tag = r.byte();
+        type.kind = static_cast<TypeKind>(tag & 0x7f);
         type.name = text(r);
         if (type.kind == TypeKind::structure) {
             auto n = id(r);
@@ -464,10 +488,20 @@ void Types::read_declarations(View data) {
         } else {
             throw vtr::detail::wire::Error("invalid declared datatype kind");
         }
-        next.add(std::move(type));
+        vtr::detail::wire::Attributes attributes;
+        if (tag & 0x80) {
+            attributes = d::decode_attrs(r);
+            require(!attributes.empty(), "empty flagged datatype attributes");
+            for (const auto& attribute : attributes) {
+                require(attribute.key < string_count, "undeclared datatype attribute key");
+                d::validate_value(attribute.value, string_count);
+            }
+        }
+        next.add(std::move(type), std::move(attributes));
     }
     r.done();
     types_ = std::move(next.types_);
+    attributes_ = std::move(next.attributes_);
 }
 
 void Types::validate(TypeId type, View payload, std::uint64_t string_count) const {
@@ -511,7 +545,8 @@ std::uint32_t ArgumentColumns::intern_text(std::string_view text) {
     // Copies share immutable text; appending must not overwrite another copy's views.
     if (text_chunks.empty() || text_chunks.back().bytes.use_count() != 1 ||
         text.size() > text_chunks.back().bytes->size() - text_chunks.back().used)
-        text_chunks.push_back({std::make_shared<Bytes>(std::max<std::size_t>(4096, text.size())), 0});
+        text_chunks.push_back(
+            {std::make_shared<Bytes>(std::max<std::size_t>(4096, text.size())), 0});
     auto& chunk = text_chunks.back();
     auto* destination = chunk.bytes->data() + chunk.used;
     if (!text.empty())

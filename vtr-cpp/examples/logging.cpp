@@ -1,6 +1,6 @@
 // Static callsite metadata and typed arguments support deferred log formatting.
 #include "logging.h"
-#include "vtr_reader.h"
+#include "vtr_logging.h"
 
 #include <iostream>
 #include <string>
@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 
         vtr::Reader input(path);
         input.records({.kind = vtr::RecordKind::log}, [&](const vtr::Record& record) {
-            std::cout << input.format_log(record) << '\n';
+            std::cout << vtr::logging::format_log(input, record) << '\n';
             return vtr::Flow::next;
         });
         (void)input.validate();

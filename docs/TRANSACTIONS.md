@@ -1,6 +1,6 @@
 # Typed records and payloads
 
-This is the normative typed-record portion of **VTR 3.3**. [SPEC.md](SPEC.md)
+This is the normative typed-record portion of **VTR 3.4**. [SPEC.md](SPEC.md)
 defines the container, compression, metadata, hierarchy, tagged attributes,
 waveforms, recovery, and activity sidecars. Together these documents describe
 the implemented format.
@@ -16,10 +16,10 @@ identity disambiguates them. Relations use zero for an endpoint outside the file
 
 A generator is a hierarchy node with one kind string. Ordinary transaction,
 event and stage generators bind one payload datatype; clocks and logger
-generators declare unit. Each log message references a callsite declaration
-whose datatype selects its argument layout independently of the logger.
-Declarations are immutable and precede every block that uses them. New sources,
-callsites and datatypes may be declared during capture. Source metadata describes
+generators declare unit. Each log segment selects a datatype independently of the logger.
+Datatypes can carry arbitrary tagged attributes, including application metadata.
+Declarations are immutable and precede every block that uses them. New sources and
+datatypes may be declared during capture. Source metadata describes
 the source once; it is not a default for missing payload fields.
 
 | Generator kind | Records | Storage |
@@ -28,7 +28,7 @@ the source once; it is not a default for missing payload fields.
 | CLOCK | Constant-period clock stretches, unit payload | TX_BLOCK |
 | EVENT | Located point records | RECORD_BLOCK |
 | STAGE | Located intervals | RECORD_BLOCK |
-| LOG | Located log points with callsite-selected arguments | RECORD_BLOCK |
+| LOG | Located log points with datatype-selected arguments | RECORD_BLOCK |
 
 EVENT/STAGE/LOG/CLOCK are reserved kind strings. A generator may be a root or a
 child of any scope. Only an ordinary transaction can own child records. Its
@@ -67,7 +67,8 @@ serializing the owner and its complete locator list.
 The DATATYPES payload is uncompressed: `varint first_type`, `varint count`, then
 that many declarations. IDs 0–22 are predefined. Declared IDs start at 23 and
 extend the dense table in order; references within a declaration must identify
-an earlier type. Each declaration begins with `u8 kind`, `blob UTF-8 name`, then:
+an earlier type. Each declaration begins with `u8 kind_and_flags`, `blob UTF-8 name`, then
+the body selected by the low seven bits:
 
 | Kind | Declaration body |
 | ---: | --- |
@@ -75,6 +76,22 @@ an earlier type. Each declaration begins with `u8 kind`, `blob UTF-8 name`, then
 | 2 fixed array | `varint element_type`, `varint element_count` |
 | 3 sequence | `varint element_type` |
 | 4 enumeration | `varint underlying_type`, `varint literal_count`, then `u64 value_bits`, `blob literal_name` per literal |
+
+Bit `0x80` indicates that the declaration body is followed by a nonempty tagged
+attribute list using [SPEC section 5.3](SPEC.md#53-attributes-and-values). Without
+that bit there are no attribute bytes. Empty metadata therefore adds no bytes
+to ordinary declarations. Unknown kinds and empty flagged attribute lists are
+invalid. Attribute key IDs are unique; every key and nested string reference must
+be declared before the DATATYPES section that uses it.
+
+Attributes are immutable metadata on the declared datatype, independent of its
+payload layout. VTR validates their generic encoding and references. Applications
+interpret their keys and values. Logging conventions are defined in
+[LOGGING.md](LOGGING.md); they introduce no special datatype or hierarchy kind.
+Predefined primitive IDs have no mutable metadata. A structure can wrap a
+primitive or a shared argument datatype and carry its own attributes. A one-field
+structure adds no canonical payload bytes. Native type caches reuse unannotated
+argument schemas without merging declarations that carry different metadata.
 
 Field and enum literal names are nonempty and unique within the declaration.
 Type names may be empty and need not be unique. Identical declarations may have
@@ -178,9 +195,9 @@ before jobs are encoded and published before dependent blocks.
 ## 5. RECORD_BLOCK (kind 9)
 
 A RECORD_BLOCK may contain any combination of EVENT, STAGE, and LOG generators.
-Each segment contains records from one generator and, for logs, one callsite.
-The generator kind selects time, parent and duration encodings. The callsite
-selects log argument decoding; other records use their generator datatype.
+Each segment contains records from one generator and, for logs, one datatype.
+The generator kind selects time, parent and duration encodings. The segment
+datatype selects log payload decoding; other records use their generator datatype.
 No per-record kind tag is stored.
 
 The section payload has the following layout:
@@ -194,7 +211,7 @@ u32 segment_count, page_count
 
 segment_count * {
     u32 generator_node_id
-    u32 callsite_node_id     (LOG only)
+    u32 payload_datatype_id  (LOG only)
     u32 page_index
     u32 record_count
     u32 raw_offset, raw_length
@@ -213,9 +230,9 @@ page blobs
 
 Blocks, segments, and pages are nonempty. Only EVENT, STAGE, and LOG generators
 are permitted. The segment table gives complete generator membership; no
-per-record generator column is stored. LOG headers include a declared callsite
-ID; EVENT/STAGE headers retain their 68-byte layout and have no callsite field.
-LOG headers are 72 bytes. The callsite's datatype must be available before the
+per-record generator column is stored. LOG headers include a datatype
+ID; EVENT/STAGE headers retain their 68-byte layout and have no datatype selector.
+LOG headers are 72 bytes. The selected datatype must be available before the
 block, and its schema-guided columns must consume every argument byte.
 Segment ID bounds describe its records.
 Parent bounds are the minimum and maximum present parent IDs. They are `(0, 0)`
@@ -274,7 +291,7 @@ The recommended writer policy places LOG segments in separate pages from
 EVENT/STAGE segments. After stable grouping, partition the generator buckets
 by this distinction and close the current page at the boundary. This adds at
 most one partial page per block and avoids decompressing LOG payloads during
-owner expansion. Preserve assignment order within each generator/callsite group.
+owner expansion. Preserve assignment order within each generator/datatype group.
 
 Readers must accept both mixed and single-kind pages and blocks. Separate LOG
 block buffers are an optional policy: they can reduce log-driven block turnover
@@ -488,7 +505,7 @@ conservative filters. A located positive-duration stage intersects when
 intersection `begin <= b && end >= a`. Embedded record times do not expand owner
 bounds. Locators select children regardless of owner/child temporal containment.
 
-Track queries select generator/callsite segments and matching time/parent/ID bounds
+Track queries select generator/datatype segments and matching time/parent/ID bounds
 before decompressing pages. A page may contain unrelated segments; decompression
 is page-sized, while decoding can be segment-specific. Full section CRC checking
 still reads the entire compressed section. Independent pages bound decompression,
@@ -503,7 +520,7 @@ ID ranges, but broad ranges may still select unrelated rows. Retained payloads
 own their schema and storage independently of reader caches and reader lifetime.
 
 Creation IDs, timestamps, completion order, and physical storage order are
-separate. Stable grouping preserves each located generator/callsite group's sequence
+separate. Stable grouping preserves each located generator/datatype group's sequence
 within its block. TX pages sort IDs within a block. Queries do not promise chronological
 order across generators; clients sort explicitly when needed. Waveform readers
 provide a chronological visitor separately from storage-order visitation.

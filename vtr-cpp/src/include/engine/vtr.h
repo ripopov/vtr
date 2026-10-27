@@ -61,8 +61,6 @@ class Writer {
         return bind_type([](Types& types) { return types.bind<T>(); });
     }
 
-    std::uint32_t add_callsite(std::string_view format, TypeId payload_type,
-                               std::uint64_t severity = 2);
     GeneratorId add_generator(Id parent, std::string_view name, std::string_view kind,
                               TypeId payload_type = 0);
     void node_attribute(Id node, Id key, const Value& value);
@@ -103,7 +101,7 @@ class Writer {
     }
 
     RecordId event(GeneratorId generator, RecordId owner, Timestamp time, View payload = {});
-    RecordId log(GeneratorId generator, std::uint32_t callsite, Timestamp time, View payload = {},
+    RecordId log(GeneratorId generator, std::uint32_t datatype, Timestamp time, View payload = {},
                  RecordId owner = 0);
     RecordId begin_stage(GeneratorId generator, RecordId owner, Timestamp time);
     RecordId begin_stage(GeneratorId generator, RecordId owner, Timestamp time, View payload);

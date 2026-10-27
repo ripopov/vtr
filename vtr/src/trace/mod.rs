@@ -3,7 +3,7 @@
 mod format;
 mod hierarchy;
 mod payload;
-pub use format::{FormatLocale, LogCallsite, Severity};
+pub use format::FormatLocale;
 mod validation;
 mod waveform;
 
@@ -74,7 +74,6 @@ struct RecordData {
     kind: RecordKind,
     types: Arc<RecordTypes>,
     datatype: crate::schema::TypeId,
-    callsite: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -120,11 +119,12 @@ impl Record {
     }
     #[must_use]
     #[inline]
-    pub fn callsite(&self) -> Option<u32> {
-        self.embedded
-            .is_none()
-            .then_some(self.data.callsite)
-            .flatten()
+    pub fn datatype(&self) -> crate::TypeId {
+        if self.embedded.is_some() {
+            0
+        } else {
+            self.data.datatype
+        }
     }
     #[must_use]
     #[inline]
@@ -482,7 +482,8 @@ impl Reader {
                         ending = Some(
                             record
                                 .payload()
-                                .decode::<RunEnding>()
+                                .field("value")
+                                .and_then(|value| value.decode::<RunEnding>())
                                 .and_then(|data| data.ending())
                                 .map(|end| (end, Some(record.begin()))),
                         );
@@ -615,12 +616,11 @@ impl Reader {
         }
         for segment in view.segments() {
             self.available_generator(segment.generator, available)?;
-            if let Some(id) = segment.callsite
-                && (id as usize >= available.nodes
-                    || self.declarations.generators.callsite_type(id)? as usize >= available.types)
+            if let Some(id) = segment.datatype
+                && id as usize >= available.types
             {
                 return Err(Error::Corrupt(
-                    "log uses a callsite or datatype before its declaration",
+                    "record uses a datatype before its declaration",
                 ));
             }
         }
@@ -634,7 +634,7 @@ impl Reader {
         else {
             unreachable!("validated record generator");
         };
-        self.retain_payload(raw, kind, payload_type, None)
+        self.retain_payload(raw, kind, payload_type)
     }
     #[inline]
     fn retain_payload(
@@ -642,7 +642,6 @@ impl Reader {
         raw: Transaction,
         kind: RecordKind,
         datatype: crate::TypeId,
-        callsite: Option<u32>,
     ) -> Record {
         Record {
             data: Arc::new(RecordData {
@@ -650,7 +649,6 @@ impl Reader {
                 kind,
                 types: self.types.clone(),
                 datatype,
-                callsite,
             }),
             embedded: None,
         }
@@ -662,13 +660,7 @@ impl Reader {
             .generators
             .get(raw.generator)
             .expect("validated generator");
-        let callsite = raw.callsite();
-        let datatype = callsite.map_or(source.payload_type, |id| {
-            self.declarations
-                .generators
-                .callsite_type(id)
-                .expect("validated callsite")
-        });
+        let datatype = raw.datatype().unwrap_or(source.payload_type);
         self.retain_payload(
             Transaction {
                 id: raw.id,
@@ -681,7 +673,6 @@ impl Reader {
             },
             source.kind,
             datatype,
-            callsite,
         )
     }
 

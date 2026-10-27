@@ -115,7 +115,6 @@ pub struct Generator {
 pub struct Generators {
     prefix: Vec<Option<Generator>>,
     generators: BTreeMap<GeneratorId, Generator>,
-    callsites: BTreeMap<u32, TypeId>,
 }
 
 impl Generators {
@@ -123,30 +122,14 @@ impl Generators {
         std::mem::size_of::<Self>()
             + self.prefix.capacity() * std::mem::size_of::<Option<Generator>>()
             + self.generators.len() * std::mem::size_of::<(GeneratorId, Generator)>()
-            + self.callsites.len() * std::mem::size_of::<(u32, TypeId)>()
     }
-    pub fn declare_callsite(&mut self, id: u32, datatype: TypeId) -> Result<()> {
-        if id == u32::MAX || self.callsites.contains_key(&id) {
-            return Err(Error::Corrupt("invalid or redeclared callsite"));
-        }
-        self.callsites.insert(id, datatype);
-        Ok(())
-    }
-
-    pub fn callsite_type(&self, id: u32) -> Result<TypeId> {
-        self.callsites
-            .get(&id)
-            .copied()
-            .ok_or(Error::Corrupt("undeclared callsite"))
-    }
-
-    pub fn payload_type(&self, generator: GeneratorId, callsite: Option<u32>) -> Result<TypeId> {
+    pub fn payload_type(&self, generator: GeneratorId, datatype: Option<u32>) -> Result<TypeId> {
         let source = self.get(generator)?;
-        match (source.kind, callsite) {
-            (RecordKind::Log, Some(id)) => self.callsite_type(id),
-            (RecordKind::Log, None) => Err(Error::Corrupt("log requires a callsite")),
+        match (source.kind, datatype) {
+            (RecordKind::Log, Some(id)) => Ok(id),
+            (RecordKind::Log, None) => Err(Error::Corrupt("log requires a datatype")),
             (_, None) => Ok(source.payload_type),
-            (_, Some(_)) => Err(Error::Corrupt("fixed-schema record has a callsite")),
+            (_, Some(_)) => Err(Error::Corrupt("fixed-schema record has a datatype")),
         }
     }
 
@@ -197,7 +180,7 @@ impl Generators {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocatedRecord {
     // A reserved absent ID preserves fixed-schema buffer budgets without an optional tag.
-    pub callsite_id: u32,
+    pub datatype_id: u32,
     pub id: RecordId,
     pub generator: GeneratorId,
     pub begin: u64,
@@ -208,8 +191,8 @@ pub struct LocatedRecord {
 
 impl LocatedRecord {
     #[must_use]
-    pub fn callsite(&self) -> Option<u32> {
-        (self.callsite_id != u32::MAX).then_some(self.callsite_id)
+    pub fn datatype(&self) -> Option<u32> {
+        (self.datatype_id != u32::MAX).then_some(self.datatype_id)
     }
 }
 
@@ -232,7 +215,7 @@ impl Default for RecordPolicy {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentHeader {
-    pub callsite: Option<u32>,
+    pub datatype: Option<u32>,
     pub generator: GeneratorId,
     pub page: u32,
     pub count: u32,
@@ -255,7 +238,7 @@ pub struct PageHeader {
 
 #[derive(Clone, Copy, Debug)]
 pub struct RecordQuery {
-    pub callsite: Option<u32>,
+    pub datatype: Option<u32>,
     pub generator: Option<GeneratorId>,
     pub parent: Option<RecordId>,
     pub id: Option<RecordId>,
@@ -268,7 +251,7 @@ pub struct RecordQuery {
 impl Default for RecordQuery {
     fn default() -> Self {
         Self {
-            callsite: None,
+            datatype: None,
             generator: None,
             parent: None,
             id: None,
@@ -470,16 +453,16 @@ pub fn encode_record_block(
     for record in records {
         let generator = *generators.get(record.generator)?;
         valid_record(record, &generator)?;
-        let datatype = generators.payload_type(record.generator, record.callsite())?;
+        let datatype = generators.payload_type(record.generator, record.datatype())?;
         types.validate(datatype, &record.payload, string_count)?;
         if !ids.insert(record.id) {
             return Err(Error::invalid("duplicate global record identifier"));
         }
         let index = *indices
-            .entry((record.generator, record.callsite()))
+            .entry((record.generator, record.datatype()))
             .or_insert_with(|| {
                 let index = buckets.len();
-                buckets.push((generator, record.callsite(), datatype, Vec::new()));
+                buckets.push((generator, record.datatype(), datatype, Vec::new()));
                 index
             });
         buckets[index].3.push(record);
@@ -493,7 +476,7 @@ pub fn encode_record_block(
     let mut blobs = Vec::new();
     let mut all = Bounds::default();
     let mut had_activity = false;
-    for (generator, callsite, datatype, bucket) in buckets {
+    for (generator, selection, datatype, bucket) in buckets {
         if policy.separate_logs && generator.kind == RecordKind::Log && had_activity {
             flush_page(&mut raw_page, &mut pages, &mut blobs, policy.compression)?;
             had_activity = false;
@@ -530,7 +513,7 @@ pub fn encode_record_block(
                 flush_page(&mut raw_page, &mut pages, &mut blobs, policy.compression)?;
             }
             segments.push(SegmentHeader {
-                callsite,
+                datatype: selection,
                 generator: generator.id,
                 page: checked_u32(pages.len())?,
                 count: checked_u32(index - first)?,
@@ -562,8 +545,8 @@ pub fn encode_record_block(
     }
     for segment in segments {
         out.extend_from_slice(&segment.generator.to_le_bytes());
-        if let Some(callsite) = segment.callsite {
-            out.extend_from_slice(&callsite.to_le_bytes());
+        if let Some(datatype) = segment.datatype {
+            out.extend_from_slice(&datatype.to_le_bytes());
         }
         for value in [
             segment.page,
@@ -637,14 +620,14 @@ impl<'a> RecordBlockView<'a> {
         for _ in 0..segment_count {
             let generator_id = cursor.u32()?;
             let generator = generators.get(generator_id)?;
-            let callsite = if generator.kind == RecordKind::Log {
+            let datatype = if generator.kind == RecordKind::Log {
                 Some(cursor.u32()?)
             } else {
                 None
             };
             let segment = SegmentHeader {
                 generator: generator_id,
-                callsite,
+                datatype,
                 page: cursor.u32()?,
                 count: cursor.u32()?,
                 raw_offset: cursor.u32()?,
@@ -657,7 +640,7 @@ impl<'a> RecordBlockView<'a> {
                 end: cursor.u64()?,
             };
             let generator = generators.get(segment.generator)?;
-            types.get(generators.payload_type(segment.generator, segment.callsite)?)?;
+            types.get(generators.payload_type(segment.generator, segment.datatype)?)?;
             if !(RecordKind::Event..=RecordKind::Log).contains(&generator.kind)
                 || segment.page >= page_count
                 || segment.count == 0
@@ -776,9 +759,10 @@ impl<'a> RecordBlockView<'a> {
         let mut raw = Vec::new();
         for segment in &self.segments {
             let generator = self.generators.get(segment.generator)?;
-            if query
-                .callsite
-                .is_some_and(|id| Some(id) != segment.callsite)
+            let datatype = self
+                .generators
+                .payload_type(generator.id, segment.datatype)?;
+            if query.datatype.is_some_and(|id| id != datatype)
                 || query.generator.is_some_and(|id| id != segment.generator)
                 || (!query.include_logs && generator.kind == RecordKind::Log)
                 || query.kind.is_some_and(|kind| kind != generator.kind)
@@ -793,9 +777,6 @@ impl<'a> RecordBlockView<'a> {
             {
                 continue;
             }
-            let datatype = self
-                .generators
-                .payload_type(generator.id, segment.callsite)?;
             if cached_page != Some(segment.page) {
                 let page = &self.pages[segment.page as usize];
                 let start = page.blob_offset as usize;
@@ -840,7 +821,7 @@ impl<'a> RecordBlockView<'a> {
                     .checked_add(duration)
                     .ok_or_else(|| Error::corrupt("stage end overflow"))?;
                 let record = LocatedRecord {
-                    callsite_id: segment.callsite.unwrap_or(u32::MAX),
+                    datatype_id: segment.datatype.unwrap_or(u32::MAX),
                     id,
                     generator: generator.id,
                     begin,

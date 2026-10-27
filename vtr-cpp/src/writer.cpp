@@ -114,7 +114,7 @@ std::uint32_t parent_id(std::optional<ScopeId> parent) {
 struct Writer::Impl {
     detail::RecordingContext context;
     std::unordered_map<std::type_index, TypeId> types;
-    std::unordered_map<const void*, std::pair<CallsiteId, TypeId>> callsites;
+    std::unordered_map<const void*, std::pair<TypeId, TypeId>> datatypes;
 
     Impl(const std::filesystem::path& path, const WriterOptions& options) {
         auto encoding = detail::encoding_options(options.encoding);
@@ -262,6 +262,13 @@ TypeId Writer::cached_type(std::type_index type, const std::function<TypeId()>& 
 }
 
 TypeId Writer::declare_type(std::string name, decltype(DataType::definition) definition) {
+    return declare_datatype({.name = std::move(name)}, std::move(definition));
+}
+
+TypeId Writer::declare_datatype(DatatypeOptions options,
+                                decltype(DataType::definition) definition) {
+    const auto& name = options.name;
+    auto attributes = detail::encode_attributes(options.attributes);
     return context_->control([&](auto& out) {
         auto types = out.types();
         auto first = static_cast<std::uint32_t>(types.size());
@@ -272,17 +279,18 @@ TypeId Writer::declare_type(std::string name, decltype(DataType::definition) def
                     for (const auto& item : value.fields) {
                         fields.push_back({item.name, item.type.value});
                     }
-                    return types.structure(name, std::move(fields));
+                    return types.structure(name, std::move(fields), attributes);
                 } else if constexpr (std::same_as<T, ArrayDefinition>) {
-                    return types.array(value.element.value, value.count, name);
+                    return types.array(value.element.value, value.count, name, attributes);
                 } else if constexpr (std::same_as<T, SequenceDefinition>) {
-                    return types.sequence(value.element.value, name);
+                    return types.sequence(value.element.value, name, attributes);
                 } else if constexpr (std::same_as<T, EnumDefinition>) {
                     std::vector<detail::engine::Enumerator> literals;
                     for (const auto& item : value.literals) {
                         literals.push_back({item.value_bits, item.name});
                     }
-                    return types.enumeration(name, value.underlying.value, std::move(literals));
+                    return types.enumeration(name, value.underlying.value, std::move(literals),
+                                             attributes);
                 } else {
                     throw Error(ErrorCode::invalid_argument, "Cannot declare a primitive type");
                 }
@@ -308,43 +316,45 @@ Logger Writer::logger(SourceOptions options) {
     return {source(std::move(options), "LOG", TypeId(0)), recording_origin()};
 }
 
-CallsiteId Writer::declare_callsite(CallsiteOptions options, TypeId datatype,
+TypeId Writer::declare_payload_type(DatatypeOptions options, TypeId arguments,
                                     const void* descriptor) {
     return context_->control([&](auto& out) {
         if (descriptor) {
-            auto found = impl_->callsites.find(descriptor);
-            if (found != impl_->callsites.end()) {
-                if (found->second.second != datatype)
+            const auto found = impl_->datatypes.find(descriptor);
+            if (found != impl_->datatypes.end()) {
+                const auto& declared = out.types()[found->second.first.value];
+                detail::wire::Bytes previous, current;
+                detail::wire::detail::encode_attrs(
+                    previous, out.types().attributes(found->second.first.value));
+                detail::wire::detail::encode_attrs(current,
+                                                   detail::encode_attributes(options.attributes));
+                if (found->second.second != arguments || declared.name != options.name ||
+                    previous != current)
                     throw Error(ErrorCode::invalid_argument,
-                                "Callsite descriptor changed datatype");
+                                "Datatype descriptor changed declaration");
                 return found->second.first;
             }
         }
-        auto id = out.add_callsite(options.format, datatype.value, options.severity);
-        auto attribute = [&](std::string_view key, const Value& value) {
-            out.node_attribute(id, out.intern(key), detail::encode_value(value));
-        };
-        if (options.file)
-            attribute("log.file", Value(StringId(out.intern(*options.file))));
-        if (options.line)
-            attribute("log.line", Value(*options.line));
-        if (options.function)
-            attribute("log.func", Value(StringId(out.intern(*options.function))));
-        auto result = CallsiteId(id);
+        auto types = out.types();
+        const auto first = static_cast<std::uint32_t>(types.size());
+        const auto id = types.structure(std::move(options.name), {{"value", arguments.value}},
+                                        detail::encode_attributes(options.attributes));
+        out.declare_types(types.declarations(first));
+        const auto result = TypeId(id);
         if (descriptor)
-            impl_->callsites.emplace(descriptor, std::pair{result, datatype});
+            impl_->datatypes.emplace(descriptor, std::pair{result, arguments});
         return result;
     });
 }
 
-void Writer::check_callsite(std::uint64_t origin) const {
+void Writer::check_datatype(std::uint64_t origin) const {
     context_->check_origin(origin);
 }
 
-RecordId Writer::log_raw(Logger logger, CallsiteId callsite, Timestamp time, ByteView payload,
+RecordId Writer::log_raw(Logger logger, TypeId datatype, Timestamp time, ByteView payload,
                          std::optional<OwnerRef> owner) {
     return instant(logger.id_, logger.origin_, SourceKind::log, time,
-                   {payload.size(), payload.data()}, owner, callsite);
+                   {payload.size(), payload.data()}, owner, datatype);
 }
 
 ClockSource Writer::clock(SourceOptions options) {
@@ -445,7 +455,7 @@ void Writer::finish(RecordId record, std::uint64_t origin, SourceKind kind, Time
 
 RecordId Writer::instant(GeneratorId site, std::uint64_t origin, SourceKind kind, Timestamp time,
                          detail::EncodedPayload payload, std::optional<OwnerRef> owner,
-                         std::optional<CallsiteId> callsite) {
+                         std::optional<TypeId> datatype) {
     context_->check_origin(origin);
     if (owner)
         context_->check_origin(owner->origin_);
@@ -453,7 +463,7 @@ RecordId Writer::instant(GeneratorId site, std::uint64_t origin, SourceKind kind
         const auto parent = owner ? owner->id_.value : 0;
         return RecordId(kind == SourceKind::event
                             ? out.event(site.value, parent, time, data)
-                            : out.log(site.value, callsite->value, time, data, parent));
+                            : out.log(site.value, datatype->value, time, data, parent));
     });
 }
 

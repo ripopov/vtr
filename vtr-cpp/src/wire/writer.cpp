@@ -605,9 +605,6 @@ struct Writer::Impl {
                     put(raw, n.aux);
                     put(raw, n.payload_type);
                     break;
-                case Node::callsite:
-                    put(raw, n.payload_type);
-                    break;
                 case Node::enum_table:
                     put(raw, n.entries.size());
                     for (auto [a, b] : n.entries) {
@@ -925,18 +922,6 @@ Id Writer::add_alias(Id parent, std::string_view name, Id signal, std::uint16_t 
     n.direction = direction;
     n.signal = signal;
     n.alias = true;
-    p.nodes.push_back(std::move(n));
-    return static_cast<Id>(p.nodes.size() - 1);
-}
-
-Id Writer::add_callsite(std::string_view format, Id payload_type, std::uint64_t severity) {
-    auto& p = *impl_;
-    p.alive();
-    Node n;
-    n.kind = Node::callsite;
-    n.name = intern(format);
-    n.payload_type = payload_type;
-    n.attrs.push_back({intern("log.severity"), Value(severity)});
     p.nodes.push_back(std::move(n));
     return static_cast<Id>(p.nodes.size() - 1);
 }

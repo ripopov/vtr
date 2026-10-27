@@ -436,6 +436,8 @@ ValidationReport Reader::validate() const {
         ++report.records;
     };
     label_attrs(metadata().attrs, native);
+    for (TypeId id = first_declared_type; id < types().size(); ++id)
+        label_attrs(types().attributes(id), native);
     for (std::size_t i = 0; i < nodes().size(); ++i) {
         const auto& node = nodes()[i];
         label_attrs(node.attrs, native);
@@ -461,14 +463,6 @@ ValidationReport Reader::validate() const {
                     require(nodes()[target].kind == vtr::detail::wire::Node::generator &&
                                 record_kind(string(nodes()[target].aux)) == RecordKind::clock,
                             "invalid associated clock generator");
-                }
-            }
-            if (record_kind(string(node.aux)) == RecordKind::log) {
-                if (key == "log.severity" || key == "log.line") {
-                    require(attr.value.tag == Tag::u64, "invalid numeric log metadata type");
-                }
-                if (key == "log.file" || key == "log.func") {
-                    require(attr.value.tag == Tag::str, "invalid log provenance type");
                 }
             }
         }

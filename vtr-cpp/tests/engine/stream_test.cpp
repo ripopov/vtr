@@ -32,8 +32,8 @@ void skew_and_barrier(const std::filesystem::path& directory) {
         [](Writer& writer) { return writer.add_generator(none, "requests", "TRANSACTION"); });
     const auto text = stream.control(
         [](Writer& writer) { return writer.add_generator(none, "messages", "LOG"); });
-    const auto callsite = stream.control(
-        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
+    const auto callsite =
+        stream.control([](Writer& backend) { return backend.bind<std::string>(); });
     const auto fast_signal = stream.control([](Writer& writer) {
         return writer.add_var(none, "fast", {SignalKind::bits, 32, 2}).second;
     });
@@ -243,8 +243,7 @@ void ownership_slot_collisions(const std::filesystem::path& directory) {
         [](Writer& backend) { return backend.add_generator(none, "stage", "STAGE"); });
     const auto log_generator = stream.control(
         [](Writer& backend) { return backend.add_generator(none, "filler", "LOG"); });
-    const auto callsite =
-        stream.control([](Writer& backend) { return backend.add_callsite("filler", 0); });
+    const auto callsite = stream.control([](Writer& backend) { return TypeId{0}; });
     const auto key = stream.control([](Writer& backend) { return backend.intern("value"); });
     const auto later = stream.control([](Writer& backend) { return backend.intern("later"); });
     const auto first = stream.add_producer(), second = stream.add_producer();
@@ -385,8 +384,8 @@ void oversized_owned_payloads(const std::filesystem::path& directory) {
     Stream stream(path, {}, {.queue_bytes = 128, .pending_bytes = 512});
     const auto generator = stream.control(
         [](Writer& backend) { return backend.add_generator(none, "messages", "LOG"); });
-    const auto callsite = stream.control(
-        [](Writer& backend) { return backend.add_callsite("{}", backend.bind<std::string>()); });
+    const auto callsite =
+        stream.control([](Writer& backend) { return backend.bind<std::string>(); });
     const auto fast = stream.add_producer(), slow = stream.add_producer();
     stream.use_producer(fast);
     std::vector<RecordId> ids;

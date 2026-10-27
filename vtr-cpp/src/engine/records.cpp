@@ -99,8 +99,8 @@ struct Bounds {
 
 void valid_record(const LocatedRecord& record, const Generator& generator) {
     require(record.id && record.parent < record.id, "invalid record identity/parent");
-    require((generator.kind == RecordKind::log) == record.callsite().has_value(),
-            "record callsite does not match source kind");
+    require((generator.kind == RecordKind::log) == record.datatype().has_value(),
+            "record datatype does not match source kind");
     require(generator.kind >= RecordKind::event && generator.kind <= RecordKind::log,
             "invalid located generator kind");
     require(generator.kind == RecordKind::log || record.parent,
@@ -122,24 +122,13 @@ void Generators::declare(Generator generator) {
         prefix_[generator.id] = generator;
 }
 
-void Generators::declare_callsite(std::uint32_t id, TypeId datatype) {
-    require(id != UINT32_MAX && callsites_.emplace(id, datatype).second,
-            "invalid or redeclared callsite");
-}
-
-TypeId Generators::callsite_type(std::uint32_t id) const {
-    auto found = callsites_.find(id);
-    require(found != callsites_.end(), "undeclared callsite");
-    return found->second;
-}
-
-TypeId Generators::payload_type(GeneratorId id, std::optional<std::uint32_t> callsite) const {
+TypeId Generators::payload_type(GeneratorId id, std::optional<std::uint32_t> datatype) const {
     const auto& generator = (*this)[id];
     if (generator.kind == RecordKind::log) {
-        require(callsite.has_value(), "log requires a callsite");
-        return callsite_type(*callsite);
+        require(datatype.has_value(), "log requires a datatype");
+        return *datatype;
     }
-    require(!callsite, "fixed-schema record has a callsite");
+    require(!datatype, "fixed-schema record has a datatype");
     return generator.payload_type;
 }
 
@@ -158,8 +147,8 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
 
     struct Bucket {
         const Generator* generator;
-        std::optional<std::uint32_t> callsite;
-        TypeId datatype;
+        std::optional<std::uint32_t> datatype;
+        TypeId payload_type;
         std::vector<const LocatedRecord*> records;
     };
 
@@ -168,12 +157,11 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
     for (const auto& record : records) {
         const auto& generator = generators[record.generator];
         valid_record(record, generator);
-        auto datatype = record.callsite() ? generators.callsite_type(*record.callsite())
-                                          : generator.payload_type;
-        auto key = (std::uint64_t(record.generator) << 32) | record.callsite().value_or(0);
+        auto datatype = record.datatype().value_or(generator.payload_type);
+        auto key = (std::uint64_t(record.generator) << 32) | record.datatype().value_or(0);
         auto [i, fresh] = by_generator.try_emplace(key, buckets.size());
         if (fresh) {
-            buckets.push_back({&generator, record.callsite(), datatype, {}});
+            buckets.push_back({&generator, record.datatype(), datatype, {}});
         }
         buckets[i->second].records.push_back(&record);
     }
@@ -239,7 +227,7 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
                     dictionary_count = encoder.arguments.dictionary.size();
                     dictionary_bytes = encoder.dictionary_bytes;
                 }
-                encoder.append(types, *bucket.generator, record, bucket.datatype);
+                encoder.append(types, *bucket.generator, record, bucket.payload_type);
                 if (bounded) {
                     unmeasured_upper += upper;
                 } else {
@@ -275,7 +263,7 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
             segments.push_back({bucket.generator->id, u32(pages.size()), u32(index - first), offset,
                                 u32(raw.size()), bounds.min_id, bounds.max_id,
                                 bounds.max_parent ? bounds.min_parent : 0, bounds.max_parent,
-                                bounds.begin, bounds.end, bucket.callsite});
+                                bounds.begin, bounds.end, bucket.datatype});
             if (raw_page.size() >= policy.page_bytes) {
                 flush_page();
             }
@@ -291,8 +279,8 @@ Bytes encode_record_block(std::uint64_t number, const Types& types, const Genera
     d::fixed(payload, u32(pages.size()));
     for (const auto& s : segments) {
         d::fixed(payload, s.generator);
-        if (s.callsite)
-            d::fixed(payload, *s.callsite);
+        if (s.datatype)
+            d::fixed(payload, *s.datatype);
         for (auto v : {s.page, s.count, s.raw_offset, s.raw_length}) {
             d::fixed(payload, v);
         }
@@ -330,7 +318,7 @@ RecordBlockView::RecordBlockView(View encoded, const Types& types, const Generat
         s.generator = r.fixed<std::uint32_t>();
         const auto& generator = generators_[s.generator];
         if (generator.kind == RecordKind::log)
-            s.callsite = r.fixed<std::uint32_t>();
+            s.datatype = r.fixed<std::uint32_t>();
         s.page = r.fixed<std::uint32_t>();
         s.count = r.fixed<std::uint32_t>();
         s.raw_offset = r.fixed<std::uint32_t>();
@@ -341,7 +329,7 @@ RecordBlockView::RecordBlockView(View encoded, const Types& types, const Generat
         s.max_parent = r.fixed<std::uint64_t>();
         s.begin = r.fixed<std::uint64_t>();
         s.end = r.fixed<std::uint64_t>();
-        types_[generators_.payload_type(s.generator, s.callsite)];
+        types_[generators_.payload_type(s.generator, s.datatype)];
         require(generator.kind >= RecordKind::event && generator.kind <= RecordKind::log &&
                     s.page < page_count && s.count && s.raw_length,
                 "invalid record segment");
@@ -400,7 +388,8 @@ void RecordBlockView::query(RecordQuery query,
         while (segment_index < segments_.size() && segments_[segment_index].page == page_index) {
             const auto& segment = segments_[segment_index++];
             const auto& generator = generators_[segment.generator];
-            if ((query.callsite && query.callsite != segment.callsite) ||
+            const auto datatype = segment.datatype.value_or(generator.payload_type);
+            if ((query.datatype && *query.datatype != datatype) ||
                 (query.generator && *query.generator != segment.generator) ||
                 (!query.include_logs && generator.kind == RecordKind::log) ||
                 (query.kind && *query.kind != generator.kind) ||
@@ -410,7 +399,6 @@ void RecordBlockView::query(RecordQuery query,
                 query.end < segment.begin || query.begin > segment.end) {
                 continue;
             }
-            const auto datatype = generators_.payload_type(segment.generator, segment.callsite);
             const auto& page = pages_[page_index];
             if (raw.empty()) {
                 raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
@@ -441,7 +429,7 @@ void RecordBlockView::query(RecordQuery query,
                 auto duration = generator.kind == RecordKind::stage ? columns[3].var() : 0;
                 require(duration <= UINT64_MAX - record.begin, "stage end overflow");
                 record.end = record.begin + duration;
-                record.callsite_id = segment.callsite.value_or(UINT32_MAX);
+                record.datatype_id = segment.datatype.value_or(UINT32_MAX);
                 record.payload = args.read(types_, datatype);
                 valid_record(record, generator);
                 bounds.add(record);

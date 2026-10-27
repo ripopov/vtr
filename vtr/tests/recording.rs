@@ -102,9 +102,11 @@ fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
             let events = writer
                 .events::<()>(SourceOptions::new("retire", Some(core)))
                 .unwrap();
-            let logs = writer
-                .callsite::<Vec<String>>(vtr::CallsiteOptions::new("result {}"))
-                .unwrap();
+            let logs = vtr::logging::declare::<Vec<String>>(
+                &mut writer,
+                vtr::logging::CallsiteOptions::new("result {}"),
+            )
+            .unwrap();
             let clock = writer
                 .clock(SourceOptions::new("clock", Some(core)))
                 .unwrap();
@@ -251,6 +253,8 @@ fn typed_recording_round_trips_every_codec_mode_and_lifetime() {
                     .unwrap()
                     .unwrap()
                     .payload()
+                    .field("value")
+                    .unwrap()
                     .decode::<Vec<String>>()
                     .unwrap(),
                 vec!["copied"]

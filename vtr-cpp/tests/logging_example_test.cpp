@@ -1,5 +1,5 @@
 #include "../examples/logging.h"
-#include "vtr_reader.h"
+#include "vtr_logging.h"
 
 #include <barrier>
 #include <exception>
@@ -12,6 +12,12 @@
 #include <thread>
 
 namespace vt = vtr;
+
+namespace vtr {
+void emit_namespaced(::logging::Logger& logger) {
+    LOG_INFO(logger, "namespace={}", 42);
+}
+} // namespace vtr
 
 void check(bool value, const char* message) {
     if (!value) {
@@ -32,54 +38,42 @@ void emit(logging::Logger& logger, std::uint32_t value, std::size_t text_size) {
 void verify_capture(const std::filesystem::path& path) {
     vt::Reader reader(path);
     check(reader.generators().size() == 2, "one generator per logger");
-    check(reader.callsites().size() == 5, "callsites shared by both loggers");
+    check(vtr::logging::callsites(reader).size() == 5, "callsites shared by both loggers");
     std::map<vt::GeneratorId, unsigned> counts;
     std::map<std::string, unsigned> messages;
     std::set<vt::TypeId> value_types;
     std::set<std::uint64_t> lines;
     unsigned info = 0, warning = 0;
-    for (const auto& node : reader.nodes()) {
-        if (node.kind != vt::NodeKind::callsite) {
-            continue;
-        }
-        check(node.metadata.size() == 4, "complete static source metadata");
-        for (const auto& attribute : node.metadata) {
-            const auto key = reader.string(attribute.key);
-            if (key == "log.severity") {
-                const auto level = std::get<std::uint64_t>(attribute.data.data);
-                info += level == 2;
-                warning += level == 3;
-            } else if (key == "log.line") {
-                lines.insert(std::get<std::uint64_t>(attribute.data.data));
-            } else if (key == "log.file") {
-                const auto file = reader.string(std::get<vt::StringId>(attribute.data.data));
-                check(file.ends_with("logging_example_test.cpp"), "caller file metadata");
-            } else if (key == "log.func") {
-                const auto function = reader.string(std::get<vt::StringId>(attribute.data.data));
-                check(function.find("emit(") != std::string_view::npos, "caller function metadata");
-            }
-        }
+    for (const auto& metadata : vtr::logging::callsites(reader)) {
+        info += metadata.severity == 2;
+        warning += metadata.severity == 3;
+        check(metadata.line.has_value() && metadata.file.has_value() &&
+                  metadata.function.has_value(),
+              "complete static logging metadata");
+        lines.insert(*metadata.line);
+        check(metadata.file->ends_with("logging_example_test.cpp"), "caller file metadata");
+        check(metadata.function->find("emit(") != std::string::npos, "caller function metadata");
     }
     check(info == 4 && warning == 1 && lines.size() == 5, "distinct callsite provenance");
 
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
         ++counts[*record.generator()];
-        if (reader.string(reader.nodes()[record.callsite()->value].name) == "value={}")
-            value_types.insert(record.payload().type());
-        const auto message = reader.format_log(record);
+        if (vtr::logging::metadata(reader, record.datatype())->format == "value={}")
+            value_types.insert(record.payload()["value"].type());
+        const auto message = vtr::logging::format_log(reader, record);
         ++messages[message];
         check(record.attributes().empty(), "messages contain no repeated source metadata");
         if (message.starts_with("many=")) {
-            check(record.payload().size() == 11 &&
-                      record.payload()["arg10"].as<std::int32_t>() == 10,
+            check(record.payload()["value"].size() == 11 &&
+                      record.payload()["value"]["arg10"].as<std::int32_t>() == 10,
                   "argument pack order and multi-digit field names");
         } else if (message.starts_with("text=")) {
-            const auto text = record.payload()["arg0"].as<std::string>();
+            const auto text = record.payload()["value"]["arg0"].as<std::string>();
             check((text.size() == 5 || text.size() == 4096) &&
                       text.find_first_not_of('x') == std::string::npos,
                   "small and large borrowed strings captured before mutation");
         } else if (message == "ready") {
-            check(record.payload().size() == 0, "zero argument capture");
+            check(record.payload()["value"].size() == 0, "zero argument capture");
         }
         return vt::Flow::next;
     });
@@ -120,7 +114,7 @@ void capture(const std::filesystem::path& directory) {
 void recording_lifetimes(const std::filesystem::path& directory) {
     std::optional<vt::Writer> writer;
     std::optional<vt::Logger> previous_logger;
-    std::optional<vt::Callsite<std::uint64_t>> previous_callsite;
+    std::optional<vt::PayloadType<std::uint64_t>> previous_callsite;
     auto rejects_stale = [](auto&& action) {
         try {
             action();
@@ -134,7 +128,7 @@ void recording_lifetimes(const std::filesystem::path& directory) {
         const auto path = directory / "lifetime.vtr";
         writer.emplace(path, vt::WriterOptions{.mode = vt::ExecutionMode::inline_});
         const auto logger = writer->logger({.name = "logger"});
-        const auto callsite = writer->callsite<std::uint64_t>({.format = "{}"});
+        const auto callsite = vtr::logging::declare<std::uint64_t>(*writer, {.format = "{}"});
         if (previous_logger) {
             check(previous_logger->id() == logger.id() && previous_callsite->id() == callsite.id(),
                   "sequential recordings require colliding local IDs");
@@ -149,7 +143,7 @@ void recording_lifetimes(const std::filesystem::path& directory) {
         vt::Reader reader(path);
         check(reader.validate().records == 1, "rejected stale handles emitted messages");
         reader.records({}, [&](const vt::Record& record) {
-            check(record.payload().as<std::uint64_t>() == generation,
+            check(record.payload()["value"].as<std::uint64_t>() == generation,
                   "new recording payload changed");
             return vt::Flow::next;
         });
@@ -162,7 +156,8 @@ void raw_schema_validation(const std::filesystem::path& directory) {
             const auto path = directory / "raw.vtr";
             vt::Writer writer(path, {.mode = mode});
             const auto logger = writer.logger({.name = "raw"});
-            auto callsite = writer.declare_callsite({.format = "{}"}, writer.bind<std::uint64_t>());
+            auto callsite =
+                vtr::logging::declare_raw(writer, {.format = "{}"}, writer.bind<std::uint64_t>());
             std::array<std::byte, 9> bytes{std::byte{42}};
             std::size_t length = 8;
             if (scenario == 1)
@@ -170,9 +165,9 @@ void raw_schema_validation(const std::filesystem::path& directory) {
             if (scenario == 2)
                 length = 9;
             if (scenario == 3)
-                callsite = vt::CallsiteId(UINT32_MAX);
+                callsite = vt::TypeId(UINT32_MAX);
             if (scenario == 4)
-                callsite = vt::CallsiteId(logger.id().value);
+                callsite = vt::TypeId(logger.id().value);
             bool failed = false;
             try {
                 writer.log_raw(logger, callsite, 0, vt::ByteView(bytes).first(length));
@@ -184,7 +179,7 @@ void raw_schema_validation(const std::filesystem::path& directory) {
             if (!failed) {
                 vt::Reader reader(path);
                 check(reader.validate().records == 1, "raw capture lost its record");
-                check(reader.lookup(vt::RecordId(1))->payload().as<std::uint64_t>() == 42,
+                check(reader.lookup(vt::RecordId(1))->payload()["value"].as<std::uint64_t>() == 42,
                       "raw capture changed canonical payload");
             }
         }
@@ -210,10 +205,10 @@ void filtering(const std::filesystem::path& path) {
     check(arguments == 1, "off level skips every argument expression");
     writer.close();
     vt::Reader reader(path);
-    check(reader.generators().size() == 1 && reader.callsites().size() == 1,
+    check(reader.generators().size() == 1 && vtr::logging::callsites(reader).size() == 1,
           "disabled calls declare no callsites");
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
-        check(reader.format_log(record) == "enabled=1", "filtered output");
+        check(vtr::logging::format_log(reader, record) == "enabled=1", "filtered output");
         return vt::Flow::next;
     });
     check(reader.validate().records == 1, "only enabled calls recorded");
@@ -234,7 +229,8 @@ void preparation(const std::filesystem::path& path) {
     vt::Reader reader(path);
     check(reader.generators().size() == 1, "preparation declares exactly one source");
     reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
-        check(record.callsite() == source && reader.format_log(record) == "prepared=0x1234",
+        check(record.datatype() == source &&
+                  vtr::logging::format_log(reader, record) == "prepared=0x1234",
               "prepared source used for typed capture");
         return vt::Flow::next;
     });
@@ -268,7 +264,7 @@ void concurrent_registration(const std::filesystem::path& directory) {
                 check(reader.generators().size() == 1,
                       "concurrent registration retains one logger");
                 reader.records({.kind = vt::RecordKind::log}, [&](const vt::Record& record) {
-                    const auto text = reader.format_log(record);
+                    const auto text = vtr::logging::format_log(reader, record);
                     check(text.starts_with("parallel=") || text.starts_with("counter="),
                           "concurrent capture uses the correct schema");
                     return vt::Flow::next;
@@ -325,10 +321,10 @@ void shared_logger_concurrent_first_use(const std::filesystem::path& path) {
             std::rethrow_exception(error);
     writer.close();
     vt::Reader reader(path);
-    check(reader.generators().size() == 1 && reader.callsites().size() == 2,
+    check(reader.generators().size() == 1 && vtr::logging::callsites(reader).size() == 2,
           "shared logger registration duplicated a generator or callsite");
     reader.records({.generator = shared.id()}, [&](const vt::Record& record) {
-        const auto text = reader.format_log(record);
+        const auto text = vtr::logging::format_log(reader, record);
         check(text.starts_with("parallel=") || text.starts_with("counter="),
               "concurrent callsite binding changed schema");
         return vt::Flow::next;
@@ -336,10 +332,64 @@ void shared_logger_concurrent_first_use(const std::filesystem::path& path) {
     check(reader.validate().records == workers * 40, "shared logger lost concurrent captures");
 }
 
+void metadata_registration(const std::filesystem::path& directory) {
+    for (unsigned change = 0; change != 3; ++change) {
+        const auto path = directory / ("metadata-cache-" + std::to_string(change) + ".vtr");
+        vt::Writer writer(path, {.mode = vt::ExecutionMode::inline_});
+        const int descriptor = 0;
+        const auto key = writer.intern("custom");
+        vt::DatatypeOptions options{.name = "annotated",
+                                    .attributes = {{key, vt::Value(std::string("original"))}}};
+        const auto original = writer.datatype<std::uint64_t>(options, &descriptor);
+        check(writer.datatype<std::uint64_t>(options, &descriptor).id() == original.id(),
+              "immutable metadata registration must reuse its declaration");
+        const auto distinct = writer.datatype<std::uint64_t>(options);
+        check(distinct.id() != original.id(), "independent metadata declarations were merged");
+        if (change == 0)
+            options.name = "changed";
+        if (change == 1)
+            options.attributes[0].data = vt::Value(std::string("changed"));
+        bool rejected = false;
+        try {
+            if (change == 2)
+                (void)writer.datatype<std::int64_t>(options, &descriptor);
+            else
+                (void)writer.datatype<std::uint64_t>(options, &descriptor);
+        } catch (const vt::Error& error) {
+            check(error.code() == vt::ErrorCode::invalid_argument, "metadata cache error code");
+            rejected = true;
+        }
+        check(rejected, "metadata cache accepted a changed declaration");
+        writer.close();
+        vt::Reader reader(path);
+        const auto& type = reader.types()[original.id().value];
+        check(type.name == "annotated" &&
+                  std::get<std::string>(type.attributes[0].data.data) == "original",
+              "failed registration mutated a published declaration");
+    }
+}
+
 int main(int argc, char** argv) {
     try {
         const auto directory = argc > 1 ? argv[1] : "logging-fixtures";
         std::filesystem::create_directories(directory);
+        metadata_registration(directory);
+        {
+            const auto path = std::filesystem::path(directory) / "namespaced.vtr";
+            vt::Writer writer(path, {.mode = vt::ExecutionMode::inline_});
+            ::logging::Logger logger(writer);
+            vt::emit_namespaced(logger);
+            writer.close();
+            vt::Reader reader(path);
+            unsigned records = 0;
+            reader.records({}, [&](const vt::Record& record) {
+                check(vtr::logging::format_log(reader, record) == "namespace=42",
+                      "logging macros resolve their frontend inside namespace vtr");
+                ++records;
+                return vt::Flow::next;
+            });
+            check(records == 1, "namespaced logging lost its message");
+        }
         capture(directory);
         recording_lifetimes(directory);
         raw_schema_validation(directory);

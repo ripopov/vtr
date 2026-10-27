@@ -890,9 +890,9 @@ struct Stream::Impl {
             if (op.kind == Kind::event) {
                 backend.event(op.generator, op.argument, op.time, data);
             } else {
-                require(data.size() >= 4, "missing captured callsite");
-                auto callsite = wire_detail::load<std::uint32_t>(data);
-                backend.log(op.generator, callsite, op.time, data.subspan(4), op.argument);
+                require(data.size() >= 4, "missing captured datatype");
+                auto datatype = wire_detail::load<std::uint32_t>(data);
+                backend.log(op.generator, datatype, op.time, data.subspan(4), op.argument);
             }
             break;
         case Kind::payload:
@@ -1359,20 +1359,20 @@ RecordId Stream::event(GeneratorId generator, RecordId owner, Timestamp time, Vi
     return impl_->create({Kind::event, 0, generator, 0, time, owner}, payload);
 }
 
-RecordId Stream::log(GeneratorId generator, std::uint32_t callsite, Timestamp time, View payload,
+RecordId Stream::log(GeneratorId generator, std::uint32_t datatype, Timestamp time, View payload,
                      RecordId owner) {
     struct Capture {
-        std::uint32_t callsite;
+        std::uint32_t datatype;
         EncodedPayload payload;
     };
 
-    const Capture capture{callsite, {payload.size(), payload.data()}};
+    const Capture capture{datatype, {payload.size(), payload.data()}};
     require(capture.payload.size <= SIZE_MAX - 4, "log capture exceeds addressable storage");
     const EncodedPayload encoded{capture.payload.size + 4, &capture,
                                  [](std::span<std::byte> output, const void* source) {
                                      const auto& capture = *static_cast<const Capture*>(source);
                                      for (unsigned byte = 0; byte != 4; ++byte)
-                                         output[byte] = std::byte(capture.callsite >> (byte * 8));
+                                         output[byte] = std::byte(capture.datatype >> (byte * 8));
                                      capture.payload.copy_to(output.subspan(4));
                                  }};
     return impl_->create({Kind::log, 0, generator, 0, time, owner}, encoded);
@@ -1409,20 +1409,20 @@ RecordId Stream::event(GeneratorId generator, RecordId owner, Timestamp time,
     return impl_->create({Kind::event, 0, generator, 0, time, owner}, payload);
 }
 
-RecordId Stream::log(GeneratorId generator, std::uint32_t callsite, Timestamp time,
+RecordId Stream::log(GeneratorId generator, std::uint32_t datatype, Timestamp time,
                      const EncodedPayload& payload, RecordId owner) {
     struct Capture {
-        std::uint32_t callsite;
+        std::uint32_t datatype;
         EncodedPayload payload;
     };
 
-    const Capture capture{callsite, payload};
+    const Capture capture{datatype, payload};
     require(capture.payload.size <= SIZE_MAX - 4, "log capture exceeds addressable storage");
     const EncodedPayload encoded{capture.payload.size + 4, &capture,
                                  [](std::span<std::byte> output, const void* source) {
                                      const auto& capture = *static_cast<const Capture*>(source);
                                      for (unsigned byte = 0; byte != 4; ++byte)
-                                         output[byte] = std::byte(capture.callsite >> (byte * 8));
+                                         output[byte] = std::byte(capture.datatype >> (byte * 8));
                                      capture.payload.copy_to(output.subspan(4));
                                  }};
     return impl_->create({Kind::log, 0, generator, 0, time, owner}, encoded);
