@@ -1,5 +1,6 @@
 #include "engine/records.h"
 #include "format.h"
+#include "payload.h"
 #include <algorithm>
 #include <iostream>
 #include <map>

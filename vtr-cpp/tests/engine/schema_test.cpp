@@ -1,5 +1,6 @@
 #include "engine/schema.h"
 #include "format.h"
+#include "payload.h"
 #include <iostream>
 #include <random>
 #include <source_location>
@@ -21,7 +22,7 @@ struct Request {
     std::array<Operand, 3> operands;
     std::vector<Operand> extra;
     std::string description;
-    Bytes data;
+    vtr::Bytes data;
     double estimate;
     std::vector<bool> flags;
 };
@@ -30,41 +31,37 @@ struct Recursive {
     std::vector<Recursive> children;
 };
 
-template <> struct vtr::detail::engine::Enum<Operation> {
+template <> struct vtr::Schema<Operation> {
     static constexpr std::string_view name = "Operation";
-
-    static auto values() {
-        return std::array{std::pair{Operation::load, "load"}, std::pair{Operation::store, "store"}};
-    }
+    static constexpr std::array enumerators{vtr::Enumerator{"load", Operation::load},
+                                            vtr::Enumerator{"store", Operation::store}};
 };
 
-template <> struct vtr::detail::engine::Record<Operand> {
+template <> struct vtr::Schema<Operand> {
     static constexpr std::string_view name = "Operand";
 
-    static auto fields() {
-        return std::tuple{field("index", &Operand::index), field("offset", &Operand::offset),
-                          field("weight", &Operand::weight)};
-    }
+    static constexpr auto fields =
+        std::tuple{vtr::field("index", &Operand::index), vtr::field("offset", &Operand::offset),
+                   vtr::field("weight", &Operand::weight)};
 };
 
-template <> struct vtr::detail::engine::Record<Request> {
+template <> struct vtr::Schema<Request> {
     static constexpr std::string_view name = "Request";
 
-    static auto fields() {
-        return std::tuple{
-            field("address", &Request::address),         field("operation", &Request::operation),
-            field("operands", &Request::operands),       field("extra", &Request::extra),
-            field("description", &Request::description), field("data", &Request::data),
-            field("estimate", &Request::estimate),       field("flags", &Request::flags)};
-    }
+    static constexpr auto fields = std::tuple{vtr::field("address", &Request::address),
+                                              vtr::field("operation", &Request::operation),
+                                              vtr::field("operands", &Request::operands),
+                                              vtr::field("extra", &Request::extra),
+                                              vtr::field("description", &Request::description),
+                                              vtr::field("data", &Request::data),
+                                              vtr::field("estimate", &Request::estimate),
+                                              vtr::field("flags", &Request::flags)};
 };
 
-template <> struct vtr::detail::engine::Record<Recursive> {
+template <> struct vtr::Schema<Recursive> {
     static constexpr std::string_view name = "Recursive";
 
-    static auto fields() {
-        return std::tuple{field("children", &Recursive::children)};
-    }
+    static constexpr auto fields = std::tuple{vtr::field("children", &Recursive::children)};
 };
 
 void check(bool good, const char* message) {
@@ -133,13 +130,11 @@ void aggregates() {
         }
         request.extra.assign(i % 11, request.operands[i % 3]);
         request.description = i % 4 ? "bank conflict Δ" : "";
-        request.data.assign(i % 17, std::uint8_t(i));
+        request.data.assign(i % 17, static_cast<std::byte>(i));
         request.estimate = std::bit_cast<double>(random());
         request.flags.assign(i % 13, i % 2);
         auto row = capture(request);
         types.validate(id, row);
-        auto decoded = decode<Request>(row);
-        check(capture(decoded) == row, "C++20 typed decode changed payload bits");
         columns.append(types, id, row);
         rows.push_back(std::move(row));
     }
@@ -153,10 +148,6 @@ void aggregates() {
     for (std::size_t n = 0; n < rows[0].size(); ++n) {
         rejects([&] { types.validate(id, View(rows[0]).first(n)); });
     }
-    for (std::size_t n = 0; n < rows[0].size(); ++n) {
-        rejects([&] { decode<Request>(View(rows[0]).first(n)); });
-    }
-    rejects([&] { decode<Request>(rows[1], 1); });
     auto trailing = rows[0];
     trailing.push_back(0);
     rejects([&] { types.validate(id, trailing); });
@@ -287,6 +278,14 @@ void declarations_and_limits() {
     Types decoder;
     decoder.read_declarations(wire);
     rejects([&] { decoder.read_declarations(wire); });
+    auto added = types.structure("AfterFailure", {{"previous", unit}});
+    auto suffix = types.declarations(decoder.size());
+    auto malformed = suffix;
+    malformed.push_back(0);
+    rejects([&] { decoder.read_declarations(malformed); });
+    check(decoder.declarations() == wire, "failed chunk changed an existing schema prefix");
+    decoder.read_declarations(suffix);
+    check(decoder[added].name == "AfterFailure", "schema append failed after rollback");
     rejects([&] { types.validate(19, {}); });
     rejects([&] { types.validate(9999, {}); });
 }
@@ -540,7 +539,7 @@ void fixture(bool shared = false) {
              {1234, -42, 1.5f}}};
         request.extra.assign(i, request.operands[2]);
         request.description = i < 2 ? "retry Δ" : "";
-        request.data = Bytes{0, 255, static_cast<std::uint8_t>(i)};
+        request.data = vtr::Bytes{std::byte{0}, std::byte{255}, static_cast<std::byte>(i)};
         request.estimate = std::bit_cast<double>(std::uint64_t(0x7ff800000000babe));
         request.flags.assign(i + 1, i % 2);
         rows.emplace_back(request_type, capture(request));

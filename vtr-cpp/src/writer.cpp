@@ -54,7 +54,7 @@ struct RecordingContext {
             if (stream)
                 return action(*stream);
             if (finished)
-                throw Error(ErrorCode::invalid_argument, "Producer has finished");
+                throw Error(ErrorCode::invalid_state, "Producer has finished");
             return action(*direct);
         });
     }
@@ -72,7 +72,7 @@ struct RecordingContext {
             if (stream)
                 return action(*stream, payload);
             if (finished)
-                throw Error(ErrorCode::invalid_argument, "Producer has finished");
+                throw Error(ErrorCode::invalid_state, "Producer has finished");
             if (!payload.encode)
                 return action(
                     *direct,
@@ -113,7 +113,7 @@ std::uint32_t parent_id(std::optional<ScopeId> parent) {
 
 struct Writer::Impl {
     detail::RecordingContext context;
-    std::unordered_map<std::type_index, TypeId> types;
+    detail::SchemaBindings types;
     std::unordered_map<const void*, std::pair<TypeId, TypeId>> datatypes;
 
     Impl(const std::filesystem::path& path, const WriterOptions& options) {
@@ -194,7 +194,7 @@ Timestamp Writer::time() {
     if (context_->stream)
         return detail::translate([&] { return context_->stream->time(); });
     if (context_->finished || context_->closed)
-        throw Error(ErrorCode::invalid_argument, "Producer has finished or recording is closed");
+        throw Error(ErrorCode::invalid_state, "Producer has finished or recording is closed");
     return context_->current_time;
 }
 
@@ -241,23 +241,9 @@ TypeId Writer::bind_builtin(TypeId id) {
 }
 
 TypeId Writer::cached_type(std::type_index type, const std::function<TypeId()>& declare) {
-    return context_->control([&](auto&) -> TypeId {
-        context_->control([](auto& out) { (void)out.types(); });
-        auto [entry, inserted] = impl_->types.emplace(type, TypeId(UINT32_MAX));
-        if (!inserted) {
-            if (entry->second.value == UINT32_MAX) {
-                throw Error(ErrorCode::invalid_argument, "Recursive payload schema");
-            }
-            return entry->second;
-        }
-        try {
-            auto id = declare();
-            impl_->types.at(type) = id;
-            return id;
-        } catch (...) {
-            impl_->types.erase(type);
-            throw;
-        }
+    return context_->control([&](auto& out) -> TypeId {
+        (void)out.types();
+        return impl_->types.get(type, declare);
     });
 }
 
@@ -267,37 +253,9 @@ TypeId Writer::declare_type(std::string name, decltype(DataType::definition) def
 
 TypeId Writer::declare_datatype(DatatypeOptions options,
                                 decltype(DataType::definition) definition) {
-    const auto& name = options.name;
-    auto attributes = detail::encode_attributes(options.attributes);
     return context_->control([&](auto& out) {
-        auto types = out.types();
-        auto first = static_cast<std::uint32_t>(types.size());
-        auto id = std::visit(
-            [&]<class T>(const T& value) -> std::uint32_t {
-                if constexpr (std::same_as<T, StructDefinition>) {
-                    std::vector<detail::engine::Field> fields;
-                    for (const auto& item : value.fields) {
-                        fields.push_back({item.name, item.type.value});
-                    }
-                    return types.structure(name, std::move(fields), attributes);
-                } else if constexpr (std::same_as<T, ArrayDefinition>) {
-                    return types.array(value.element.value, value.count, name, attributes);
-                } else if constexpr (std::same_as<T, SequenceDefinition>) {
-                    return types.sequence(value.element.value, name, attributes);
-                } else if constexpr (std::same_as<T, EnumDefinition>) {
-                    std::vector<detail::engine::Enumerator> literals;
-                    for (const auto& item : value.literals) {
-                        literals.push_back({item.value_bits, item.name});
-                    }
-                    return types.enumeration(name, value.underlying.value, std::move(literals),
-                                             attributes);
-                } else {
-                    throw Error(ErrorCode::invalid_argument, "Cannot declare a primitive type");
-                }
-            },
-            definition);
-        out.declare_types(types.declarations(first));
-        return TypeId(id);
+        return TypeId(out.declare_datatype(std::move(options.name), std::move(definition),
+                                           detail::encode_attributes(options.attributes)));
     });
 }
 
@@ -335,11 +293,9 @@ TypeId Writer::declare_payload_type(DatatypeOptions options, TypeId arguments,
                 return found->second.first;
             }
         }
-        auto types = out.types();
-        const auto first = static_cast<std::uint32_t>(types.size());
-        const auto id = types.structure(std::move(options.name), {{"value", arguments.value}},
-                                        detail::encode_attributes(options.attributes));
-        out.declare_types(types.declarations(first));
+        const auto id =
+            out.declare_datatype(std::move(options.name), StructDefinition{{{"value", arguments}}},
+                                 detail::encode_attributes(options.attributes));
         const auto result = TypeId(id);
         if (descriptor)
             impl_->datatypes.emplace(descriptor, std::pair{result, arguments});

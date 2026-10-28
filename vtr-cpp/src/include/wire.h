@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vtr_common.h"
+
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -31,13 +33,8 @@ using Bytes = std::vector<std::uint8_t>;
 inline constexpr Id none = UINT32_MAX;
 inline constexpr Time forever = UINT64_MAX;
 
-class Error : public std::runtime_error {
-  public:
-    int code;
-
-    explicit Error(std::string message, int code = 1)
-        : std::runtime_error(std::move(message)), code(code) {}
-};
+using Error = vtr::Error;
+using ErrorCode = vtr::ErrorCode;
 
 enum class Codec : std::uint8_t { stored, lz4, zstd };
 enum class Tag : std::uint8_t {
@@ -119,7 +116,7 @@ struct SignalValue {
 
 inline std::uint64_t SignalValue::as_u64() const {
     if (kind.type != SignalKind::bits || kind.width > 64 || data.size() != kind.packed_size()) {
-        throw Error("signal is not a narrow vector");
+        throw Error(ErrorCode::invalid_argument, "signal is not a narrow vector");
     }
     if (kind.states == 2) {
         std::uint64_t value = 0;
@@ -155,7 +152,7 @@ inline std::uint64_t SignalValue::as_u64() const {
     for (std::size_t i = 0; i < kind.width; ++i) {
         auto code = (data[i * stride / 8] >> ((i * stride) % 8)) & ((1u << stride) - 1);
         if (code > 1) {
-            throw Error("signal contains nonbinary logic");
+            throw Error(ErrorCode::invalid_argument, "signal contains nonbinary logic");
         }
         value |= std::uint64_t(code) << i;
     }

@@ -1,5 +1,6 @@
 #include "engine/transactions.h"
 #include "format.h"
+#include "payload.h"
 #include <iostream>
 #include <map>
 #include <source_location>

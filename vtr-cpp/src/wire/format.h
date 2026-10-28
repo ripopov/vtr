@@ -7,9 +7,9 @@
 
 namespace vtr::detail::wire::detail {
 using View = std::span<const std::uint8_t>;
-[[noreturn]] void fail(const char* message, int code);
+[[noreturn]] void fail(const char* message, ErrorCode code);
 
-inline void require(bool ok, const char* message, int code = 4) {
+inline void require(bool ok, const char* message, ErrorCode code = ErrorCode::corrupt_data) {
     if (!ok) [[unlikely]] {
         fail(message, code);
     }
@@ -132,7 +132,7 @@ struct Cursor {
                 return v;
             }
         }
-        throw Error("varint overflow", 4);
+        throw Error(ErrorCode::corrupt_data, "varint overflow");
     }
 
     std::uint32_t id() {

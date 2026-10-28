@@ -1,5 +1,6 @@
 #include "engine/vtr.h"
 #include "format.h"
+#include "payload.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

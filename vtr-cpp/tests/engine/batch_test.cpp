@@ -1,4 +1,5 @@
 #include "engine/vtr.h"
+#include "payload.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -82,7 +83,7 @@ void run(const fs::path& path, unsigned workers, bool batch) {
     writer.close();
     Reader reader(path, {.verify_checksums = true});
     check(!reader.validate().incomplete_file, "batch trace incomplete");
-    check(decode<std::uint64_t>(reader.transaction(owner)->payload) == 42,
+    check(reader.transaction(owner)->payload == capture(std::uint64_t(42)),
           "moving final payload lost value");
     check(reader.load_signal(event)->times.size() == 400, "batch coalesced event occurrences");
     for (unsigned time : {0, 1, 17, 199}) {

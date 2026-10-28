@@ -16,7 +16,7 @@ static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
 
 void require(bool condition, const char* message) {
     if (!condition) {
-        throw vtr::detail::wire::Error(message, 2);
+        throw vtr::detail::wire::Error(ErrorCode::invalid_state, message);
     }
 }
 

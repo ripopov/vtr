@@ -15,18 +15,18 @@ struct Mapping {
 
     explicit Mapping(const std::string& path) {
         int fd = ::open(path.c_str(), O_RDONLY);
-        require(fd >= 0, "cannot open VTR file", 3);
+        require(fd >= 0, "cannot open VTR file", ErrorCode::io);
 
         struct stat st {};
 
         if (fstat(fd, &st) != 0 || st.st_size < 32) {
             ::close(fd);
-            throw Error("invalid VTR file size", 4);
+            throw Error(ErrorCode::corrupt_data, "invalid VTR file size");
         }
         size = static_cast<std::size_t>(st.st_size);
         auto p = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
         ::close(fd);
-        require(p != MAP_FAILED, "cannot map VTR file", 3);
+        require(p != MAP_FAILED, "cannot map VTR file", ErrorCode::io);
         address = static_cast<const std::uint8_t*>(p);
     }
 
@@ -101,7 +101,7 @@ struct Reader::Impl {
         Cursor header(file.slice(8, 24));
         require(header.fixed<std::uint16_t>() == format_major &&
                     header.fixed<std::uint16_t>() == format_minor,
-                "unsupported VTR version", 5);
+                "unsupported VTR version", ErrorCode::unsupported_version);
         require(header.fixed<std::uint32_t>() == 0, "unsupported VTR header flags");
         auto identity = header.take(16);
         require(std::any_of(identity.begin(), identity.end(), [](auto b) { return b != 0; }),
@@ -345,7 +345,7 @@ struct Reader::Impl {
         auto p = unchecked_payload(s);
         auto crc = load<std::uint32_t>(file.slice(s.offset + 16, 4));
         require(!(verify_crc || force_crc) || !crc || checksum(p) == crc,
-                "section checksum mismatch", 7);
+                "section checksum mismatch", ErrorCode::corrupt_data);
         return p;
     }
 
@@ -444,7 +444,7 @@ struct Reader::Impl {
                 break;
             }
             default:
-                throw Error("unknown node kind", 4);
+                throw Error(ErrorCode::corrupt_data, "unknown node kind");
             }
             n.attrs = decode_attrs(r);
             attrs_valid(n.attrs);
@@ -458,7 +458,7 @@ struct Reader::Impl {
             return true;
         }
         while (node != none) {
-            require(node < nodes.size(), "unknown node", 1);
+            require(node < nodes.size(), "unknown node", ErrorCode::invalid_argument);
             if (node == scope) {
                 return true;
             }
@@ -701,12 +701,12 @@ struct Reader::Impl {
                 }
             }
         }
-        throw Error("missing signal run", 4);
+        throw Error(ErrorCode::corrupt_data, "missing signal run");
     }
 
     bool signal_changes(Id signal, Time begin, Time end,
                         const std::function<bool(Time, Id, const SignalValue&)>& visit) const {
-        require(signal < signals.size(), "unknown signal", 1);
+        require(signal < signals.size(), "unknown signal", ErrorCode::invalid_argument);
         for (auto& b : waves) {
             if (b.begin > end) {
                 break;
@@ -869,7 +869,7 @@ std::span<const SignalKind> Reader::signals() const {
 }
 
 Id Reader::signal_var(Id id) const {
-    require(id < impl_->signal_nodes.size(), "unknown signal", 9);
+    require(id < impl_->signal_nodes.size(), "unknown signal", ErrorCode::invalid_argument);
     return impl_->signal_nodes[id];
 }
 
@@ -914,13 +914,13 @@ bool Reader::in_scope(Id node, Id scope) const {
 
 void Reader::changes(Id signal, Time begin, Time end,
                      const std::function<bool(Time, Id, const SignalValue&)>& visit) const {
-    require(bool(visit), "missing change callback", 1);
+    require(bool(visit), "missing change callback", ErrorCode::invalid_argument);
     impl_->signal_changes(signal, begin, end, visit);
 }
 
 void Reader::changes(Time begin, Time end,
                      const std::function<bool(Time, Id, const SignalValue&)>& visit) const {
-    require(bool(visit), "missing change callback", 1);
+    require(bool(visit), "missing change callback", ErrorCode::invalid_argument);
     impl_->scan_wave(begin, end, visit);
 }
 
@@ -974,7 +974,7 @@ void Reader::validate_waveforms() const {
 
 Bytes Reader::value_at(Id signal, Time time) const {
     auto& p = *impl_;
-    require(signal < p.signals.size(), "unknown signal", 1);
+    require(signal < p.signals.size(), "unknown signal", ErrorCode::invalid_argument);
     Bytes result = default_value(p.signals[signal]);
     auto it = std::upper_bound(p.waves.begin(), p.waves.end(), time,
                                [](Time t, const auto& b) { return t < b.begin; });
@@ -1014,7 +1014,7 @@ std::shared_ptr<const SignalData> Reader::load_signal(Id signal) const {
             return found->second;
         }
     }
-    require(signal < p.signals.size(), "unknown signal", 1);
+    require(signal < p.signals.size(), "unknown signal", ErrorCode::invalid_argument);
     auto data = std::make_shared<SignalData>();
     data->kind = p.signals[signal];
     data->initial = default_value(data->kind);

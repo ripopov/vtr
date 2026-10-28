@@ -55,6 +55,8 @@ class Writer {
     Id add_enum_table(Id parent, std::string_view name, std::span<const std::pair<Id, Id>> entries);
     TypeId structure(std::string name, std::vector<Field> fields);
     void declare_types(View declarations);
+    TypeId declare_datatype(std::string name, decltype(vtr::DataType::definition) definition,
+                            vtr::detail::wire::Attributes attributes = {});
     const Types& types() const;
 
     template <class T> TypeId bind() {
@@ -92,10 +94,10 @@ class Writer {
             payload.append(value);
             commit_value_end(owner, time, std::move(payload).take(), status);
         } catch (const vtr::detail::wire::Error& error) {
-            capture_failure(error.code);
+            capture_failure(error.code());
             throw;
         } catch (...) {
-            capture_failure(0);
+            capture_failure(ErrorCode::resource_limit);
             throw;
         }
     }
@@ -128,7 +130,7 @@ class Writer {
   private:
     Bytes prepare_value_end(RecordId owner, std::uint8_t status);
     void commit_value_end(RecordId owner, Timestamp time, Bytes payload, std::uint8_t status);
-    void capture_failure(int code) noexcept;
+    void capture_failure(ErrorCode code) noexcept;
     TypeId bind_type(const std::function<TypeId(Types&)>& bind);
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -175,6 +177,7 @@ class RecordRef {
     Timestamp begin() const;
     Timestamp end() const;
     View payload() const;
+    std::shared_ptr<const void> retained_storage() const;
     std::span<const vtr::detail::wire::Attribute> attributes() const;
     TransactionRef transaction() const;
     const LocatedRecord* located() const;

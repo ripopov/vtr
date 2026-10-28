@@ -395,18 +395,19 @@ struct Writer::Impl {
                 if (n < 0 && errno == EINTR) {
                     continue;
                 }
-                require(n > 0, "cannot generate recording identity", 3);
+                require(n > 0, "cannot generate recording identity", ErrorCode::io);
                 filled += static_cast<std::size_t>(n);
             }
 #endif
         } while (std::all_of(recording.begin(), recording.end(), [](auto b) { return b == 0; }));
         require(opts.group_size && std::has_single_bit(opts.group_size) &&
                     opts.group_size <= (1u << 20),
-                "invalid group size", 1);
-        require(opts.block_records > 0 && opts.codec <= Codec::zstd, "invalid writer options", 1);
+                "invalid group size", ErrorCode::invalid_argument);
+        require(opts.block_records > 0 && opts.codec <= Codec::zstd, "invalid writer options",
+                ErrorCode::invalid_argument);
         meta.group_size = opts.group_size;
         file = std::fopen(path.c_str(), "wb");
-        require(file, "cannot create VTR file", 3);
+        require(file, "cannot create VTR file", ErrorCode::io);
 #if defined(__GLIBC__)
         // The assembly/output thread owns the file exclusively, including close.
         __fsetlocking(file, FSETLOCKING_BYCALLER);
@@ -445,7 +446,7 @@ struct Writer::Impl {
     }
 
     void alive() const {
-        require(!closed, "writer is closed", 2);
+        require(!closed, "writer is closed", ErrorCode::invalid_state);
         if (handoff) {
             handoff->check_failure();
         }
@@ -453,7 +454,7 @@ struct Writer::Impl {
 
     void write(View data) {
         require(std::fwrite(data.data(), 1, data.size(), file) == data.size(), "VTR write failed",
-                3);
+                ErrorCode::io);
     }
 
     void section(std::uint32_t kind, View payload, std::uint64_t aux0 = 0, std::uint64_t aux1 = 0,
@@ -509,7 +510,7 @@ struct Writer::Impl {
                 write(part);
             }
         }
-        require(std::fflush(file) == 0, "VTR flush failed", 3);
+        require(std::fflush(file) == 0, "VTR flush failed", ErrorCode::io);
         directory.push_back({kind, flags, offset, length, aux0, aux1, block_number});
         offset += 24 + length;
     }
@@ -519,7 +520,7 @@ struct Writer::Impl {
         validate_utf8(view(value));
         if (auto found = interned.find(value); found != interned.end())
             return found->second;
-        require(strings.size() < none, "string limit reached", 1);
+        require(strings.size() < none, "string limit reached", ErrorCode::invalid_argument);
         if (value.size() > string_remaining) {
             const auto size = std::max<std::size_t>(4096, value.size());
             string_chunks.push_back(std::make_unique_for_overwrite<char[]>(size));
@@ -546,11 +547,11 @@ struct Writer::Impl {
 
     void parent(Id p) const {
         require(p == none || (p < nodes.size() && nodes[p].kind == Node::scope),
-                "parent must be a scope", 1);
+                "parent must be a scope", ErrorCode::invalid_argument);
     }
 
     void key(Id id) const {
-        require(id < strings.size(), "unknown string identifier", 1);
+        require(id < strings.size(), "unknown string identifier", ErrorCode::invalid_argument);
     }
 
     void declarations(bool hierarchy = true) {
@@ -660,11 +661,11 @@ struct Writer::Impl {
 
     void emit_scalar(Id signal, std::uint64_t value) {
         auto& p = *this;
-        require(signal < p.waves.size(), "unknown signal", 1);
+        require(signal < p.waves.size(), "unknown signal", ErrorCode::invalid_argument);
         auto& c = p.waves[signal];
         auto k = c.kind;
         require(k.type == SignalKind::bits && k.width <= 64,
-                "emit requires a vector of at most 64 bits", 1);
+                "emit requires a vector of at most 64 bits", ErrorCode::invalid_argument);
         if (k.width < 64) {
             value &= (std::uint64_t{1} << k.width) - 1;
         }
@@ -706,7 +707,7 @@ struct Writer::Impl {
 
     void add_value(Id signal, View full, View compact, bool is_compact) {
         alive();
-        require(signal < waves.size(), "unknown signal", 1);
+        require(signal < waves.size(), "unknown signal", ErrorCode::invalid_argument);
         if (!active) {
             return;
         }
@@ -759,7 +760,8 @@ struct Writer::Impl {
         }
         try {
             declarations();
-            require(block_index != none, "waveform block index exhaustion", 1);
+            require(block_index != none, "waveform block index exhaustion",
+                    ErrorCode::invalid_argument);
             const auto groups = static_cast<std::uint32_t>((waves.size() + options.group_size - 1) /
                                                            options.group_size);
             previous_dirty.resize(groups, none);
@@ -809,10 +811,10 @@ struct Writer::Impl {
                 }
             }
         } catch (const Error& error) {
-            if (error.code == 3) {
+            if (error.code() == ErrorCode::io) {
                 throw;
             }
-            throw Error(error.what(), 6);
+            throw Error(ErrorCode::encoding, error.what());
         }
     }
 };
@@ -844,7 +846,7 @@ Writer::~Writer() {
 
 Meta& Writer::metadata() {
     impl_->alive();
-    require(!impl_->meta_written, "metadata has already been written", 2);
+    require(!impl_->meta_written, "metadata has already been written", ErrorCode::invalid_state);
     return impl_->meta;
 }
 
@@ -903,7 +905,7 @@ std::pair<Id, Id> Writer::add_var(Id parent, std::string_view name, SignalKind k
 }
 
 SignalKind Writer::signal_kind(Id signal) const {
-    require(signal < impl_->waves.size(), "unknown signal", 1);
+    require(signal < impl_->waves.size(), "unknown signal", ErrorCode::invalid_argument);
     return impl_->waves[signal].kind;
 }
 
@@ -913,7 +915,7 @@ Id Writer::add_alias(Id parent, std::string_view name, Id signal, std::uint16_t 
     p.alive();
     p.parent(parent);
     require(signal < p.waves.size() && p.waves[signal].event == (type == 0), "invalid signal alias",
-            1);
+            ErrorCode::invalid_argument);
     Node n;
     n.kind = Node::variable;
     n.parent = parent;
@@ -962,7 +964,7 @@ void Writer::node_attr(Id node, Id key, const Value& value) {
     auto& p = *impl_;
     p.alive();
     require(node >= p.written_nodes && node < p.nodes.size(), "node is absent or already written",
-            2);
+            ErrorCode::invalid_state);
     p.key(key);
     auto& attrs = p.nodes[node].attrs;
     unique_attr(attrs, key);
@@ -973,7 +975,7 @@ void Writer::node_attr(Id node, Id key, const Value& value) {
 void Writer::set_time(Time time) {
     auto& p = *impl_;
     p.alive();
-    require(time >= p.now, "waveform time moved backwards", 1);
+    require(time >= p.now, "waveform time moved backwards", ErrorCode::invalid_argument);
     if (p.waves.empty()) {
         // Endpoints preserve idle time before the first signal declaration.
         if (p.wave_full())
@@ -1019,10 +1021,10 @@ void Writer::emit(std::span<const SignalUpdate> updates) {
     auto& p = *impl_;
     p.alive();
     for (const auto& update : updates) {
-        require(update.signal < p.waves.size(), "unknown signal", 1);
+        require(update.signal < p.waves.size(), "unknown signal", ErrorCode::invalid_argument);
         const auto kind = p.waves[update.signal].kind;
         require(kind.type == SignalKind::bits && kind.width <= 64,
-                "emit requires a vector of at most 64 bits", 1);
+                "emit requires a vector of at most 64 bits", ErrorCode::invalid_argument);
     }
     for (const auto& update : updates) {
         p.emit_scalar(update.signal, update.value);
@@ -1031,21 +1033,23 @@ void Writer::emit(std::span<const SignalUpdate> updates) {
 
 void Writer::emit_bit(Id signal, std::uint8_t code) {
     if (signal < impl_->waves.size() && impl_->waves[signal].kind.states == 2) {
-        require(impl_->waves[signal].kind.width == 1 && code < 2, "invalid bit value", 1);
+        require(impl_->waves[signal].kind.width == 1 && code < 2, "invalid bit value",
+                ErrorCode::invalid_argument);
         emit(signal, code);
         return;
     }
     auto& p = *impl_;
-    require(signal < p.waves.size(), "unknown signal", 1);
+    require(signal < p.waves.size(), "unknown signal", ErrorCode::invalid_argument);
     auto k = p.waves[signal].kind;
-    require(k.type == SignalKind::bits && k.width == 1 && code < k.states, "invalid bit value", 1);
+    require(k.type == SignalKind::bits && k.width == 1 && code < k.states, "invalid bit value",
+            ErrorCode::invalid_argument);
     p.add_value(signal, View(&code, 1), View(&code, 1), code < 2);
 }
 
 void Writer::emit_real(Id signal, double value) {
     auto& p = *impl_;
     require(signal < p.waves.size() && p.waves[signal].kind.type == SignalKind::real,
-            "signal is not real", 1);
+            "signal is not real", ErrorCode::invalid_argument);
     Bytes b;
     fixed(b, std::bit_cast<std::uint64_t>(value));
     p.add_value(signal, b, {}, false);
@@ -1054,17 +1058,18 @@ void Writer::emit_real(Id signal, double value) {
 void Writer::emit_varlen(Id signal, std::span<const std::uint8_t> value) {
     auto& p = *impl_;
     require(signal < p.waves.size() && p.waves[signal].kind.type == SignalKind::varlen,
-            "signal is not variable length", 1);
+            "signal is not variable length", ErrorCode::invalid_argument);
     p.add_value(signal, value, {}, false);
 }
 
 void Writer::emit_packed(Id signal, std::uint8_t states, std::span<const std::uint8_t> value) {
     auto& p = *impl_;
     require(signal < p.waves.size() && p.waves[signal].kind.type == SignalKind::bits,
-            "signal is not a vector", 1);
+            "signal is not a vector", ErrorCode::invalid_argument);
     auto k = p.waves[signal].kind;
     if (states == 2 && k.states == 2) {
-        require(value.size() == (std::size_t(k.width) + 7) / 8, "packed signal size mismatch", 1);
+        require(value.size() == (std::size_t(k.width) + 7) / 8, "packed signal size mismatch",
+                ErrorCode::invalid_argument);
         if (k.width <= 64) {
             std::uint64_t scalar = 0;
             for (std::size_t i = 0; i < value.size(); ++i) {
@@ -1109,10 +1114,10 @@ void Writer::emit_packed(Id signal, std::uint8_t states, std::span<const std::ui
 
 void Writer::emit_words(Id signal, std::span<const std::uint32_t> words) {
     auto& p = *impl_;
-    require(signal < p.waves.size(), "unknown signal", 1);
+    require(signal < p.waves.size(), "unknown signal", ErrorCode::invalid_argument);
     auto k = p.waves[signal].kind;
     require(k.type == SignalKind::bits && words.size() >= (std::size_t(k.width) + 31) / 32,
-            "insufficient vector words", 1);
+            "insufficient vector words", ErrorCode::invalid_argument);
     Bytes bytes((std::size_t(k.width) + 7) / 8);
     for (std::size_t i = 0; i < bytes.size(); ++i) {
         bytes[i] = static_cast<std::uint8_t>(words[i / 4] >> ((i % 4) * 8));
@@ -1125,10 +1130,10 @@ void Writer::emit_words(Id signal, std::span<const std::uint32_t> words) {
 
 void Writer::emit_logic(Id signal, std::string_view value) {
     auto& p = *impl_;
-    require(signal < p.waves.size(), "unknown signal", 1);
+    require(signal < p.waves.size(), "unknown signal", ErrorCode::invalid_argument);
     auto k = p.waves[signal].kind;
     require(k.type == SignalKind::bits && value.size() == k.width, "logic string width mismatch",
-            1);
+            ErrorCode::invalid_argument);
     Bytes bytes((std::size_t(k.width) + 1) / 2);
     for (std::size_t i = 0; i < value.size(); ++i) {
         auto c = value[value.size() - 1 - i];
@@ -1136,7 +1141,8 @@ void Writer::emit_logic(Id signal, std::string_view value) {
             c += 32;
         }
         auto code = std::string_view("01xzuwlh-").find(c);
-        require(code != std::string_view::npos, "invalid logic character", 1);
+        require(code != std::string_view::npos, "invalid logic character",
+                ErrorCode::invalid_argument);
         bytes[i / 2] |= code << ((i % 2) * 4);
     }
     emit_packed(signal, 9, bytes);
@@ -1145,8 +1151,10 @@ void Writer::emit_logic(Id signal, std::string_view value) {
 void Writer::append_section(std::uint32_t kind, std::span<const std::uint8_t> payload, Time begin,
                             Time end, std::uint64_t block_number) {
     auto& p = *impl_;
-    require(kind == 5 || kind == 9 || kind == 10, "invalid extension section kind", 1);
-    require((kind == 10) == (block_number == 0), "invalid extension block number", 1);
+    require(kind == 5 || kind == 9 || kind == 10, "invalid extension section kind",
+            ErrorCode::invalid_argument);
+    require((kind == 10) == (block_number == 0), "invalid extension block number",
+            ErrorCode::invalid_argument);
     // Schemas contain inline names, so publishing them need not freeze pending nodes.
     p.declarations(kind != 10);
     if (kind == 10) {
@@ -1161,7 +1169,8 @@ void Writer::enqueue_section(std::uint32_t kind, Time begin, Time end, std::uint
                              std::size_t memory_charge, std::function<Bytes()> encode) {
     auto& p = *impl_;
     p.alive();
-    require((kind == 5 || kind == 9) && block_number, "invalid encoded section request", 1);
+    require((kind == 5 || kind == 9) && block_number, "invalid encoded section request",
+            ErrorCode::invalid_argument);
     p.declarations();
     if (p.handoff)
         p.handoff->submit({kind, 0, begin, end, block_number}, memory_charge, std::move(encode));
@@ -1270,6 +1279,6 @@ void Writer::close() {
     auto result = std::fclose(p.file);
     p.file = nullptr;
     p.closed = true;
-    require(result == 0, "VTR close failed", 3);
+    require(result == 0, "VTR close failed", ErrorCode::io);
 }
 } // namespace vtr::detail::wire

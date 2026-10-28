@@ -18,6 +18,7 @@ add_library(vtr
     src/writer.cpp
     src/engine/activity.cpp
     src/engine/container.cpp
+    src/engine/packet_spool.cpp
     src/engine/handoff.cpp
     src/engine/reader.cpp
     src/engine/records.cpp
@@ -93,6 +94,7 @@ if(BUILD_TESTING)
     vtr_engine_test(activity_identity_and_windows activity_test)
     vtr_engine_test(writer_failure_atomicity failure_test)
     vtr_engine_test(bounded_ordered_handoff handoff_test)
+    vtr_engine_test(spooled_packet_replay packet_spool_test)
     vtr_engine_test(owned_worker_cpu thread_cpu_test)
     vtr_engine_test(waveform_workers wave_worker_test)
     vtr_engine_test(concurrent_writer_snapshots async_writer_test)

@@ -1,3 +1,5 @@
+#include "format.h"
+#include "payload.h"
 #include "stream.h"
 #include <atomic>
 #include <chrono>
@@ -15,13 +17,12 @@ struct Args {
     friend bool operator==(const Args&, const Args&) = default;
 };
 
-template <> struct vtr::detail::engine::Record<Args> {
+template <> struct vtr::Schema<Args> {
     static constexpr std::string_view name = "ReusableArgs";
 
-    static auto fields() {
-        return std::tuple{field("serial", &Args::serial), field("lanes", &Args::lanes),
-                          field("words", &Args::words), field("text", &Args::text)};
-    }
+    static constexpr auto fields =
+        std::tuple{vtr::field("serial", &Args::serial), vtr::field("lanes", &Args::lanes),
+                   vtr::field("words", &Args::words), vtr::field("text", &Args::text)};
 };
 
 void check(bool ok, const char* why) {
@@ -156,18 +157,19 @@ void run(const fs::path& path, unsigned workers, std::size_t budget, bool concur
     check(!report.incomplete_file && report.records == count + 1, "pooled capture lost records");
     std::vector<bool> seen(count + 1);
     reader.transactions({}, [&](const Transaction& tx) {
-        auto data = decode<Args>(tx.payload);
-        if (data.serial == 10001) {
-            check(data == value(10001), "rejected final payload changed existing owner");
+        const auto serial = vtr::detail::wire::detail::Cursor(tx.payload).fixed<std::uint64_t>();
+        if (serial == 10001) {
+            check(tx.payload == capture(value(10001)),
+                  "rejected final payload changed existing owner");
             seen[count] = true;
         } else {
-            check(tx.status == data.serial % 5 && tx.span_kind == (data.serial % 3 == 0 ? 5 : 0) &&
-                      tx.attributes.size() == data.serial % 2,
+            check(tx.status == serial % 5 && tx.span_kind == (serial % 3 == 0 ? 5 : 0) &&
+                      tx.attributes.size() == serial % 2,
                   "reused owner slot retained classification or attributes");
-            check(data.serial < count && data == value(data.serial),
+            check(serial < count && tx.payload == capture(value(serial)),
                   "recycled payload changed source values");
-            check(!seen[data.serial], "recycled payload repeated one record");
-            seen[data.serial] = true;
+            check(!seen[serial], "recycled payload repeated one record");
+            seen[serial] = true;
         }
         return true;
     });

@@ -101,9 +101,8 @@ bool decode(View raw, const Types& types, const Generators& generators,
         return n;
     };
     Transaction tx;
-    tx.payload.reserve(payload);
+    tx.payload.resize(payload);
     for (std::size_t i = 0; i < count; ++i) {
-        tx.payload.clear();
         tx.id = value(0, i);
         auto gen = value(1, i);
         d::require(gen < ids.size(), "invalid scalar local generator");
@@ -121,7 +120,14 @@ bool decode(View raw, const Types& types, const Generators& generators,
         tx.status = classification & 15;
         tx.span_kind = classification >> 4;
         for (std::size_t c = 6; c < columns; ++c) {
-            d::fixed(tx.payload, value(c, i));
+            const auto word = value(c, i);
+            auto* output = tx.payload.data() + (c - 6) * sizeof(word);
+            if constexpr (std::endian::native == std::endian::little) {
+                std::memcpy(output, &word, sizeof(word));
+            } else {
+                for (unsigned byte = 0; byte < sizeof(word); ++byte)
+                    output[byte] = static_cast<std::uint8_t>(word >> (byte * 8));
+            }
         }
         if (!visit(tx)) {
             return false;

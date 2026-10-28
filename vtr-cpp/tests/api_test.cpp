@@ -7,6 +7,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <locale>
@@ -1002,6 +1003,87 @@ void waveform_visitor_kinds(const std::filesystem::path& path, vt::ExecutionMode
     (void)reader.validate();
 }
 
+void retained_large_payloads(const std::filesystem::path& path) {
+    const std::string expected(1 << 20, 'x');
+    vt::RecordId owner_id(0), log_id(0);
+    {
+        vt::Writer writer(path, {.mode = vt::ExecutionMode::inline_});
+        auto owners = writer.transactions<std::string>({.name = "owners"});
+        auto logger = writer.logger({.name = "logger"});
+        auto datatype = writer.datatype<std::string>({.name = "Message"});
+        auto owner = writer.begin_at(owners, 0, expected);
+        owner_id = owner.id();
+        log_id = writer.log_at(logger, datatype, 0, expected, owner);
+        writer.end_at(owner, 1);
+        writer.close();
+    }
+    std::optional<vt::PayloadView> owner, log;
+    {
+        vt::Reader reader(path, {.owner_cache_entries = 1});
+        owner = reader.lookup(owner_id)->payload();
+        log = reader.lookup(log_id)->payload()["value"];
+        reader.clear_cache();
+        check(reader.cache_stats().owner_entries == 0, "owner cache did not clear");
+        check(reader.lookup(owner_id)->payload().as<std::string>() == expected,
+              "lookup after eviction changed its payload");
+    }
+    check(owner->as<std::string>() == expected && log->as<std::string>() == expected,
+          "large retained payload did not survive eviction and reader destruction");
+}
+
+void declaration_errors(const std::filesystem::path& directory) {
+    const auto expect = [](vt::ErrorCode code, auto&& action) {
+        try {
+            action();
+        } catch (const vt::Error& error) {
+            check(error.code() == code, "error category does not match the failed operation");
+            return;
+        }
+        throw std::runtime_error("invalid operation accepted");
+    };
+    for (auto mode : {vt::ExecutionMode::inline_, vt::ExecutionMode::threaded}) {
+        auto path = directory / (mode == vt::ExecutionMode::inline_ ? "schema-inline.vtr"
+                                                                    : "schema-threaded.vtr");
+        expect(vt::ErrorCode::invalid_argument,
+               [&] { vt::Writer invalid(path, {.mode = mode, .encoding = {.page_bytes = 0}}); });
+        vt::Writer writer(path, {.mode = mode});
+        auto key = writer.intern("key");
+        auto value = writer.intern("value");
+        auto first = writer.declare_datatype({.name = "First"}, vt::StructDefinition{});
+        expect(vt::ErrorCode::invalid_argument, [&] {
+            (void)writer.declare_datatype(
+                {.name = "Duplicate"},
+                vt::StructDefinition{{{"field", vt::TypeId(9)}, {"field", vt::TypeId(9)}}});
+        });
+        for (auto attributes : {vt::Attributes{{vt::StringId(UINT32_MAX), vt::Value(value)}},
+                                vt::Attributes{{key, vt::Value(vt::StringId(UINT32_MAX))}},
+                                vt::Attributes{{key, vt::Value(value)}, {key, vt::Value(value)}}}) {
+            expect(vt::ErrorCode::invalid_argument, [&] {
+                (void)writer.declare_datatype({.name = "InvalidMetadata", .attributes = attributes},
+                                              vt::StructDefinition{});
+            });
+        }
+        auto last =
+            writer.declare_datatype({.name = "Last", .attributes = {{key, vt::Value(value)}}},
+                                    vt::StructDefinition{{{"first", first}}});
+        check(last.value == first.value + 1, "rejected datatype consumed an identifier");
+        writer.close();
+        expect(vt::ErrorCode::invalid_state, [&] { (void)writer.bind<std::uint64_t>(); });
+        vt::Reader reader(path);
+        check(reader.types()[last.value].attributes.size() == 1 &&
+                  reader.types()[last.value].name == "Last",
+              "direct datatype declaration lost metadata");
+        (void)reader.validate();
+    }
+    const auto malformed = directory / "malformed.vtr";
+    {
+        std::ofstream output(malformed, std::ios::binary);
+        output << "not a VTR file";
+    }
+    expect(vt::ErrorCode::corrupt_data, [&] { vt::Reader reader(malformed); });
+    expect(vt::ErrorCode::io, [&] { vt::Reader reader(directory / "absent.vtr"); });
+}
+
 int main(int argc, char** argv) {
     try {
         auto root = std::filesystem::path(argc > 1 ? argv[1] : "api-fixtures");
@@ -1016,6 +1098,8 @@ int main(int argc, char** argv) {
         for (auto codec : {vt::Codec::stored, vt::Codec::lz4, vt::Codec::zstd})
             lifecycle(root / ("inline-" + std::to_string(static_cast<int>(codec)) + ".vtr"), 0,
                       codec, vt::ExecutionMode::inline_);
+        retained_large_payloads(root / "retained-large.vtr");
+        declaration_errors(root);
         fixed_arrays(root);
         log_locale_and_limits(root / "log-locale.vtr");
         borrowed_and_errors(root);

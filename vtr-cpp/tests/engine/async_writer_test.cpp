@@ -1,3 +1,4 @@
+#include "payload.h"
 #include "stream.h"
 #include <algorithm>
 #include <chrono>
@@ -15,13 +16,12 @@ struct Args {
     std::string text;
 };
 
-template <> struct vtr::detail::engine::Record<Args> {
+template <> struct vtr::Schema<Args> {
     static constexpr std::string_view name = "ConcurrentArgs";
 
-    static auto fields() {
-        return std::tuple{field("producer", &Args::producer), field("sequence", &Args::sequence),
-                          field("text", &Args::text)};
-    }
+    static constexpr auto fields =
+        std::tuple{vtr::field("producer", &Args::producer), vtr::field("sequence", &Args::sequence),
+                   vtr::field("text", &Args::text)};
 };
 
 void check(bool good, const char* why) {

@@ -1,3 +1,4 @@
+#include "payload.h"
 #include "scalar_page.h"
 #include <iostream>
 using namespace vtr::detail::engine;

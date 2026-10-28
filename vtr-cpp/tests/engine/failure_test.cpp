@@ -1,4 +1,5 @@
 #include "engine/vtr.h"
+#include "payload.h"
 #include "stream.h"
 #include "vtr_logging.h"
 #include <csignal>
@@ -312,8 +313,7 @@ void allocation_free_recording(const fs::path& dir) {
     check(reader.validate().records == count * 2, "allocation-free recording lost records");
     unsigned seen = 0;
     reader.transactions({}, [&](const Transaction& record) {
-        const auto value = decode<std::array<std::uint64_t, 4>>(record.payload);
-        check(value[0] == seen++ && value[1] == 2 && value[2] == 3 && value[3] == 4,
+        check(record.payload == capture(std::array<std::uint64_t, 4>{seen++, 2, 3, 4}),
               "inline payload changed after queue reuse");
         return true;
     });
@@ -356,10 +356,9 @@ void allocation_free_large_capture(const fs::path& dir) {
     writer.close();
     Reader reader(path);
     const auto verify = [&](Timestamp time, View payload) {
-        const auto decoded = decode<std::vector<std::string>>(payload);
-        check(decoded.size() == 4 && decoded[0].size() == 1024 &&
-                  decoded[0][0] == 'A' + (time - 1) % 26 && decoded[0][1] == 'a' &&
-                  decoded[3] == std::string(1024, 'a'),
+        std::vector<std::string> expected(4, std::string(1024, 'a'));
+        expected[0][0] = 'A' + (time - 1) % 26;
+        check(std::ranges::equal(payload, capture(expected)),
               "direct nested capture borrowed mutable storage");
     };
     reader.transactions({}, [&](const Transaction& record) {
@@ -502,7 +501,7 @@ void write_failure(const fs::path& dir, unsigned workers) {
         writer.event(event, owner, 1, payload);
         writer.close();
     } catch (const vtr::detail::wire::Error& error) {
-        failed = error.code == 3;
+        failed = error.code() == vtr::ErrorCode::io;
     }
     check(::setrlimit(RLIMIT_FSIZE, &saved) == 0, "cannot restore file limit");
     std::signal(SIGXFSZ, previous_handler);

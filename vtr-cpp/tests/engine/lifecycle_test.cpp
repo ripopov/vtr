@@ -1,5 +1,6 @@
 #include "engine/vtr.h"
 #include "format.h"
+#include "payload.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -18,21 +19,19 @@ struct Visit {
     std::string reason;
 };
 
-template <> struct vtr::detail::engine::Record<Request> {
+template <> struct vtr::Schema<Request> {
     static constexpr std::string_view name = "Request";
 
-    static auto fields() {
-        return std::tuple{field("serial", &Request::serial), field("address", &Request::address),
-                          field("opcode", &Request::opcode)};
-    }
+    static constexpr auto fields =
+        std::tuple{vtr::field("serial", &Request::serial), vtr::field("address", &Request::address),
+                   vtr::field("opcode", &Request::opcode)};
 };
 
-template <> struct vtr::detail::engine::Record<Visit> {
+template <> struct vtr::Schema<Visit> {
     static constexpr std::string_view name = "Visit";
 
-    static auto fields() {
-        return std::tuple{field("port", &Visit::port), field("reason", &Visit::reason)};
-    }
+    static constexpr auto fields =
+        std::tuple{vtr::field("port", &Visit::port), vtr::field("reason", &Visit::reason)};
 };
 
 void check(bool good, const char* message) {
@@ -338,9 +337,8 @@ void deferred_stages(const fs::path& dir) {
     check(expanded.complete && expanded.located.size() == 2,
           "deferred stages absent from expansion");
     for (const auto& stage : expanded.located) {
-        auto value = decode<Visit>(stage.payload);
         check(stage.end == 10 &&
-                  ((stage.id == ready && value.port == 18 && value.reason == "updated") ||
+                  ((stage.id == ready && stage.payload == capture(Visit{18, "updated"})) ||
                    (stage.id == deferred && stage.payload == payload)),
               "deferred stage payload or rejected end changed final record");
     }
@@ -495,8 +493,7 @@ void reused_owner_slots(const fs::path& dir, unsigned workers) {
         if (i % 2)
             check(tx.payload.empty(), "unit owner retained a typed payload");
         else {
-            const auto data = decode<Visit>(tx.payload);
-            check(data.port == i && data.reason == "payload", "reused owner changed its payload");
+            check(tx.payload == capture(Visit{i, "payload"}), "reused owner changed its payload");
         }
         if (!tx.attributes.empty())
             check(tx.attributes.front().value.payload ==
@@ -637,8 +634,7 @@ void shared_text_lifecycle(const fs::path& dir, unsigned workers) {
     check(shared_bytes == 4 << 20, "shared text admission exceeded its file budget");
     for (unsigned i = 0; i < 4; ++i) {
         const auto owner = reader.transaction(i + 1);
-        const auto value = decode<Visit>(owner->payload);
-        check(value.port == i && value.reason == values[i % values.size()],
+        check(owner->payload == capture(Visit{i, values[i % values.size()]}),
               "shared text changed after admission exhaustion or asynchronous encoding");
     }
     Reader limited(path, {.max_payload_bytes = 1 << 20});
@@ -656,7 +652,8 @@ void shared_text_lifecycle(const fs::path& dir, unsigned workers) {
             Reader obsolete(old);
             throw std::runtime_error("obsolete text format accepted");
         } catch (const vtr::detail::wire::Error& error) {
-            check(error.code == 5, "obsolete text format returned another error");
+            check(error.code() == vtr::ErrorCode::unsupported_version,
+                  "obsolete text format returned another error");
         }
         const auto partial = dir / "partial-shared-text.vtr";
         fs::copy_file(path, partial, fs::copy_options::overwrite_existing);
@@ -665,8 +662,8 @@ void shared_text_lifecycle(const fs::path& dir, unsigned workers) {
         recover_container(partial, repaired);
         Reader recovered(repaired);
         for (unsigned i = 0; i < 4; ++i)
-            check(decode<Visit>(recovered.transaction(i + 1)->payload).reason ==
-                      values[i % values.size()],
+            check(recovered.transaction(i + 1)->payload ==
+                      capture(Visit{i, values[i % values.size()]}),
                   "recovery lost shared text references");
     }
 }

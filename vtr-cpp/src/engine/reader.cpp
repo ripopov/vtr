@@ -1,6 +1,7 @@
 #include "containers.h"
 #include "engine/vtr.h"
 #include "format.h"
+#include "transaction_memory.h"
 #include <deque>
 
 namespace vtr::detail::engine {
@@ -9,24 +10,8 @@ namespace d = vtr::detail::wire::detail;
 using d::require;
 
 std::size_t owned_bytes(const Transaction& tx) {
-    auto attrs = [](std::span<const vtr::detail::wire::Attribute> values) {
-        auto size = values.size() * sizeof(vtr::detail::wire::Attribute);
-        for (const auto& value : values) {
-            size += value.value.payload.capacity();
-        }
-        return size;
-    };
-    auto bytes =
-        sizeof(tx) + tx.payload.capacity() + tx.child_blocks.capacity() * 8 + attrs(tx.attributes);
-    bytes +=
-        tx.events.capacity() * sizeof(EmbeddedEvent) + tx.stages.capacity() * sizeof(EmbeddedStage);
-    for (const auto& e : tx.events) {
-        bytes += attrs(e.attributes) + 48;
-    }
-    for (const auto& s : tx.stages) {
-        bytes += attrs(s.attributes) + 48;
-    }
-    return bytes;
+    const auto indexes = detail::memory_add(tx.events.size(), tx.stages.size());
+    return detail::memory_add(detail::owned_tx(tx), detail::memory_mul(indexes, 48));
 }
 
 Timestamp period(const Transaction& tx, const vtr::detail::wire::Reader& native) {
@@ -674,6 +659,17 @@ Timestamp RecordRef::end() const {
     }
     auto p = stage();
     return p->end.value_or(std::max(p->begin, std::get<Embedded>(data_).owner->end));
+}
+
+std::shared_ptr<const void> RecordRef::retained_storage() const {
+    return std::visit(
+        []<class T>(const T& value) -> std::shared_ptr<const void> {
+            if constexpr (std::same_as<T, Embedded>)
+                return value.owner;
+            else
+                return value;
+        },
+        data_);
 }
 
 View RecordRef::payload() const {

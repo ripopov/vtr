@@ -19,6 +19,8 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <typeindex>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -82,6 +84,7 @@ enum class ErrorCode {
     corrupt_data,
     resource_limit,
     io,
+    encoding,
 };
 
 class Error : public std::runtime_error {
@@ -412,6 +415,73 @@ template <class T> constexpr std::uint32_t builtin_type() {
     }
 }
 
+class SchemaBindings {
+    std::unordered_map<std::type_index, TypeId> types_;
+
+  public:
+    template <class F> TypeId get(std::type_index type, F&& declare) {
+        auto [entry, inserted] = types_.emplace(type, TypeId(UINT32_MAX));
+        if (!inserted) {
+            if (entry->second.value == UINT32_MAX)
+                throw Error(ErrorCode::invalid_argument, "Recursive payload schema");
+            return entry->second;
+        }
+        try {
+            auto id = declare();
+            types_.at(type) = id;
+            return id;
+        } catch (...) {
+            types_.erase(type);
+            throw;
+        }
+    }
+};
+
+template <class T, class Registry> TypeId bind_schema(Registry& registry) {
+    using U = std::remove_cvref_t<T>;
+    constexpr auto builtin = builtin_type<U>();
+    if constexpr (builtin != UINT32_MAX) {
+        return registry.bind_builtin(TypeId(builtin));
+    } else {
+        return registry.cached_type(std::type_index(typeid(U)), [&] {
+            if constexpr (SequenceTraits<U>::value) {
+                return registry.declare_type(
+                    {}, SequenceDefinition{bind_schema<typename U::value_type>(registry)});
+            } else if constexpr (ArrayTraits<U>::value) {
+                static_assert(ArrayTraits<U>::size <= UINT32_MAX);
+                return registry.declare_type(
+                    {}, ArrayDefinition{bind_schema<typename ArrayTraits<U>::Element>(registry),
+                                        static_cast<std::uint32_t>(ArrayTraits<U>::size)});
+            } else if constexpr (std::is_enum_v<U>) {
+                static_assert(
+                    requires { Schema<U>::enumerators; }, "Declare enum Schema<T>::enumerators");
+                EnumDefinition definition{bind_schema<std::underlying_type_t<U>>(registry), {}};
+                for (const auto& item : Schema<U>::enumerators) {
+                    definition.literals.push_back(
+                        {std::string(item.name),
+                         static_cast<std::uint64_t>(
+                             static_cast<std::underlying_type_t<U>>(item.value))});
+                }
+                return registry.declare_type(std::string(Schema<U>::name), std::move(definition));
+            } else {
+                static_assert(requires { Schema<U>::fields; }, "Declare struct Schema<T>::fields");
+                StructDefinition definition;
+                std::apply(
+                    [&](auto... item) {
+                        (definition.fields.push_back(
+                             {std::string(item.name),
+                              bind_schema<
+                                  std::remove_cvref_t<decltype(std::declval<U>().*(item.member))>>(
+                                  registry)}),
+                         ...);
+                    },
+                    Schema<U>::fields);
+                return registry.declare_type(std::string(Schema<U>::name), std::move(definition));
+            }
+        });
+    }
+}
+
 class GrowablePayloadBuffer {
   public:
     static constexpr std::size_t inline_capacity = 256;
@@ -480,6 +550,8 @@ class BoundedPayloadBuffer {
 template <class Storage> class PayloadEncoding {
   public:
     PayloadEncoding() = default;
+
+    explicit PayloadEncoding(Storage storage) : storage_(std::move(storage)) {}
 
     explicit PayloadEncoding(std::span<std::byte> destination) : storage_(destination) {}
 
@@ -554,8 +626,13 @@ template <class Storage> class PayloadEncoding {
         return storage_.view();
     }
 
-    [[nodiscard]] Bytes take() && {
+    [[nodiscard]] auto take() && {
         return std::move(storage_).take();
+    }
+
+  protected:
+    const Storage& storage() const noexcept {
+        return storage_;
     }
 
   private:

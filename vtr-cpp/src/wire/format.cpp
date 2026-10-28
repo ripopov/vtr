@@ -7,24 +7,25 @@
 #include <zstd.h>
 
 namespace vtr::detail::wire::detail {
-[[noreturn]] void fail(const char* message, int code) {
-    throw Error(message, code);
+[[noreturn]] void fail(const char* message, ErrorCode code) {
+    throw Error(code, message);
 }
 
 Bytes compress(View raw, Codec codec, int level) {
-    require(raw.size() < (1u << 30), "compression block exceeds format limit", 1);
+    require(raw.size() < (1u << 30), "compression block exceeds format limit",
+            ErrorCode::invalid_argument);
     Bytes packed;
     if (codec == Codec::lz4 && !raw.empty()) {
         packed.resize(LZ4_compressBound(static_cast<int>(raw.size())));
         auto size = LZ4_compress_default(
             reinterpret_cast<const char*>(raw.data()), reinterpret_cast<char*>(packed.data()),
             static_cast<int>(raw.size()), static_cast<int>(packed.size()));
-        require(size > 0, "LZ4 compression failed", 6);
+        require(size > 0, "LZ4 compression failed", ErrorCode::encoding);
         packed.resize(size);
     } else if (codec == Codec::zstd && !raw.empty()) {
         packed.resize(ZSTD_compressBound(raw.size()));
         auto size = ZSTD_compress(packed.data(), packed.size(), raw.data(), raw.size(), level);
-        require(!ZSTD_isError(size), "Zstandard compression failed", 6);
+        require(!ZSTD_isError(size), "Zstandard compression failed", ErrorCode::encoding);
         packed.resize(size);
     }
     if (codec == Codec::stored || raw.empty() || packed.size() >= raw.size()) {
@@ -47,7 +48,7 @@ Bytes decompress(View packed) {
         require(r.data.size() == size, "stored blob size mismatch");
         return Bytes(r.data.begin(), r.data.end());
     }
-    require(codec <= 2, "unknown compression codec", 6);
+    require(codec <= 2, "unknown compression codec", ErrorCode::corrupt_data);
     Bytes raw(size);
     if (codec == 1) {
         require(r.data.size() <= INT32_MAX, "LZ4 input too large");
@@ -92,17 +93,17 @@ void validate_utf8(View text) {
             extra = 3;
             code = first & 7;
         } else {
-            throw Error("invalid UTF-8", 1);
+            throw Error(ErrorCode::corrupt_data, "invalid UTF-8");
         }
-        require(extra <= text.size() - i, "truncated UTF-8", 1);
+        require(extra <= text.size() - i, "truncated UTF-8", ErrorCode::corrupt_data);
         for (unsigned j = 0; j < extra; ++j) {
             auto byte = text[i++];
-            require((byte & 0xc0) == 0x80, "invalid UTF-8 continuation", 1);
+            require((byte & 0xc0) == 0x80, "invalid UTF-8 continuation", ErrorCode::corrupt_data);
             code = (code << 6) | (byte & 63);
         }
         require((extra != 2 || code >= 0x800) && (extra != 3 || code >= 0x10000) &&
                     code <= 0x10ffff && (code < 0xd800 || code > 0xdfff),
-                "invalid UTF-8 code point", 1);
+                "invalid UTF-8 code point", ErrorCode::corrupt_data);
     }
 }
 
@@ -130,13 +131,14 @@ void scalar_range(const Value& value) {
 }
 
 void validate_value(const Value& v, std::size_t string_count) {
-    require(v.tag <= Tag::map, "unknown value tag", 1);
+    require(v.tag <= Tag::map, "unknown value tag", ErrorCode::corrupt_data);
     if (v.tag == Tag::str || v.tag == Tag::enumeration) {
-        require(v.literal < string_count, "unknown value string identifier", 1);
+        require(v.literal < string_count, "unknown value string identifier",
+                ErrorCode::corrupt_data);
     }
     scalar_range(v);
     if (v.tag == Tag::boolean) {
-        require(v.number <= 1, "invalid boolean", 1);
+        require(v.number <= 1, "invalid boolean", ErrorCode::corrupt_data);
     }
     if (payload_value(v.tag)) {
         Cursor payload(v.payload);
@@ -147,7 +149,8 @@ void validate_value(const Value& v, std::size_t string_count) {
             auto count = children.var();
             for (std::uint64_t i = 0; i < count; ++i) {
                 if (v.tag == Tag::map) {
-                    require(children.id() < string_count, "unknown map key", 1);
+                    require(children.id() < string_count, "unknown map key",
+                            ErrorCode::corrupt_data);
                 }
                 validate_value(decode_value(children), string_count);
             }
@@ -161,7 +164,7 @@ void encode_payload(Bytes& out, const Value& v) {
     case Tag::null:
         break;
     case Tag::boolean:
-        require(v.number <= 1, "invalid boolean", 1);
+        require(v.number <= 1, "invalid boolean", ErrorCode::invalid_argument);
         out.push_back(v.number);
         break;
     case Tag::i8:
@@ -200,7 +203,7 @@ void encode_payload(Bytes& out, const Value& v) {
         sint(out, static_cast<std::uint64_t>(v.scale));
         break;
     default:
-        require(v.tag <= Tag::map, "unknown value tag", 1);
+        require(v.tag <= Tag::map, "unknown value tag", ErrorCode::invalid_argument);
         append(out, v.payload);
         break;
     }
@@ -295,7 +298,7 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
         break;
     }
     default:
-        throw Error("unknown value tag", 4);
+        throw Error(ErrorCode::corrupt_data, "unknown value tag");
     }
     scalar_range(v);
     if (payload_value(v.tag)) {
@@ -306,7 +309,7 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
 
 void unique_attr(std::span<const Attribute> attrs, Id key) {
     require(std::none_of(attrs.begin(), attrs.end(), [key](auto& a) { return a.key == key; }),
-            "duplicate attribute key", 1);
+            "duplicate attribute key", ErrorCode::invalid_argument);
 }
 
 void validate_attrs(std::span<const Attribute> attrs) {
@@ -337,11 +340,11 @@ Attributes decode_attrs(Cursor& r) {
 }
 
 void validate_kind(SignalKind k) {
-    require(k.type <= SignalKind::varlen, "unknown signal kind", 1);
+    require(k.type <= SignalKind::varlen, "unknown signal kind", ErrorCode::invalid_argument);
     if (k.type == SignalKind::bits) {
         require(k.width > 0 && k.width < (1u << 31) &&
                     (k.states == 2 || k.states == 4 || k.states == 9),
-                "invalid signal width or states", 1);
+                "invalid signal width or states", ErrorCode::invalid_argument);
     }
 }
 
@@ -358,14 +361,17 @@ Bytes default_value(SignalKind k) {
 }
 
 Bytes repack(View b, std::uint32_t width, std::uint8_t from, std::uint8_t to) {
-    require(from == 2 || from == 4 || from == 9, "invalid logic packing", 1);
+    require(from == 2 || from == 4 || from == 9, "invalid logic packing",
+            ErrorCode::invalid_argument);
     auto f = from == 2 ? 1u : from == 4 ? 2u : 4u;
     auto t = to == 2 ? 1u : to == 4 ? 2u : 4u;
-    require(b.size() == (std::size_t(width) * f + 7) / 8, "packed signal size mismatch", 1);
+    require(b.size() == (std::size_t(width) * f + 7) / 8, "packed signal size mismatch",
+            ErrorCode::invalid_argument);
     Bytes out((std::size_t(width) * t + 7) / 8, 0);
     for (std::size_t i = 0; i < width; ++i) {
         auto c = (b[i * f / 8] >> ((i * f) % 8)) & ((1u << f) - 1);
-        require(c < from && c < to, "logic code exceeds declared states", 1);
+        require(c < from && c < to, "logic code exceeds declared states",
+                ErrorCode::invalid_argument);
         out[i * t / 8] |= c << ((i * t) % 8);
     }
     return out;
@@ -403,11 +409,13 @@ void checked_column_attrs(AttributeColumns& c, std::span<const Attribute> attrs,
             fixed(c[4], v.number);
             break;
         case Tag::str:
-            require(v.literal < strings, "unknown value string identifier", 1);
+            require(v.literal < strings, "unknown value string identifier",
+                    ErrorCode::invalid_argument);
             put(c[5], v.literal);
             break;
         case Tag::enumeration:
-            require(v.literal < strings, "unknown value string identifier", 1);
+            require(v.literal < strings, "unknown value string identifier",
+                    ErrorCode::invalid_argument);
             sint(c[3], v.number);
             put(c[5], v.literal);
             break;
@@ -617,7 +625,8 @@ std::size_t SignalKind::packed_size() const {
 }
 
 double SignalValue::as_real() const {
-    detail::require(kind.type == SignalKind::real, "signal is not real", 1);
+    detail::require(kind.type == SignalKind::real, "signal is not real",
+                    ErrorCode::invalid_argument);
     return std::bit_cast<double>(detail::load<std::uint64_t>(data));
 }
 
@@ -641,7 +650,8 @@ std::string SignalValue::ascii() const {
 }
 
 SignalValue SignalData::at(std::size_t i) const {
-    detail::require(i < times.size(), "signal history index out of range", 9);
+    detail::require(i < times.size(), "signal history index out of range",
+                    ErrorCode::invalid_argument);
     return {kind, std::span(values).subspan(offsets[i], offsets[i + 1] - offsets[i])};
 }
 

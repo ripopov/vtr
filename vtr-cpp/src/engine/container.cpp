@@ -36,7 +36,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
             auto first = r.var(), count = r.var();
             string_count = first + count;
         } else if (section.kind == 10) {
-            types_.read_declarations(native_.section_data(section), string_count);
+            types_->read_declarations(native_.section_data(section), string_count);
         } else if (section.kind == 3) {
             auto raw = d::decompress(native_.section_data(section));
             d::Cursor r(raw);
@@ -48,7 +48,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
                 if (node.kind != vtr::detail::wire::Node::generator) {
                     continue;
                 }
-                types_[node.payload_type];
+                (*types_)[node.payload_type];
                 generators_.declare({static_cast<GeneratorId>(id),
                                      record_kind(native_.string(node.aux)), node.payload_type});
             }
@@ -58,7 +58,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
             block_strings_[section.block_number] = string_count;
             if (section.kind == 9) {
                 auto parsed =
-                    std::make_unique<RecordBlockView>(native_.section_data(section), types_,
+                    std::make_unique<RecordBlockView>(native_.section_data(section), *types_,
                                                       generators_, string_count, max_payload_bytes);
                 const auto& view = *parsed;
                 d::require(view.number() == section.block_number && view.begin() == section.aux0 &&
@@ -67,7 +67,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
                 record_views_.emplace(section.block_number, std::move(parsed));
             } else {
                 auto parsed = std::make_unique<TransactionBlockView>(
-                    native_.section_data(section), types_, generators_, string_count,
+                    native_.section_data(section), *types_, generators_, string_count,
                     max_payload_bytes, native_.strings());
                 const auto& view = *parsed;
                 d::require(view.number() == section.block_number &&
@@ -158,7 +158,7 @@ void ContainerReader::validate_transaction_blocks() const {
         if (section.kind != 5) {
             continue;
         }
-        TransactionBlockView view(native_.section_data(section, true), types_, generators_,
+        TransactionBlockView view(native_.section_data(section, true), *types_, generators_,
                                   block_strings_.at(section.block_number), default_payload_limit,
                                   native_.strings());
         view.validate();
@@ -171,13 +171,13 @@ void ContainerReader::validate_record_blocks() const {
         if (section.kind != 9) {
             continue;
         }
-        RecordBlockView view(native_.section_data(section, true), types_, generators_,
+        RecordBlockView view(native_.section_data(section, true), *types_, generators_,
                              block_strings_.at(section.block_number));
         view.validate();
         view.query({}, [&](const auto& record) {
             d::require(ids.insert(record.id).second, "duplicate global record identifier");
-            types_.validate(generators_.payload_type(record.generator, record.datatype()),
-                            record.payload, native_.strings().size());
+            types_->validate(generators_.payload_type(record.generator, record.datatype()),
+                             record.payload, native_.strings().size());
             return true;
         });
     }

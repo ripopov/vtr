@@ -2,6 +2,7 @@
 #include "containers.h"
 #include "format.h"
 #include "scalar_page.h"
+#include "transaction_memory.h"
 #include <unordered_set>
 
 namespace vtr::detail::engine {
@@ -19,39 +20,13 @@ std::size_t var_size(std::uint64_t n) {
     return n ? (64 - std::countl_zero(n) + 6) / 7 : 1;
 }
 
-std::size_t saturating_add(std::size_t a, std::size_t b) {
-    return b > SIZE_MAX - a ? SIZE_MAX : a + b;
-}
+using detail::attrs_upper;
+using detail::memory_add;
+using detail::memory_mul;
+using detail::transaction_upper;
 
-std::size_t saturating_multiply(std::size_t a, std::size_t b) {
-    return a && b > SIZE_MAX / a ? SIZE_MAX : a * b;
-}
-
-std::size_t attribute_upper(std::span<const vtr::detail::wire::Attribute> attrs) {
-    auto bytes = std::size_t(10);
-    for (const auto& attr : attrs) {
-        bytes = saturating_add(bytes, saturating_add(32, attr.value.payload.size()));
-    }
-    return bytes;
-}
-
-std::size_t row_upper(const Transaction& tx, std::size_t numeric = 0) {
-    // Framing can grow by nine bytes per column. Canonical payload bytes expand
-    // by at most ten when transposed to varints and first-use dictionary entries.
-    auto bytes = saturating_add(512, saturating_multiply(tx.payload.size(), 10));
-    bytes = saturating_add(bytes, attribute_upper(tx.attributes));
-    bytes = saturating_add(bytes, saturating_multiply(numeric, 32));
-    for (const auto& event : tx.events) {
-        bytes = saturating_add(bytes, saturating_add(64, attribute_upper(event.attributes)));
-    }
-    for (const auto& stage : tx.stages) {
-        bytes = saturating_add(bytes, saturating_add(96, attribute_upper(stage.attributes)));
-    }
-    return saturating_add(bytes, saturating_multiply(tx.child_blocks.size(), 10));
-}
-
-std::size_t row_upper(const Relation& relation) {
-    return saturating_add(512, attribute_upper(relation.attributes));
+std::size_t transaction_upper(const Relation& relation) {
+    return memory_add(512, attrs_upper(relation.attributes));
 }
 
 void extend(RecordId& minimum, RecordId& maximum, RecordId value, bool first) {
@@ -225,7 +200,8 @@ void numeric_attrs(d::AttributeColumns& columns, std::span<const NumericAttribut
             require(attr.key < strings, "invalid numeric attribute key/tag");
             if (i && attr.key <= maximum_key)
                 for (std::size_t j = 0; j < i; ++j)
-                    require(attrs[j].key != attr.key, "duplicate numeric attribute key", 1);
+                    require(attrs[j].key != attr.key, "duplicate numeric attribute key",
+                            ErrorCode::invalid_argument);
             maximum_key = std::max(maximum_key, attr.key);
             put(key, attr.key);
             put(value, attr.number);
@@ -243,7 +219,8 @@ void numeric_attrs(d::AttributeColumns& columns, std::span<const NumericAttribut
                 "invalid numeric attribute key/tag");
         if (i && attr.key <= maximum_key)
             for (std::size_t j = 0; j < i; ++j)
-                require(attrs[j].key != attr.key, "duplicate numeric attribute key", 1);
+                require(attrs[j].key != attr.key, "duplicate numeric attribute key",
+                        ErrorCode::invalid_argument);
         maximum_key = std::max(maximum_key, attr.key);
         d::put(columns[1], attr.key);
         columns[2].push_back(static_cast<std::uint8_t>(attr.tag));
@@ -746,23 +723,23 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
         for (const auto* tx : sorted) {
             const auto attributes = numeric.row(tx - transactions.data());
             const auto& binding = local.at(tx->generator);
-            append(*tx, row_upper(*tx, attributes.size()), [&] {
+            append(*tx, transaction_upper(*tx, attributes.size()), [&] {
                 encoder.append(types, binding.generator, binding.local, *tx, attributes);
             });
         }
         for (const auto& relation : relations) {
-            append(relation, row_upper(relation), [&] { encoder.append(relation); });
+            append(relation, transaction_upper(relation), [&] { encoder.append(relation); });
         }
     } else {
         for (const auto* tx : sorted) {
             const auto attributes = numeric.row(tx - transactions.data());
             const auto& binding = local.at(tx->generator);
-            exact_append(*tx, row_upper(*tx, attributes.size()), [&] {
+            exact_append(*tx, transaction_upper(*tx, attributes.size()), [&] {
                 encoder.append(types, binding.generator, binding.local, *tx, attributes);
             });
         }
         for (const auto& relation : relations) {
-            exact_append(relation, row_upper(relation), [&] { encoder.append(relation); });
+            exact_append(relation, transaction_upper(relation), [&] { encoder.append(relation); });
         }
     }
     flush();

@@ -12,6 +12,10 @@ class ContainerReader {
     }
 
     const Types& types() const noexcept {
+        return *types_;
+    }
+
+    std::shared_ptr<const Types> retained_types() const noexcept {
         return types_;
     }
 
@@ -46,7 +50,7 @@ class ContainerReader {
 
   private:
     vtr::detail::wire::Reader native_;
-    Types types_;
+    std::shared_ptr<Types> types_ = std::make_shared<Types>();
     Generators generators_;
     std::unordered_map<std::uint64_t, std::size_t> blocks_;
     std::unordered_map<std::uint64_t, std::uint64_t> block_strings_;

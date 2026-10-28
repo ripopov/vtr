@@ -54,7 +54,7 @@ std::uint64_t row_number(Cursor& row, unsigned width) {
     case 8:
         return d::load<std::uint64_t>(data);
     default:
-        throw vtr::detail::wire::Error("invalid scalar width");
+        throw vtr::detail::wire::Error(ErrorCode::invalid_argument, "invalid scalar width");
     }
 }
 
@@ -277,10 +277,41 @@ void append_scalar(ArgumentColumns& out, Primitive p, Cursor& row) {
         }
         d::sint(numeric, row.fixed<std::uint64_t>());
     } else {
-        throw vtr::detail::wire::Error("unsupported primitive argument");
+        throw vtr::detail::wire::Error(ErrorCode::invalid_argument,
+                                       "unsupported primitive argument");
     }
 }
 } // namespace
+
+TypeId Types::declare_datatype(std::string name, decltype(vtr::DataType::definition) definition,
+                               vtr::detail::wire::Attributes attributes) {
+    return std::visit(
+        [&]<class T>(T& value) -> TypeId {
+            if constexpr (std::same_as<T, vtr::StructDefinition>) {
+                std::vector<Field> fields;
+                fields.reserve(value.fields.size());
+                for (auto& field : value.fields)
+                    fields.push_back({std::move(field.name), field.type.value});
+                return structure(std::move(name), std::move(fields), std::move(attributes));
+            } else if constexpr (std::same_as<T, vtr::ArrayDefinition>) {
+                return array(value.element.value, value.count, std::move(name),
+                             std::move(attributes));
+            } else if constexpr (std::same_as<T, vtr::SequenceDefinition>) {
+                return sequence(value.element.value, std::move(name), std::move(attributes));
+            } else if constexpr (std::same_as<T, vtr::EnumDefinition>) {
+                std::vector<Enumerator> literals;
+                literals.reserve(value.literals.size());
+                for (auto& literal : value.literals)
+                    literals.push_back({literal.value_bits, std::move(literal.name)});
+                return enumeration(std::move(name), value.underlying.value, std::move(literals),
+                                   std::move(attributes));
+            } else {
+                throw vtr::Error(vtr::ErrorCode::invalid_argument,
+                                 "Cannot declare a primitive type");
+            }
+        },
+        definition);
+}
 
 Types::Types() {
     for (unsigned i = 0; i < first_declared_type; ++i) {
@@ -370,7 +401,7 @@ TypeId Types::add(Type type, vtr::detail::wire::Attributes attributes) {
             integer_range(base.primitive, value.value);
         }
     } else {
-        throw vtr::detail::wire::Error("unknown datatype kind");
+        throw vtr::detail::wire::Error(ErrorCode::invalid_argument, "unknown datatype kind");
     }
     compile_scalars(*this, type);
     auto id = static_cast<TypeId>(types_.size());
@@ -461,47 +492,52 @@ void Types::read_declarations(View data, std::uint64_t string_count) {
     require(id(r) == types_.size(), "noncontiguous datatype chunk");
     auto count = id(r);
     require(count <= r.data.size() / 2, "invalid datatype count");
-    auto next = *this;
-    for (std::uint32_t i = 0; i < count; ++i) {
-        Type type;
-        const auto tag = r.byte();
-        type.kind = static_cast<TypeKind>(tag & 0x7f);
-        type.name = text(r);
-        if (type.kind == TypeKind::structure) {
-            auto n = id(r);
-            require(n <= r.data.size() / 2, "invalid datatype field count");
-            for (std::uint32_t j = 0; j < n; ++j) {
-                type.fields.push_back({text(r), id(r)});
-            }
-        } else if (type.kind >= TypeKind::array && type.kind <= TypeKind::enumeration) {
-            type.element = id(r);
-            if (type.kind == TypeKind::array) {
-                type.count = id(r);
-            }
-            if (type.kind == TypeKind::enumeration) {
+    const auto first = types_.size();
+    try {
+        for (std::uint32_t i = 0; i < count; ++i) {
+            Type type;
+            const auto tag = r.byte();
+            type.kind = static_cast<TypeKind>(tag & 0x7f);
+            type.name = text(r);
+            if (type.kind == TypeKind::structure) {
                 auto n = id(r);
-                require(n <= r.data.size() / 9, "invalid enum literal count");
+                require(n <= r.data.size() / 2, "invalid datatype field count");
                 for (std::uint32_t j = 0; j < n; ++j) {
-                    type.enumerators.push_back({r.fixed<std::uint64_t>(), text(r)});
+                    type.fields.push_back({text(r), id(r)});
+                }
+            } else if (type.kind >= TypeKind::array && type.kind <= TypeKind::enumeration) {
+                type.element = id(r);
+                if (type.kind == TypeKind::array) {
+                    type.count = id(r);
+                }
+                if (type.kind == TypeKind::enumeration) {
+                    auto n = id(r);
+                    require(n <= r.data.size() / 9, "invalid enum literal count");
+                    for (std::uint32_t j = 0; j < n; ++j) {
+                        type.enumerators.push_back({r.fixed<std::uint64_t>(), text(r)});
+                    }
+                }
+            } else {
+                throw vtr::detail::wire::Error(ErrorCode::corrupt_data,
+                                               "invalid declared datatype kind");
+            }
+            vtr::detail::wire::Attributes attributes;
+            if (tag & 0x80) {
+                attributes = d::decode_attrs(r);
+                require(!attributes.empty(), "empty flagged datatype attributes");
+                for (const auto& attribute : attributes) {
+                    require(attribute.key < string_count, "undeclared datatype attribute key");
+                    d::validate_value(attribute.value, string_count);
                 }
             }
-        } else {
-            throw vtr::detail::wire::Error("invalid declared datatype kind");
+            add(std::move(type), std::move(attributes));
         }
-        vtr::detail::wire::Attributes attributes;
-        if (tag & 0x80) {
-            attributes = d::decode_attrs(r);
-            require(!attributes.empty(), "empty flagged datatype attributes");
-            for (const auto& attribute : attributes) {
-                require(attribute.key < string_count, "undeclared datatype attribute key");
-                d::validate_value(attribute.value, string_count);
-            }
-        }
-        next.add(std::move(type), std::move(attributes));
+        r.done();
+    } catch (...) {
+        types_.resize(first);
+        attributes_.resize(first);
+        throw;
     }
-    r.done();
-    types_ = std::move(next.types_);
-    attributes_ = std::move(next.attributes_);
 }
 
 void Types::validate(TypeId type, View payload, std::uint64_t string_count) const {
@@ -662,7 +698,7 @@ Bytes ArgumentReader::read(const Types& types, TypeId type) {
                 row.scalar(bits);
                 break;
             default:
-                throw vtr::detail::wire::Error("invalid scalar width");
+                throw vtr::detail::wire::Error(ErrorCode::invalid_argument, "invalid scalar width");
             }
         } else if (p == Primitive::f32 || p == Primitive::f64) {
             row.raw(floats.take(widths[unsigned(p)]));
@@ -706,7 +742,8 @@ Bytes ArgumentReader::read(const Types& types, TypeId type) {
             row.scalar(p == Primitive::fixed ? d::unzig(raw) : raw);
             row.scalar(d::unzig(var(numeric)));
         } else {
-            throw vtr::detail::wire::Error("unsupported primitive argument");
+            throw vtr::detail::wire::Error(ErrorCode::invalid_argument,
+                                           "unsupported primitive argument");
         }
     };
     auto visit = [&](auto&& self, TypeId id) -> void {

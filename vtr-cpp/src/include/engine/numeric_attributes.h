@@ -23,12 +23,13 @@ struct NumericAttributesView {
     void validate(std::size_t rows) const {
         if (offsets.empty()) {
             if (!values.empty())
-                throw wire::Error("numeric attributes have no row offsets", 4);
+                throw wire::Error(ErrorCode::corrupt_data,
+                                  "numeric attributes have no row offsets");
             return;
         }
         if (rows == SIZE_MAX || offsets.size() != rows + 1 || offsets.front() ||
             offsets.back() != values.size() || !std::is_sorted(offsets.begin(), offsets.end()))
-            throw wire::Error("invalid numeric attribute row offsets", 4);
+            throw wire::Error(ErrorCode::corrupt_data, "invalid numeric attribute row offsets");
     }
 
     std::span<const NumericAttribute> row(std::size_t index) const {
@@ -36,7 +37,8 @@ struct NumericAttributesView {
             return {};
         if (index >= offsets.size() - 1 || offsets[index] > offsets[index + 1] ||
             offsets[index + 1] > values.size())
-            throw wire::Error("numeric attribute row is outside its storage", 4);
+            throw wire::Error(ErrorCode::corrupt_data,
+                              "numeric attribute row is outside its storage");
         return values.subspan(offsets[index], offsets[index + 1] - offsets[index]);
     }
 };

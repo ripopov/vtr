@@ -2,6 +2,7 @@
 #include "engine/vtr.h"
 #include "format.h"
 #include "payload_pool.h"
+#include "transaction_memory.h"
 
 namespace vtr::detail::engine {
 namespace {
@@ -28,58 +29,12 @@ std::size_t tx_bytes(const Transaction& tx) {
     return n;
 }
 
-std::size_t memory_add(std::size_t a, std::size_t b) {
-    return b > SIZE_MAX - a ? SIZE_MAX : a + b;
-}
-
-std::size_t memory_mul(std::size_t a, std::size_t b) {
-    return a && b > SIZE_MAX / a ? SIZE_MAX : a * b;
-}
-
-std::size_t owned_attrs(const Attributes& attrs) {
-    auto bytes = memory_mul(attrs.capacity(), sizeof(vtr::detail::wire::Attribute));
-    for (const auto& a : attrs) {
-        bytes = memory_add(bytes, a.value.payload.capacity());
-    }
-    return bytes;
-}
-
-std::size_t attrs_upper(std::span<const vtr::detail::wire::Attribute> attrs) {
-    auto bytes = std::size_t(10);
-    for (const auto& a : attrs) {
-        bytes = memory_add(bytes, memory_add(32, a.value.payload.size()));
-    }
-    return bytes;
-}
-
-std::size_t owned_tx(const Transaction& tx) {
-    auto bytes = memory_add(sizeof(tx), tx.payload.capacity());
-    for (auto n : {owned_attrs(tx.attributes), memory_mul(tx.child_blocks.capacity(), 8),
-                   memory_mul(tx.events.capacity(), sizeof(EmbeddedEvent)),
-                   memory_mul(tx.stages.capacity(), sizeof(EmbeddedStage))}) {
-        bytes = memory_add(bytes, n);
-    }
-    for (const auto& e : tx.events) {
-        bytes = memory_add(bytes, owned_attrs(e.attributes));
-    }
-    for (const auto& stage : tx.stages) {
-        bytes = memory_add(bytes, owned_attrs(stage.attributes));
-    }
-    return bytes;
-}
-
-std::size_t tx_upper(const Transaction& tx, std::size_t numeric = 0) {
-    auto bytes = memory_add(640, memory_mul(tx.payload.size(), 10));
-    bytes = memory_add(bytes, attrs_upper(tx.attributes));
-    bytes = memory_add(bytes, memory_mul(numeric, 32));
-    for (const auto& event : tx.events) {
-        bytes = memory_add(bytes, memory_add(64, attrs_upper(event.attributes)));
-    }
-    for (const auto& stage : tx.stages) {
-        bytes = memory_add(bytes, memory_add(96, attrs_upper(stage.attributes)));
-    }
-    return memory_add(bytes, memory_mul(tx.child_blocks.size(), 10));
-}
+using detail::attrs_upper;
+using detail::memory_add;
+using detail::memory_mul;
+using detail::owned_attrs;
+using detail::owned_tx;
+using detail::transaction_upper;
 
 std::size_t schema_memory(const Types& types, const Generators& generators) {
     auto bytes =
@@ -131,7 +86,8 @@ std::size_t transaction_charge(const std::vector<Transaction>& rows,
     auto encoded = std::size_t(4096);
     for (const auto& row : rows) {
         owned = memory_add(owned, owned_tx(row));
-        encoded = memory_add(encoded, tx_upper(row, numeric.view().row(&row - rows.data()).size()));
+        encoded = memory_add(
+            encoded, transaction_upper(row, numeric.view().row(&row - rows.data()).size(), 640));
     }
     for (const auto& relation : relations) {
         owned = memory_add(owned, owned_attrs(relation.attributes));
@@ -143,7 +99,7 @@ std::size_t transaction_charge(const std::vector<Transaction>& rows,
 vtr::detail::wire::WriterOptions native_options(const WriterOptions& o) {
     require(o.page_bytes && o.block_bytes && o.record_limit && o.wave_records &&
                 o.codec <= vtr::detail::wire::Codec::zstd,
-            "invalid writer options");
+            "invalid writer options", ErrorCode::invalid_argument);
     vtr::detail::wire::WriterOptions result;
     result.codec = o.codec;
     result.compression_level = o.compression_level;
@@ -272,7 +228,7 @@ struct Writer::Impl {
             d::unique_attr(owner.value.attributes, key);
             for (std::size_t i = 0; i < owner.numeric_count; ++i)
                 require(numeric_owners[owner.numeric_slot][i].key != key, "duplicate attribute key",
-                        1);
+                        ErrorCode::invalid_argument);
         }
         if (owner.payload_type)
             for (const auto& field : types[owner.payload_type].fields)
@@ -345,13 +301,10 @@ struct Writer::Impl {
                                           : nullptr),
           native(path, native_options(opts)) {
         native.mark_incomplete();
-        require(opts.page_bytes && opts.block_bytes && opts.record_limit && opts.wave_records &&
-                    opts.codec <= vtr::detail::wire::Codec::zstd,
-                "invalid writer options");
     }
 
     void alive() const {
-        require(!closed && !poisoned, "writer is closed or poisoned");
+        require(!closed && !poisoned, "writer is closed or poisoned", ErrorCode::invalid_state);
         if (options.workers) {
             native.check_failure();
         }
@@ -361,9 +314,13 @@ struct Writer::Impl {
         try {
             return action();
         } catch (const vtr::detail::wire::Error& error) {
-            if (native.failed() || (error.code != 1 && error.code != 2 && error.code != 4)) {
+            if (native.failed() || (error.code() != ErrorCode::invalid_argument &&
+                                    error.code() != ErrorCode::invalid_state &&
+                                    error.code() != ErrorCode::corrupt_data)) {
                 poisoned = true;
             }
+            if (!native.failed() && error.code() == ErrorCode::corrupt_data)
+                throw Error(ErrorCode::invalid_argument, error.what());
             throw;
         } catch (...) {
             poisoned = true;
@@ -383,7 +340,7 @@ struct Writer::Impl {
     RecordId allocate() {
         auto id = std::exchange(assigned_id, 0);
         if (!id) {
-            require(next_id, "record identifier exhaustion");
+            require(next_id, "record identifier exhaustion", ErrorCode::id_exhausted);
             id = next_id++;
         } else if (next_id && id >= next_id) {
             next_id = id + 1;
@@ -393,7 +350,7 @@ struct Writer::Impl {
     }
 
     std::uint64_t allocate_block() {
-        require(next_block, "block number exhaustion");
+        require(next_block, "block number exhaustion", ErrorCode::id_exhausted);
         return next_block++;
     }
 
@@ -708,6 +665,22 @@ struct Writer::Impl {
         --owner_count;
     }
 
+    template <class Captured>
+    void end_with_payload(RecordId id, Timestamp time, Captured&& payload, std::uint8_t status) {
+        auto& active = owner(id);
+        require(status <= 4, "invalid status");
+        types.validate(generators[active.value.generator].payload_type, payload,
+                       native.string_count());
+        for (auto stage : active.stages)
+            require(stages.at(stage).payload_ready, "missing mandatory stage payload");
+        if constexpr (std::same_as<std::remove_cvref_t<Captured>, Bytes>)
+            active.value.payload = std::move(payload);
+        else
+            active.value.payload = copy_payload(payload);
+        active.payload_ready = true;
+        end(id, time, status);
+    }
+
     void stop_clock(GeneratorId gen, Timestamp time, std::uint8_t status) {
         auto i = clocks.find(gen);
         require(i != clocks.end() && i->second.id, "clock is not running");
@@ -822,6 +795,23 @@ TypeId Writer::structure(std::string name, std::vector<Field> fields) {
     });
 }
 
+TypeId Writer::declare_datatype(std::string name, decltype(vtr::DataType::definition) definition,
+                                vtr::detail::wire::Attributes attributes) {
+    auto& p = *impl_;
+    return p.call([&] {
+        p.alive();
+        for (const auto& attribute : attributes) {
+            require(attribute.key < p.native.string_count(), "Undeclared datatype attribute key",
+                    ErrorCode::invalid_argument);
+            d::validate_value(attribute.value, p.native.string_count());
+        }
+        const auto id =
+            p.types.declare_datatype(std::move(name), std::move(definition), std::move(attributes));
+        p.write_types();
+        return id;
+    });
+}
+
 void Writer::declare_types(View data) {
     auto& p = *impl_;
     return p.call([&] {
@@ -832,6 +822,7 @@ void Writer::declare_types(View data) {
 }
 
 const Types& Writer::types() const {
+    impl_->alive();
     return impl_->types;
 }
 
@@ -1037,34 +1028,12 @@ void Writer::end(RecordId id, Timestamp time, std::uint8_t status) {
 
 void Writer::end(RecordId id, Timestamp time, Bytes payload, std::uint8_t status) {
     auto& p = *impl_;
-    return p.call([&] {
-        auto& active = p.owner(id);
-        require(status <= 4, "invalid status");
-        p.types.validate(p.generators[active.value.generator].payload_type, payload,
-                         p.native.string_count());
-        for (auto stage : active.stages) {
-            require(p.stages.at(stage).payload_ready, "missing mandatory stage payload");
-        }
-        active.value.payload = std::move(payload);
-        active.payload_ready = true;
-        p.end(id, time, status);
-    });
+    p.call([&] { p.end_with_payload(id, time, std::move(payload), status); });
 }
 
 void Writer::end_captured(RecordId id, Timestamp time, View payload, std::uint8_t status) {
     auto& p = *impl_;
-    return p.call([&] {
-        auto& active = p.owner(id);
-        require(status <= 4, "invalid status");
-        p.types.validate(p.generators[active.value.generator].payload_type, payload,
-                         p.native.string_count());
-        for (auto stage : active.stages) {
-            require(p.stages.at(stage).payload_ready, "missing mandatory stage payload");
-        }
-        active.value.payload = p.copy_payload(payload);
-        active.payload_ready = true;
-        p.end(id, time, status);
-    });
+    p.call([&] { p.end_with_payload(id, time, payload, status); });
 }
 
 Bytes Writer::prepare_value_end(RecordId id, std::uint8_t status) {
@@ -1077,8 +1046,10 @@ Bytes Writer::prepare_value_end(RecordId id, std::uint8_t status) {
     return p.take_payload();
 }
 
-void Writer::capture_failure(int code) noexcept {
-    if (impl_->native.failed() || (code != 1 && code != 2 && code != 4)) {
+void Writer::capture_failure(ErrorCode code) noexcept {
+    if (impl_->native.failed() ||
+        (code != ErrorCode::invalid_argument && code != ErrorCode::invalid_state &&
+         code != ErrorCode::corrupt_data)) {
         impl_->poisoned = true;
     }
 }

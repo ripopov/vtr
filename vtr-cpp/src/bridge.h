@@ -15,27 +15,6 @@ static_assert(format_major == binary::format_major && format_minor == binary::fo
 template <class F> decltype(auto) translate(F&& action) {
     try {
         return std::forward<F>(action)();
-    } catch (const wire::Error& error) {
-        auto code = ErrorCode::invalid_argument;
-        switch (error.code) {
-        case 2:
-            code = ErrorCode::invalid_state;
-            break;
-        case 3:
-            code = ErrorCode::io;
-            break;
-        case 4:
-        case 6:
-        case 7:
-            code = ErrorCode::corrupt_data;
-            break;
-        case 5:
-            code = ErrorCode::unsupported_version;
-            break;
-        default:
-            break;
-        }
-        throw Error(code, error.what());
     } catch (const std::filesystem::filesystem_error& error) {
         throw Error(ErrorCode::io, error.what());
     }

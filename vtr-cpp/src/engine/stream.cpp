@@ -1,6 +1,7 @@
 #include "stream.h"
 #include "containers.h"
 #include "format.h"
+#include "packet_spool.h"
 #include "record_ids.h"
 #include "spsc.h"
 #include "thread_cpu.h"
@@ -9,7 +10,6 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
-#include <cstdio>
 #include <limits>
 #include <thread>
 
@@ -21,105 +21,23 @@ constexpr std::size_t drain_bytes = 256 << 10;
 std::atomic<std::uint64_t> next_identity{1};
 thread_local const auto thread_identity = next_identity.fetch_add(1, std::memory_order_relaxed);
 
-[[gnu::cold, noreturn]] void reject(const char* message) {
-    throw vtr::detail::wire::Error(message);
+[[gnu::cold, noreturn]] void reject(const char* message, ErrorCode code) {
+    throw vtr::detail::wire::Error(code, message);
 }
 
-inline void require(bool condition, const char* message) {
+inline void require(bool condition, const char* message,
+                    ErrorCode code = ErrorCode::invalid_argument) {
     if (!condition)
-        reject(message);
+        reject(message, code);
 }
 
-enum class Kind : std::uint8_t {
-    scalar,
-    span,
-    packed,
-    real,
-    bytes,
-    dump,
-    begin,
-    begin_value,
-    stage,
-    stage_value,
-    event,
-    log,
-    payload,
-    stage_payload,
-    end,
-    end_value,
-    stage_end,
-    attribute,
-    scalar_attribute,
-    classify,
-    relate,
-    embedded_event,
-    embedded_stage,
-    embedded_end,
-    clock_run,
-    clock_stop,
-    advance,
-    finish,
-    external
-};
-
-struct Operation {
-    Kind kind;
-    std::uint8_t status = 0;
-    Id generator = 0;
-    RecordId id = 0;
-    Timestamp time = 0;
-    std::uint64_t argument = 0;
-    std::size_t offset = 0, size = 0;
-};
-
-struct Packet {
-    Kind kind;
-    std::uint8_t status = 0;
-    std::uint16_t reserved = 0;
-    Id generator = 0;
-    std::uint64_t argument = 0;
-};
-
-struct RecordPacket {
-    Packet packet;
-    RecordId id = 0;
-    Timestamp time = 0;
-    std::size_t bytes = 0;
-};
-
-struct AttributePacket {
-    Packet packet;
-    RecordId id = 0;
-};
-
-static_assert(sizeof(Packet) == 16 && sizeof(RecordPacket) == 40 && sizeof(AttributePacket) == 24);
-
-Packet packet_header(const std::uint8_t* data) {
-    Packet packet;
-    std::memcpy(&packet, data, sizeof(packet));
-    return packet;
-}
-
-bool small_packet(Kind kind) {
-    return kind == Kind::scalar || kind == Kind::advance || kind == Kind::finish ||
-           kind == Kind::external || kind == Kind::dump;
-}
-
-std::size_t packet_header_bytes(Kind kind) {
-    if (kind == Kind::scalar_attribute)
-        return sizeof(AttributePacket);
-    return small_packet(kind) ? sizeof(Packet) : sizeof(RecordPacket);
-}
-
-std::size_t packet_size(const std::uint8_t* data, Kind kind) {
-    if (kind == Kind::scalar_attribute)
-        return sizeof(AttributePacket);
-    if (small_packet(kind))
-        return sizeof(Packet);
-    std::size_t bytes;
-    std::memcpy(&bytes, data + offsetof(RecordPacket, bytes), sizeof(bytes));
-    return sizeof(RecordPacket) + bytes;
-}
+using detail::AttributePacket;
+using detail::Kind;
+using detail::Packet;
+using detail::packet_header;
+using detail::packet_size;
+using detail::RecordPacket;
+using detail::small_packet;
 
 struct Request {
     const std::function<void(Writer&)>& action;
@@ -202,22 +120,16 @@ struct Channel {
     std::uint64_t received = 0;
     Bytes pending;
     std::size_t pending_read = 0;
-    std::FILE* spool = nullptr;
-    off_t read_offset = 0, write_offset = 0;
-    Bytes replay;
-    bool replay_ready = false;
+    detail::PacketSpool spool;
 
     Channel(Stream::ProducerId number, Channel* previous, Timestamp start, std::size_t capacity,
             std::size_t pending_budget)
         : id(number), next(previous), incoming(capacity), producer_time(start), watermark(start),
           last_time(start), play_time(start) {
         pending.reserve(std::min<std::size_t>(64 << 10, pending_budget));
-        replay.reserve(sizeof(RecordPacket));
     }
 
     ~Channel() {
-        if (spool)
-            std::fclose(spool);
         while (auto* data = incoming.peek()) {
             const auto packet = packet_header(data);
             const auto bytes = packet_size(data, packet.kind);
@@ -277,7 +189,8 @@ struct Stream::Impl {
         if (failed.load(std::memory_order_acquire)) {
             std::rethrow_exception(failure);
         }
-        require(!stopped.load(std::memory_order_acquire), "recording is closed");
+        require(!stopped.load(std::memory_order_acquire), "recording is closed",
+                ErrorCode::invalid_state);
     }
 
     void fail(std::exception_ptr error) noexcept {
@@ -307,7 +220,7 @@ struct Stream::Impl {
             } declaration{*this};
 
             backend_recording = this;
-            require(!stopped.load(), "recording is closed");
+            require(!stopped.load(), "recording is closed", ErrorCode::invalid_state);
             action(backend);
             return;
         }
@@ -322,7 +235,7 @@ struct Stream::Impl {
             }
         } pending_request{active_requests};
 
-        require(!stopped.load(), "recording is closed");
+        require(!stopped.load(), "recording is closed", ErrorCode::invalid_state);
         Request request{action};
         auto* head = requests.load(std::memory_order_relaxed);
         do {
@@ -340,7 +253,8 @@ struct Stream::Impl {
     void start() {
         auto state = startup.load(std::memory_order_acquire);
         while (state != Startup::running) {
-            require(!stopped.load(std::memory_order_acquire), "recording is closed");
+            require(!stopped.load(std::memory_order_acquire), "recording is closed",
+                    ErrorCode::invalid_state);
             if (state == Startup::setup &&
                 startup.compare_exchange_weak(state, Startup::starting,
                                               std::memory_order_acq_rel)) {
@@ -385,7 +299,8 @@ struct Stream::Impl {
 
     Channel& add(Timestamp time) {
         require(time >= frontier, "producer starts before completed recording time");
-        require(registered.size() < unowned_producer, "producer identifier exhaustion");
+        require(registered.size() < unowned_producer, "producer identifier exhaustion",
+                ErrorCode::id_exhausted);
         auto channel = std::make_unique<Channel>(static_cast<ProducerId>(registered.size()),
                                                  channels.load(std::memory_order_relaxed), time,
                                                  options.queue_bytes, options.pending_bytes);
@@ -463,7 +378,7 @@ struct Stream::Impl {
     }
 
     void append_small(Channel& channel, const Packet& packet) {
-        require(!channel.producer_finished, "producer has finished");
+        require(!channel.producer_finished, "producer has finished", ErrorCode::invalid_state);
         auto* destination = channel.incoming.reserve(sizeof(Packet));
         if (!destination)
             destination = reserve(channel, sizeof(Packet));
@@ -473,7 +388,7 @@ struct Stream::Impl {
     }
 
     void append_record(Channel& channel, const RecordPacket& packet) {
-        require(!channel.producer_finished, "producer has finished");
+        require(!channel.producer_finished, "producer has finished", ErrorCode::invalid_state);
         auto* destination = channel.incoming.reserve(sizeof(RecordPacket));
         if (!destination)
             destination = reserve(channel, sizeof(RecordPacket));
@@ -486,8 +401,8 @@ struct Stream::Impl {
         try {
             auto& channel = local();
             const auto id = record_ids.acquire();
-            require(id, "record identifier exhaustion");
-            append_record(channel, {{kind, 0, 0, generator, parent}, id, time, 0});
+            require(id, "record identifier exhaustion", ErrorCode::id_exhausted);
+            append_record(channel, {kind, 0, generator, id, time, parent});
             return id;
         } catch (...) {
             fail(std::current_exception());
@@ -497,7 +412,7 @@ struct Stream::Impl {
 
     void append_attribute(Channel& channel, RecordId id, Id key, std::uint8_t tag,
                           std::uint64_t value) {
-        require(!channel.producer_finished, "producer has finished");
+        require(!channel.producer_finished, "producer has finished", ErrorCode::invalid_state);
         auto* destination = channel.incoming.reserve(sizeof(AttributePacket));
         if (!destination)
             destination = reserve(channel, sizeof(AttributePacket));
@@ -508,10 +423,10 @@ struct Stream::Impl {
     }
 
     template <class Payload = View>
-    void append(Channel& channel, const Operation& operation, const Payload& data = {}) {
-        require(!channel.producer_finished, "producer has finished");
+    void append(Channel& channel, const RecordPacket& operation, const Payload& data = {}) {
+        require(!channel.producer_finished, "producer has finished", ErrorCode::invalid_state);
         try {
-            const bool small = small_packet(operation.kind);
+            const bool small = small_packet(operation.packet.kind);
             const auto data_bytes = [&] {
                 if constexpr (std::is_same_v<Payload, EncodedPayload>)
                     return data.size;
@@ -535,11 +450,8 @@ struct Stream::Impl {
                 overflow = std::make_unique_for_overwrite<std::uint8_t[]>(bytes);
             }
             auto* output = oversized ? overflow.get() : destination;
-            const RecordPacket packet{
-                {operation.kind, operation.status, 0, operation.generator, operation.argument},
-                operation.id,
-                operation.time,
-                data_bytes};
+            auto packet = operation;
+            packet.bytes = data_bytes;
             std::memcpy(output, &packet, header_bytes);
             if constexpr (std::is_same_v<Payload, EncodedPayload>) {
                 data.copy_to({reinterpret_cast<std::byte*>(output + header_bytes), data_bytes});
@@ -561,16 +473,17 @@ struct Stream::Impl {
         }
     }
 
-    template <class Payload = View> void append(Operation operation, const Payload& data = {}) {
+    template <class Payload = View> void append(RecordPacket operation, const Payload& data = {}) {
         append(local(), operation, data);
     }
 
-    template <class Payload = View> RecordId create(Operation operation, const Payload& data = {}) {
+    template <class Payload = View>
+    RecordId create(RecordPacket operation, const Payload& data = {}) {
         try {
             // Attachment bounds concurrent ID reservations by the logical producer limit.
             auto& channel = local();
             const auto id = record_ids.acquire();
-            require(id, "record identifier exhaustion");
+            require(id, "record identifier exhaustion", ErrorCode::id_exhausted);
             operation.id = id;
             append(channel, operation, data);
             return id;
@@ -581,20 +494,12 @@ struct Stream::Impl {
     }
 
     void spool_write(Channel& channel, View data) {
-        if (!channel.spool) {
-            channel.spool = std::tmpfile();
-            require(channel.spool, "cannot create pending recording spool");
-        }
-        require(::fseeko(channel.spool, channel.write_offset, SEEK_SET) == 0,
-                "cannot seek pending recording spool");
-        require(std::fwrite(data.data(), 1, data.size(), channel.spool) == data.size(),
-                "cannot write pending recording spool");
-        channel.write_offset += static_cast<off_t>(data.size());
+        channel.spool.append(data);
         counters.spilled_bytes += data.size();
     }
 
     void stage(Channel& channel, View packet) {
-        if (channel.spool || packet.size() > options.pending_bytes - pending_bytes) {
+        if (channel.spool.opened() || packet.size() > options.pending_bytes - pending_bytes) {
             if (channel.pending_read < channel.pending.size()) {
                 auto data = View(channel.pending).subspan(channel.pending_read);
                 spool_write(channel, data);
@@ -618,6 +523,27 @@ struct Stream::Impl {
         counters.peak_pending_bytes = std::max(counters.peak_pending_bytes, pending_bytes);
     }
 
+    View pending_head(Channel& channel) {
+        if (channel.pending_read < channel.pending.size()) {
+            const auto* data = channel.pending.data() + channel.pending_read;
+            return {data, packet_size(data, packet_header(data).kind)};
+        }
+        return channel.spool.opened() ? channel.spool.front() : View{};
+    }
+
+    void consume_pending(Channel& channel, std::size_t bytes) {
+        if (channel.pending_read < channel.pending.size()) {
+            channel.pending_read += bytes;
+            pending_bytes -= bytes;
+            if (channel.pending_read == channel.pending.size()) {
+                channel.pending.clear();
+                channel.pending_read = 0;
+            }
+        } else {
+            channel.spool.consume();
+        }
+    }
+
     void execute_packet(View data, Channel& channel) {
         const auto header = packet_header(data.data());
         if (header.kind == Kind::scalar) {
@@ -639,8 +565,8 @@ struct Stream::Impl {
                 value.number = header.argument;
             backend.attribute(packet.id, header.generator, value);
         } else {
-            Operation operation{header.kind, header.status, header.generator};
-            operation.argument = header.argument;
+            RecordPacket operation{header.kind, header.status, header.generator};
+            operation.packet.argument = header.argument;
             if (!small_packet(header.kind)) {
                 RecordPacket packet;
                 std::memcpy(&packet, data.data(), sizeof(packet));
@@ -658,7 +584,8 @@ struct Stream::Impl {
         bool progress = false;
         for (auto& pointer : registered) {
             auto& channel = *pointer;
-            const bool direct = registered.size() == 1 && channel.pending.empty() && !channel.spool;
+            const bool direct =
+                registered.size() == 1 && channel.pending.empty() && !channel.spool.opened();
             std::size_t collected = 0;
             while (collected < drain_bytes &&
                    (!limits || channel.incoming.consumed() != (*limits)[channel.id])) {
@@ -723,58 +650,6 @@ struct Stream::Impl {
         return progress;
     }
 
-    View pending_head(Channel& channel) {
-        if (channel.pending_read < channel.pending.size()) {
-            const auto* data = channel.pending.data() + channel.pending_read;
-            return {data, packet_size(data, packet_header(data).kind)};
-        }
-        if (channel.replay_ready)
-            return channel.replay;
-        if (channel.read_offset == channel.write_offset) {
-            if (channel.spool) {
-                require(std::fclose(channel.spool) == 0, "cannot close pending recording spool");
-                channel.spool = nullptr;
-                channel.read_offset = channel.write_offset = 0;
-            }
-            return {};
-        }
-        require(::fseeko(channel.spool, channel.read_offset, SEEK_SET) == 0,
-                "cannot seek pending recording spool");
-        channel.replay.resize(sizeof(RecordPacket));
-        require(std::fread(channel.replay.data(), 1, sizeof(Packet), channel.spool) ==
-                    sizeof(Packet),
-                "cannot read pending recording spool");
-        const auto kind = packet_header(channel.replay.data()).kind;
-        const auto header = packet_header_bytes(kind);
-        if (header > sizeof(Packet)) {
-            const auto tail = header - sizeof(Packet);
-            require(std::fread(channel.replay.data() + sizeof(Packet), 1, tail, channel.spool) ==
-                        tail,
-                    "cannot read pending recording spool");
-        }
-        const auto bytes = packet_size(channel.replay.data(), kind);
-        channel.replay.resize(bytes);
-        require(std::fread(channel.replay.data() + header, 1, bytes - header, channel.spool) ==
-                    bytes - header,
-                "cannot read pending recording spool");
-        channel.read_offset += static_cast<off_t>(bytes);
-        channel.replay_ready = true;
-        return channel.replay;
-    }
-
-    void consume_pending(Channel& channel, std::size_t bytes) {
-        if (channel.pending_read < channel.pending.size()) {
-            channel.pending_read += bytes;
-            pending_bytes -= bytes;
-            if (channel.pending_read == channel.pending.size()) {
-                channel.pending.clear();
-                channel.pending_read = 0;
-            }
-        } else {
-            channel.replay_ready = false;
-        }
-    }
-
     std::optional<Timestamp> head_time(Channel& channel) {
         for (;;) {
             auto data = pending_head(channel);
@@ -813,12 +688,12 @@ struct Stream::Impl {
         touch(signals[signal], producer, time);
     }
 
-    void execute(const Operation& op, View data, ProducerId producer, Timestamp time) {
+    void execute(const RecordPacket& op, View data, ProducerId producer, Timestamp time) {
         using wire_detail::Cursor;
-        switch (op.kind) {
+        switch (op.packet.kind) {
         case Kind::scalar:
-            touch_signal(op.generator, producer, time);
-            backend.emit(op.generator, op.argument);
+            touch_signal(op.packet.generator, producer, time);
+            backend.emit(op.packet.generator, op.packet.argument);
             break;
         case Kind::span: {
             for (std::size_t offset = 0; offset < data.size(); offset += sizeof(SignalUpdate)) {
@@ -832,20 +707,21 @@ struct Stream::Impl {
         case Kind::packed:
         case Kind::real:
         case Kind::bytes:
-            touch_signal(op.generator, producer, time);
-            if (op.kind == Kind::packed) {
-                if (op.argument) {
-                    const auto kind = backend.signal_kind(op.generator);
-                    require(kind.type == SignalKind::bits && kind.width == op.argument,
+            touch_signal(op.packet.generator, producer, time);
+            if (op.packet.kind == Kind::packed) {
+                if (op.packet.argument) {
+                    const auto kind = backend.signal_kind(op.packet.generator);
+                    require(kind.type == SignalKind::bits && kind.width == op.packet.argument,
                             "input word width differs from signal declaration");
                 }
-                const auto states =
-                    op.status ? op.status : backend.signal_kind(op.generator).states;
-                backend.emit_packed(op.generator, states, data);
-            } else if (op.kind == Kind::real) {
-                backend.emit_real(op.generator, std::bit_cast<double>(op.argument));
+                const auto states = op.packet.status
+                                        ? op.packet.status
+                                        : backend.signal_kind(op.packet.generator).states;
+                backend.emit_packed(op.packet.generator, states, data);
+            } else if (op.packet.kind == Kind::real) {
+                backend.emit_real(op.packet.generator, std::bit_cast<double>(op.packet.argument));
             } else {
-                backend.emit_varlen(op.generator, data);
+                backend.emit_varlen(op.packet.generator, data);
             }
             break;
         case Kind::dump:
@@ -854,51 +730,52 @@ struct Stream::Impl {
             } else {
                 dump_owner = Touch{time, producer};
             }
-            backend.dump(op.status != 0);
+            backend.dump(op.packet.status != 0);
             break;
         case Kind::begin:
         case Kind::begin_value:
-            if (op.argument) {
-                touch_record(op.argument, producer, time);
+            if (op.packet.argument) {
+                touch_record(op.packet.argument, producer, time);
             }
             backend.assign_record_id(op.id);
-            if (op.kind == Kind::begin) {
-                backend.begin(op.generator, op.time, op.argument);
+            if (op.packet.kind == Kind::begin) {
+                backend.begin(op.packet.generator, op.time, op.packet.argument);
             } else {
-                backend.begin(op.generator, op.time, data, op.argument);
+                backend.begin(op.packet.generator, op.time, data, op.packet.argument);
             }
             records.emplace(op.id, RecordOwner{0, {time, producer}, {}});
             break;
         case Kind::stage:
         case Kind::stage_value:
-            touch_record(op.argument, producer, time);
+            touch_record(op.packet.argument, producer, time);
             backend.assign_record_id(op.id);
-            if (op.kind == Kind::stage) {
-                backend.begin_stage(op.generator, op.argument, op.time);
+            if (op.packet.kind == Kind::stage) {
+                backend.begin_stage(op.packet.generator, op.packet.argument, op.time);
             } else {
-                backend.begin_stage(op.generator, op.argument, op.time, data);
+                backend.begin_stage(op.packet.generator, op.packet.argument, op.time, data);
             }
-            records.emplace(op.id, RecordOwner{op.argument, {time, producer}, {}});
-            records.at(op.argument).stages.push_back(op.id);
+            records.emplace(op.id, RecordOwner{op.packet.argument, {time, producer}, {}});
+            records.at(op.packet.argument).stages.push_back(op.id);
             break;
         case Kind::event:
         case Kind::log:
-            if (op.argument) {
-                touch_record(op.argument, producer, time);
+            if (op.packet.argument) {
+                touch_record(op.packet.argument, producer, time);
             }
             backend.assign_record_id(op.id);
-            if (op.kind == Kind::event) {
-                backend.event(op.generator, op.argument, op.time, data);
+            if (op.packet.kind == Kind::event) {
+                backend.event(op.packet.generator, op.packet.argument, op.time, data);
             } else {
                 require(data.size() >= 4, "missing captured datatype");
                 auto datatype = wire_detail::load<std::uint32_t>(data);
-                backend.log(op.generator, datatype, op.time, data.subspan(4), op.argument);
+                backend.log(op.packet.generator, datatype, op.time, data.subspan(4),
+                            op.packet.argument);
             }
             break;
         case Kind::payload:
         case Kind::stage_payload:
             touch_record(op.id, producer, time);
-            if (op.kind == Kind::payload) {
+            if (op.packet.kind == Kind::payload) {
                 backend.payload(op.id, data);
             } else {
                 backend.stage_payload(op.id, data);
@@ -907,10 +784,10 @@ struct Stream::Impl {
         case Kind::end:
         case Kind::end_value: {
             touch_record(op.id, producer, time);
-            if (op.kind == Kind::end) {
-                backend.end(op.id, op.time, op.status);
+            if (op.packet.kind == Kind::end) {
+                backend.end(op.id, op.time, op.packet.status);
             } else {
-                backend.end_captured(op.id, op.time, data, op.status);
+                backend.end_captured(op.id, op.time, data, op.packet.status);
             }
             auto stages = std::move(records.at(op.id).stages);
             for (auto stage : stages) {
@@ -932,53 +809,53 @@ struct Stream::Impl {
             Cursor cursor(data);
             auto value = wire_detail::decode_value(cursor);
             cursor.done();
-            backend.attribute(op.id, op.generator, value);
+            backend.attribute(op.id, op.packet.generator, value);
             break;
         }
         case Kind::classify:
             touch_record(op.id, producer, time);
-            backend.span_kind(op.id, op.status);
+            backend.span_kind(op.id, op.packet.status);
             break;
         case Kind::relate: {
             Cursor cursor(data);
             auto attributes = wire_detail::decode_attrs(cursor);
-            backend.relate(op.generator, op.id, op.argument, attributes);
+            backend.relate(op.packet.generator, op.id, op.packet.argument, attributes);
             break;
         }
         case Kind::embedded_event:
         case Kind::embedded_stage: {
-            touch_record(op.argument, producer, time);
+            touch_record(op.packet.argument, producer, time);
             Cursor cursor(data);
             backend.assign_record_id(op.id);
-            if (op.kind == Kind::embedded_event) {
-                backend.embedded_event(op.argument, op.time, op.generator,
+            if (op.packet.kind == Kind::embedded_event) {
+                backend.embedded_event(op.packet.argument, op.time, op.packet.generator,
                                        wire_detail::decode_attrs(cursor));
             } else {
                 const auto lane = cursor.fixed<Id>();
                 std::optional<Timestamp> end;
-                if (op.status) {
+                if (op.packet.status) {
                     end = cursor.fixed<Timestamp>();
                 }
-                backend.embedded_stage(op.argument, op.generator, lane, op.time, end,
+                backend.embedded_stage(op.packet.argument, op.packet.generator, lane, op.time, end,
                                        wire_detail::decode_attrs(cursor));
             }
             break;
         }
         case Kind::embedded_end:
-            touch_record(op.argument, producer, time);
-            backend.embedded_stage_end(op.argument, op.id, op.time);
+            touch_record(op.packet.argument, producer, time);
+            backend.embedded_stage_end(op.packet.argument, op.id, op.time);
             break;
         case Kind::clock_run:
         case Kind::clock_stop: {
-            auto [found, inserted] = clocks.try_emplace(op.generator, Touch{time, producer});
+            auto [found, inserted] = clocks.try_emplace(op.packet.generator, Touch{time, producer});
             if (!inserted) {
                 touch(found->second, producer, time);
             }
-            if (op.kind == Kind::clock_run) {
+            if (op.packet.kind == Kind::clock_run) {
                 backend.assign_record_id(op.id);
-                backend.clock_run(op.generator, op.time, op.argument);
+                backend.clock_run(op.packet.generator, op.time, op.packet.argument);
             } else {
-                backend.clock_stop(op.generator, op.time);
+                backend.clock_stop(op.packet.generator, op.time);
             }
             break;
         }
@@ -986,7 +863,8 @@ struct Stream::Impl {
         case Kind::finish:
         case Kind::scalar_attribute:
         case Kind::external:
-            throw vtr::detail::wire::Error("invalid recording marker execution");
+            throw vtr::detail::wire::Error(ErrorCode::invalid_argument,
+                                           "invalid recording marker execution");
         }
     }
 
@@ -1046,6 +924,50 @@ struct Stream::Impl {
             fail(std::current_exception());
             throw;
         }
+    }
+
+    enum class Finalization { complete, incomplete };
+
+    void finish(Finalization ending) {
+        const bool incomplete = ending == Finalization::incomplete;
+        if (stopped.load(std::memory_order_acquire))
+            return;
+        if (auto* channel = attached()) {
+            if (!failed.load(std::memory_order_acquire)) {
+                append_small(*channel, {Kind::finish});
+                channel->producer_finished = true;
+            }
+            channel->writer.store(0, std::memory_order_release);
+            selected = {};
+        }
+        invoke([&](Writer& writer) {
+            if (!incomplete)
+                check();
+            for (const auto& channel : registered)
+                require(channel->writer.load(std::memory_order_acquire) == 0,
+                        "Release recording producers before finalization");
+            if (!failed.load(std::memory_order_acquire)) {
+                while (collect()) {
+                }
+                for (auto& channel : registered)
+                    channel->finished = true;
+                try {
+                    while (serialize()) {
+                    }
+                } catch (...) {
+                    if (!incomplete)
+                        throw;
+                    fail(std::current_exception());
+                }
+            }
+            if (incomplete)
+                writer.seal();
+            else
+                writer.close();
+            stopped.store(true);
+        });
+        if (worker.joinable())
+            worker.join();
     }
 
     void run() noexcept {
@@ -1141,7 +1063,7 @@ void Stream::use_producer(ProducerId id) {
             "producer is attached to another thread");
     if (target->producer_finished) {
         target->writer.store(0, std::memory_order_release);
-        throw vtr::detail::wire::Error("producer has finished");
+        throw vtr::detail::wire::Error(ErrorCode::invalid_state, "producer has finished");
     }
     try {
         if (previous) {
@@ -1163,7 +1085,7 @@ void Stream::release_producer() {
 
 void Stream::advance_time(Timestamp time) {
     auto& channel = impl_->local();
-    require(!channel.producer_finished, "producer has finished");
+    require(!channel.producer_finished, "producer has finished", ErrorCode::invalid_state);
     require(time >= channel.producer_time, "recording time moved backward");
     if (time != channel.producer_time) {
         impl_->append_small(channel, {Kind::advance, 0, 0, 0, time});
@@ -1203,69 +1125,11 @@ void Stream::flush() {
 }
 
 void Stream::close() {
-    if (impl_->stopped.load(std::memory_order_acquire)) {
-        return;
-    }
-    if (impl_->attached()) {
-        finish_producer();
-    }
-    invoke([&](Writer& writer) {
-        impl_->check();
-        for (auto& channel : impl_->registered) {
-            require(channel->writer.load(std::memory_order_acquire) == 0,
-                    "release recording producers before close");
-        }
-        while (impl_->collect()) {
-        }
-        for (auto& channel : impl_->registered) {
-            channel->finished = true;
-        }
-        while (impl_->serialize()) {
-        }
-        writer.close();
-        impl_->stopped.store(true);
-    });
-    if (impl_->worker.joinable()) {
-        impl_->worker.join();
-    }
+    impl_->finish(Impl::Finalization::complete);
 }
 
 void Stream::seal() {
-    if (impl_->stopped.load(std::memory_order_acquire)) {
-        return;
-    }
-    if (impl_->attached()) {
-        if (!impl_->failed.load(std::memory_order_acquire)) {
-            finish_producer();
-        } else {
-            selected.channel->writer.store(0, std::memory_order_release);
-            selected = {};
-        }
-    }
-    invoke([&](Writer& writer) {
-        for (const auto& channel : impl_->registered) {
-            require(channel->writer.load(std::memory_order_acquire) == 0,
-                    "release recording producers before seal");
-        }
-        if (!impl_->failed.load(std::memory_order_acquire)) {
-            while (impl_->collect()) {
-            }
-            for (auto& channel : impl_->registered) {
-                channel->finished = true;
-            }
-            try {
-                while (impl_->serialize()) {
-                }
-            } catch (...) {
-                impl_->fail(std::current_exception());
-            }
-        }
-        writer.seal();
-        impl_->stopped.store(true);
-    });
-    if (impl_->worker.joinable()) {
-        impl_->worker.join();
-    }
+    impl_->finish(Impl::Finalization::incomplete);
 }
 
 WriterStats Stream::stats() {
@@ -1328,7 +1192,7 @@ void Stream::emit_packed(Id signal, std::uint8_t states, const EncodedPayload& v
 
 void Stream::emit_real(Id signal, double value) {
     impl_->append_record(impl_->local(),
-                         {{Kind::real, 0, 0, signal, std::bit_cast<std::uint64_t>(value)}});
+                         {Kind::real, 0, signal, 0, 0, std::bit_cast<std::uint64_t>(value)});
 }
 
 void Stream::emit_varlen(Id signal, View value) {
@@ -1387,7 +1251,7 @@ void Stream::stage_payload(RecordId record, View data) {
 }
 
 void Stream::end(RecordId record, Timestamp time, std::uint8_t status) {
-    impl_->append_record(impl_->local(), {{Kind::end, status}, record, time});
+    impl_->append_record(impl_->local(), {Kind::end, status, 0, record, time});
 }
 
 void Stream::end_captured(RecordId record, Timestamp time, View data, std::uint8_t status) {
@@ -1442,7 +1306,7 @@ void Stream::end_captured(RecordId record, Timestamp time, const EncodedPayload&
 }
 
 void Stream::end_stage(RecordId record, Timestamp time) {
-    impl_->append_record(impl_->local(), {{Kind::stage_end}, record, time});
+    impl_->append_record(impl_->local(), {Kind::stage_end, 0, 0, record, time});
 }
 
 void Stream::attribute(RecordId owner, Id key, std::uint64_t value) {
@@ -1464,7 +1328,7 @@ void Stream::attribute(RecordId owner, Id key, const Value& value) {
 }
 
 void Stream::span_kind(RecordId owner, std::uint8_t kind) {
-    impl_->append_record(impl_->local(), {{Kind::classify, kind}, owner});
+    impl_->append_record(impl_->local(), {Kind::classify, kind, 0, owner});
 }
 
 void Stream::relate(Id kind, RecordId from, RecordId to,

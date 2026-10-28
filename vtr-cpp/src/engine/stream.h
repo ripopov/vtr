@@ -76,8 +76,8 @@ class Stream {
 
     template <class T>
     void end_value(RecordId record, Timestamp time, const T& value, std::uint8_t status = 0) {
-        auto payload = capture(value);
-        end_captured(record, time, payload, status);
+        vtr::detail::PayloadCapture payload(value);
+        end_captured(record, time, payload.payload(), status);
     }
 
     void end_stage(RecordId record, Timestamp time);

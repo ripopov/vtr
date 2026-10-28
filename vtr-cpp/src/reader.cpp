@@ -13,14 +13,15 @@ namespace vtr {
 namespace detail {
 
 struct PayloadSchema {
-    engine::Types types;
+    std::shared_ptr<const engine::Types> types;
     RecordingId origin;
     std::size_t allocation_limit;
 };
 
 struct PayloadStorage {
     std::shared_ptr<const PayloadSchema> schema;
-    wire::Bytes bytes;
+    std::variant<wire::Bytes, std::shared_ptr<const void>> backing;
+    engine::View bytes;
 };
 
 struct RecordStorage {
@@ -88,13 +89,11 @@ std::optional<RecordId> record_id(std::uint64_t id) {
     return id ? std::optional(RecordId(id)) : std::nullopt;
 }
 
-std::shared_ptr<RecordStorage> base_storage(std::uint64_t id, std::uint64_t parent,
-                                            std::optional<std::uint32_t> generator,
-                                            std::uint64_t begin, std::uint64_t end,
-                                            engine::RecordKind kind, engine::TypeId datatype,
-                                            wire::detail::View payload,
-                                            std::span<const wire::Attribute> attributes,
-                                            std::shared_ptr<const PayloadSchema> schema) {
+std::shared_ptr<RecordStorage> base_storage(
+    std::uint64_t id, std::uint64_t parent, std::optional<std::uint32_t> generator,
+    std::uint64_t begin, std::uint64_t end, engine::RecordKind kind, engine::TypeId datatype,
+    wire::detail::View payload, std::span<const wire::Attribute> attributes,
+    std::shared_ptr<const PayloadSchema> schema, std::optional<engine::RecordRef> retained = {}) {
     auto result = std::make_shared<RecordStorage>();
     result->id = RecordId(id);
     result->kind = record_kind(kind);
@@ -105,7 +104,14 @@ std::shared_ptr<RecordStorage> base_storage(std::uint64_t id, std::uint64_t pare
     result->type = TypeId(datatype);
     result->begin = begin;
     result->end = end;
-    result->payload = {std::move(schema), wire::Bytes(payload.begin(), payload.end())};
+    result->payload.schema = std::move(schema);
+    if (retained) {
+        result->payload.backing = retained->retained_storage();
+        result->payload.bytes = payload;
+    } else {
+        auto& owned = result->payload.backing.emplace<wire::Bytes>(payload.begin(), payload.end());
+        result->payload.bytes = owned;
+    }
     result->attributes = decode_attributes(attributes);
     return result;
 }
@@ -128,22 +134,25 @@ void owner_detail(RecordStorage& result, const engine::Transaction& owner) {
 
 std::shared_ptr<RecordStorage> record_storage(const engine::Transaction& tx,
                                               std::shared_ptr<const PayloadSchema> schema,
-                                              const engine::ContainerReader& container) {
+                                              const engine::ContainerReader& container,
+                                              std::optional<engine::RecordRef> retained = {}) {
     const auto& generator = container.generators()[tx.generator];
-    auto result =
-        base_storage(tx.id, tx.parent, tx.generator, tx.begin, tx.end, generator.kind,
-                     generator.payload_type, tx.payload, tx.attributes, std::move(schema));
+    auto result = base_storage(tx.id, tx.parent, tx.generator, tx.begin, tx.end, generator.kind,
+                               generator.payload_type, tx.payload, tx.attributes, std::move(schema),
+                               std::move(retained));
     owner_detail(*result, tx);
     return result;
 }
 
 std::shared_ptr<RecordStorage> record_storage(const engine::LocatedRecord& record,
                                               std::shared_ptr<const PayloadSchema> schema,
-                                              const engine::ContainerReader& container) {
+                                              const engine::ContainerReader& container,
+                                              std::optional<engine::RecordRef> retained = {}) {
     const auto& generator = container.generators()[record.generator];
     const auto datatype = record.datatype().value_or(generator.payload_type);
     auto result = base_storage(record.id, record.parent, record.generator, record.begin, record.end,
-                               generator.kind, datatype, record.payload, {}, std::move(schema));
+                               generator.kind, datatype, record.payload, {}, std::move(schema),
+                               std::move(retained));
     return result;
 }
 
@@ -151,14 +160,14 @@ std::shared_ptr<RecordStorage> record_storage(const engine::RecordRef& record,
                                               std::shared_ptr<const PayloadSchema> schema,
                                               const engine::ContainerReader& container) {
     if (auto owner = record.transaction()) {
-        return record_storage(*owner, std::move(schema), container);
+        return record_storage(*owner, std::move(schema), container, record);
     }
     if (auto located = record.located()) {
-        return record_storage(*located, std::move(schema), container);
+        return record_storage(*located, std::move(schema), container, record);
     }
-    auto result =
-        base_storage(record.id(), record.parent(), record.generator(), record.begin(), record.end(),
-                     record.kind(), 0, record.payload(), record.attributes(), std::move(schema));
+    auto result = base_storage(record.id(), record.parent(), record.generator(), record.begin(),
+                               record.end(), record.kind(), 0, record.payload(),
+                               record.attributes(), std::move(schema), record);
     if (auto event = record.event()) {
         result->name = StringId(event->name);
     } else if (auto stage = record.stage()) {
@@ -182,7 +191,7 @@ TypeId PayloadView::type() const noexcept {
 
 PayloadView PayloadView::first_element() const {
     return detail::translate([&] {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         auto offset = offset_ + (type.kind == detail::engine::TypeKind::sequence ? 4 : 0);
         return PayloadView(storage_, offset, TypeId(type.element));
     });
@@ -192,14 +201,14 @@ PayloadView PayloadView::next_element() const {
     return detail::translate([&] {
         auto data = detail::engine::View(storage_->bytes);
         detail::binary::Cursor cursor(data.subspan(offset_));
-        detail::skip(cursor, storage_->schema->types, type_.value);
+        detail::skip(cursor, *storage_->schema->types, type_.value);
         return PayloadView(storage_, data.size() - cursor.data.size(), type_);
     });
 }
 
 bool PayloadView::matches(detail::PayloadKind kind, std::string_view name) const {
     return detail::translate([&] {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         return static_cast<detail::PayloadKind>(type.kind) == kind &&
                (name.empty() || type.name == name);
     });
@@ -207,7 +216,7 @@ bool PayloadView::matches(detail::PayloadKind kind, std::string_view name) const
 
 std::optional<ByteView> PayloadView::fixed_array(TypeId element, std::size_t count) const {
     return detail::translate([&]() -> std::optional<ByteView> {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         if (type.kind != detail::engine::TypeKind::array || type.count != count ||
             type.element != element.value || !type.fixed_size) {
             return std::nullopt;
@@ -223,7 +232,7 @@ std::size_t PayloadView::allocation_limit() const noexcept {
 
 std::size_t PayloadView::size() const {
     return detail::translate([&]() -> std::size_t {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         switch (type.kind) {
         case detail::engine::TypeKind::structure:
             return type.fields.size();
@@ -241,7 +250,7 @@ std::size_t PayloadView::size() const {
 
 PayloadView PayloadView::operator[](std::string_view field) const {
     return detail::translate([&] {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         if (type.kind != detail::engine::TypeKind::structure) {
             throw Error(ErrorCode::invalid_argument, "Named payload access requires a struct");
         }
@@ -256,7 +265,7 @@ PayloadView PayloadView::operator[](std::string_view field) const {
 
 PayloadView PayloadView::operator[](std::size_t index) const {
     return detail::translate([&] {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         if (index >= size()) {
             throw Error(ErrorCode::invalid_argument, "Payload element index is out of range");
         }
@@ -265,7 +274,7 @@ PayloadView PayloadView::operator[](std::size_t index) const {
         std::uint32_t element;
         if (type.kind == detail::engine::TypeKind::structure) {
             for (std::size_t i = 0; i < index; ++i) {
-                detail::skip(cursor, storage_->schema->types, type.fields[i].type);
+                detail::skip(cursor, *storage_->schema->types, type.fields[i].type);
             }
             element = type.fields[index].type;
         } else {
@@ -273,12 +282,12 @@ PayloadView PayloadView::operator[](std::size_t index) const {
             if (type.kind == detail::engine::TypeKind::sequence) {
                 cursor.fixed<std::uint32_t>();
             }
-            const auto& item = storage_->schema->types[element];
+            const auto& item = (*storage_->schema->types)[element];
             if (item.fixed_size) {
                 cursor.take(index * *item.fixed_size);
             } else {
                 for (std::size_t i = 0; i < index; ++i) {
-                    detail::skip(cursor, storage_->schema->types, element);
+                    detail::skip(cursor, *storage_->schema->types, element);
                 }
             }
         }
@@ -288,13 +297,13 @@ PayloadView PayloadView::operator[](std::size_t index) const {
 
 Value PayloadView::scalar() const {
     return detail::translate([&]() -> Value {
-        const auto& type = storage_->schema->types[type_.value];
+        const auto& type = (*storage_->schema->types)[type_.value];
         if (type.kind != detail::engine::TypeKind::scalar &&
             type.kind != detail::engine::TypeKind::enumeration) {
             throw Error(ErrorCode::invalid_argument, "Aggregate payload has no scalar value");
         }
         auto primitive = type.kind == detail::engine::TypeKind::enumeration
-                             ? storage_->schema->types[type.element].primitive
+                             ? (*storage_->schema->types)[type.element].primitive
                              : type.primitive;
         detail::binary::Cursor cursor(detail::engine::View(storage_->bytes).subspan(offset_));
         using Primitive = detail::engine::Primitive;
@@ -450,8 +459,9 @@ struct Reader::Impl {
     Impl(const std::filesystem::path& path, ReaderOptions options)
         : backend(path.string(), {options.verify_checksums, options.owner_cache_entries,
                                   options.owner_cache_bytes, options.max_payload_bytes}),
-          schema(std::make_shared<detail::PayloadSchema>(
-              backend.types(), detail::identity(backend.trace_id()), options.max_payload_bytes)),
+          schema(std::make_shared<detail::PayloadSchema>(backend.container().retained_types(),
+                                                         detail::identity(backend.trace_id()),
+                                                         options.max_payload_bytes)),
           metadata(detail::decode_metadata(backend.metadata())) {
         auto fingerprint = backend.fingerprint();
         auto dropped = backend.container().waveform().stats().recovered_dropped;
@@ -459,13 +469,13 @@ struct Reader::Impl {
                       ? (backend.incomplete() ? Completion::incomplete : Completion::complete)
                       : Completion::unfinished,
                   dropped};
-        types.reserve(schema->types.size());
-        for (std::uint32_t i = 0; i < schema->types.size(); ++i) {
+        types.reserve(schema->types->size());
+        for (std::uint32_t i = 0; i < schema->types->size(); ++i) {
             if (i == static_cast<std::uint32_t>(Primitive::enumeration)) {
                 types.push_back({TypeId(i), {}, Primitive::enumeration});
             } else {
                 types.push_back(
-                    detail::decode_type(i, schema->types[i], backend.types().attributes(i)));
+                    detail::decode_type(i, (*schema->types)[i], backend.types().attributes(i)));
             }
         }
         signals.reserve(backend.signals().size());

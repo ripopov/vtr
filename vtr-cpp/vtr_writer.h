@@ -492,6 +492,7 @@ class Writer final {
     }
 
     detail::RecordingContext* context_ = nullptr;
+    template <class T, class Registry> friend TypeId detail::bind_schema(Registry&);
     TypeId bind_builtin(TypeId id);
     TypeId cached_type(std::type_index type, const std::function<TypeId()>& declare);
     TypeId declare_type(std::string name, decltype(DataType::definition) definition);
@@ -525,46 +526,7 @@ ActiveRecord<T, K>::operator OwnerRef() const noexcept
 }
 
 template <class T> TypeId Writer::bind() {
-    using U = std::remove_cvref_t<T>;
-    constexpr auto builtin = detail::builtin_type<U>();
-    if constexpr (builtin != UINT32_MAX) {
-        return bind_builtin(TypeId(builtin));
-    } else {
-        return cached_type(std::type_index(typeid(U)), [&] {
-            if constexpr (detail::SequenceTraits<U>::value) {
-                return declare_type({}, SequenceDefinition{bind<typename U::value_type>()});
-            } else if constexpr (detail::ArrayTraits<U>::value) {
-                static_assert(detail::ArrayTraits<U>::size <= UINT32_MAX);
-                return declare_type(
-                    {}, ArrayDefinition{bind<typename detail::ArrayTraits<U>::Element>(),
-                                        static_cast<std::uint32_t>(detail::ArrayTraits<U>::size)});
-            } else if constexpr (std::is_enum_v<U>) {
-                static_assert(
-                    requires { Schema<U>::enumerators; }, "Declare enum Schema<T>::enumerators");
-                EnumDefinition definition{bind<std::underlying_type_t<U>>(), {}};
-                for (const auto& item : Schema<U>::enumerators) {
-                    definition.literals.push_back(
-                        {std::string(item.name),
-                         static_cast<std::uint64_t>(
-                             static_cast<std::underlying_type_t<U>>(item.value))});
-                }
-                return declare_type(std::string(Schema<U>::name), std::move(definition));
-            } else {
-                static_assert(requires { Schema<U>::fields; }, "Declare struct Schema<T>::fields");
-                StructDefinition definition;
-                std::apply(
-                    [&](auto... item) {
-                        (definition.fields.push_back(
-                             {std::string(item.name),
-                              bind<std::remove_cvref_t<decltype(std::declval<U>().*
-                                                                (item.member))>>()}),
-                         ...);
-                    },
-                    Schema<U>::fields);
-                return declare_type(std::string(Schema<U>::name), std::move(definition));
-            }
-        });
-    }
+    return detail::bind_schema<T>(*this);
 }
 
 template <class T>

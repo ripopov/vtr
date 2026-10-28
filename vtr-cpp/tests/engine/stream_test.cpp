@@ -1,3 +1,4 @@
+#include "payload.h"
 #include "stream.h"
 
 #include <atomic>
@@ -102,7 +103,7 @@ void skew_and_barrier(const std::filesystem::path& directory) {
     check(reader.transaction(first_fast)->begin == 100 &&
               reader.transaction(first_slow)->begin == 0,
           "timestamp order changed identities");
-    check(decode<std::string>(reader.lookup(borrowed)->payload()) == "borrowed",
+    check(std::ranges::equal(reader.lookup(borrowed)->payload(), capture(std::string("borrowed"))),
           "stream borrowed mutable input");
     Timestamp previous = 0;
     unsigned observations = 0;
@@ -406,8 +407,9 @@ void oversized_owned_payloads(const std::filesystem::path& directory) {
     for (unsigned i = 0; i < ids.size(); ++i) {
         const auto record = reader.lookup(ids[i]);
         check(record && record->begin() == i + 1 &&
-                  decode<std::string>(record->payload()) ==
-                      std::string(i % 2 ? 4096 : 7, static_cast<char>('a' + i % 26)),
+                  std::ranges::equal(
+                      record->payload(),
+                      capture(std::string(i % 2 ? 4096 : 7, static_cast<char>('a' + i % 26)))),
               "oversized queue transport lost owned payload or timestamp");
     }
     check(reader.validate().records == ids.size() && stream.stream_stats().spilled_bytes > 0,
