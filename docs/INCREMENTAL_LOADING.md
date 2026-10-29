@@ -216,6 +216,26 @@ model progress to execution time. Likewise, an HDL clock with a 10 ns period is
 modeled activity on the simulation timeline; declaring a Perfetto timestamp clock
 does not record that signal's edges or implement VTR clock-stretch records.
 
+**HDL timing limitation.** The standard timeline's 1 ns resolution limits exact
+edge placement, rather than the numeric frequencies a trace can store. For
+periodic clocks aligned to the nanosecond grid:
+
+| Recorded activity | Timing requirement | Exact on the standard timeline? |
+| --- | --- | --- |
+| Rising edges of a 1 GHz clock | One edge every 1 ns | Yes. |
+| Both edges of a 500 MHz, 50% duty-cycle clock | One transition every 1 ns | Yes. |
+| Both edges of a 1 GHz, 50% duty-cycle clock | One transition every 0.5 ns | No. |
+
+Even slower clocks can require sub-nanosecond resolution for phases, duty cycles,
+and propagation delays. Storing a frequency such as 5 GHz as a numeric value is
+possible; placing all its edges at their exact model times is a different
+requirement. Treating 1 ps of model time as 1 nominal Perfetto nanosecond preserves
+relative timing but makes standard tools report times and durations 1000 times
+too large. Consequently, using the existing timeline unchanged cannot provide
+general, physically accurate HDL waveform timing at picosecond or femtosecond
+resolution.
+[Timestamp-unit constraints](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto)
+
 #### Timeline primitives: what an observation means
 
 ![Nested frame and layout slices, a flow to worker decode, a queue-depth counter, and symbolic player states, with representative Perfetto packets.](diagrams/reference-perfetto.drawio.svg)
