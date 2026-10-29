@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verilator', type=Path, required=True)
     parser.add_argument('--out', type=Path, default=ROOT/'build/verilator-logs')
-    parser.add_argument('--fixtures', type=Path, default=ROOT/'vtr/tests/fixtures/verilator')
+    parser.add_argument('--fixtures', type=Path, default=ROOT/'vtr-rs/tests/fixtures/verilator')
     args = parser.parse_args()
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)

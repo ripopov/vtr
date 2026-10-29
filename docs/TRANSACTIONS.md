@@ -568,7 +568,7 @@ C++ and Rust use bounded SPSC capture rings with independent producer byte
 admission. They have the same ownership, ordering, and completion
 contracts, without sharing implementation code. The implementations live in
 [`vtr-cpp`](../vtr-cpp/src/engine/) and Rust
-[`recording`](../vtr/src/recording/mod.rs). Queue budgets and encoding job budgets
+[`recording`](../vtr-rs/src/recording/mod.rs). Queue budgets and encoding job budgets
 are distinct from encoded page targets. A single oversized capture can exceed
 its nominal queue byte target while alone; encoded field limits still apply.
 

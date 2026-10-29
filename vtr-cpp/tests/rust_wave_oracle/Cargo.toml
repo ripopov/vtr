@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
-vtr = { path = "../../../vtr" }
+vtr = { path = "../../../vtr-rs" }
 
 [[bin]]
 name = "vtr-wave-oracle"

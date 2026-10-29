@@ -57,12 +57,12 @@ useful queries against a completed prefix.
 
 The current implementation opens an immutable snapshot:
 
-- Rust's [container](../vtr/src/framing.rs) maps the file once and requires it
+- Rust's [container](../vtr-rs/src/framing.rs) maps the file once and requires it
   to stay immutable while open.
-- The [reader](../vtr/src/trace/mod.rs) builds declarations, hierarchy navigation,
+- The [reader](../vtr-rs/src/trace/mod.rs) builds declarations, hierarchy navigation,
   waveform indexes, and block lookup tables during construction.
-- The [writer](../vtr/src/recording/mod.rs) exposes a blocking `flush()`.
-  Its [output module](../vtr/src/recording/output.rs) drains encoding jobs and
+- The [writer](../vtr-rs/src/recording/mod.rs) exposes a blocking `flush()`.
+  Its [output module](../vtr-rs/src/recording/output.rs) drains encoding jobs and
   flushes output, but does not return a publication receipt.
 - Automatic block closure uses byte and record thresholds, which do not bound
   wall-clock visibility for sparse recordings.

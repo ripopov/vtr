@@ -7,7 +7,7 @@ sidecars use VTI 3.0. File versions describe bytes, not API or package revisions
 Readers and recovery tools reject other VTR header versions. Regenerate older
 recordings; there is no compatibility reader.
 
-The independent [Rust library](../vtr/) and [C++20 SDK](../vtr-cpp/)
+The independent [Rust library](../vtr-rs/) and [C++20 SDK](../vtr-cpp/)
 implement this format. [RATIONALE.md](RATIONALE.md) explains its design choices.
 API lifetimes, capture queues, and default buffer sizes are implementation
 contracts described in those libraries, rather than additional wire fields.

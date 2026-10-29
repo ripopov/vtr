@@ -1,7 +1,7 @@
 [workspace]
-members = ["vtr", "vtr-cli", "vtr-convert", "vtr-convert-wasm", "vtr-guard", "vtr-progress"]
+members = ["vtr-rs", "vtr-cli", "vtr-convert", "vtr-convert-wasm", "vtr-guard", "vtr-progress"]
 resolver = "3"
-default-members = ["vtr", "vtr-cli", "vtr-convert", "vtr-guard", "vtr-progress"]
+default-members = ["vtr-rs", "vtr-cli", "vtr-convert", "vtr-guard", "vtr-progress"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,7 @@ license = "MIT"
 repository = "https://github.com/ripopov/vtr"
 
 [workspace.dependencies]
-vtr = { version = "0.1.0", path = "vtr" }
+vtr = { version = "0.1.0", path = "vtr-rs" }
 crc32fast = "1.4"
 lz4_flex = { version = "0.11", default-features = false, features = ["std", "safe-encode", "safe-decode"] }
 memmap2 = "0.9"

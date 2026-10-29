@@ -47,7 +47,7 @@ Severity comes from datatype metadata and scope from the logger hierarchy.
 The argument view is `record.payload().field("value")` in Rust and
 `record.payload()["value"]` in C++. Views retain their schema and captured bytes
 after cache eviction and reader destruction. Borrowed values are captured before
-recording returns. The [Rust example](../vtr/examples/logging.rs) and
+recording returns. The [Rust example](../vtr-rs/examples/logging.rs) and
 [C++ example](../vtr-cpp/examples/logging.cpp) demonstrate deferred formatting.
 
 ## Datatype metadata conventions
@@ -149,7 +149,7 @@ therefore does not imply normal completion. The native C++ SDK currently has no
 process guard; this typed ending convention is used by the Rust guard.
 
 Actual Verilator logging, partial output, fatal exit callbacks, and binary-output
-escaping are covered by [generated fixtures](../vtr/tests/fixtures/verilator/).
+escaping are covered by [generated fixtures](../vtr-rs/tests/fixtures/verilator/).
 Run the Rust example with:
 
 ```sh

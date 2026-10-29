@@ -66,7 +66,7 @@ section ordering, and recovery rules.
 
 ## Try a recording
 
-Run the [waveform example](vtr/examples/waveform.rs) from the repository root for a
+Run the [waveform example](vtr-rs/examples/waveform.rs) from the repository root for a
 complete write-and-read round trip:
 
 ```sh
@@ -80,7 +80,7 @@ developed separately.
 
 | Package | Purpose |
 |---|---|
-| `vtr` | Rust format implementation, reader, writer, recovery, and activity indexes |
+| `vtr-rs` (`vtr` crate) | Rust format implementation, reader, writer, recovery, and activity indexes |
 | `vtr-cpp` | Independent C++20 reader/writer and SystemVerilog/DPI helpers |
 | `vtr-guard` | Linux crash and stop guard |
 | `vtr-cli` | Inspection, queries, indexing, and conversion |

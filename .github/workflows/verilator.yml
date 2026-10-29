@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
+    paths: ['ext/verilator', 'integrations/**', 'vtr-rs/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
   pull_request:
-    paths: ['ext/verilator', 'integrations/**', 'vtr/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
+    paths: ['ext/verilator', 'integrations/**', 'vtr-rs/**', 'vtr-cpp/**', 'vtr-cli/**', 'vtr-convert/**', 'vtr-guard/**', 'vtr-progress/**', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.github/workflows/verilator.yml']
 
 permissions:
   contents: read
