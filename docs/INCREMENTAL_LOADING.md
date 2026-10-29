@@ -170,17 +170,25 @@ schema is not a stability guarantee.
 
 #### Recording, transport, and timeline vocabulary
 
-The terms below introduce the stored data first, then the timeline model,
-writers, and live capture roles. Perfetto encodes its records using Protocol
-Buffers, a binary encoding whose fields are defined by schemas.
+The terms below introduce the stored data first, then clocks and timestamps,
+timeline tracks, writers, and live capture roles. Perfetto encodes its records
+using Protocol Buffers, a binary encoding whose fields are defined by schemas.
 
 | Concept | Definition |
 | --- | --- |
 | **Trace** | The whole recording: captured activity and the declarations needed to interpret it. It can combine data from several processes and machines. |
 | **Trace packet (`TracePacket`)** | One unit of the recording. It can contain a declaration, an application event, or a batch of operating-system events, together with fields such as timestamps and source identifiers. One packet is not necessarily one transaction or observation. The file's top-level `Trace` schema stores a list of these packets in its repeated `packet` field. Writers can append entries and readers can process them as they arrive, without first assembling the whole recording in memory. |
+| **Clock / clock domain** | An identified timebase: it defines the origin and units of timestamp values. Two clocks can assign different numbers to the same moment. Perfetto supports built-in host clocks and application-defined clocks; a clock here is a way to interpret time, not an HDL signal toggling between 0 and 1. |
+| **Timestamp unit / tick period** | The duration represented by one timestamp count. The default is 1 ns. A clock can specify an integer `unit_multiplier_ns`: with a multiplier of 1000, a timestamp of 3 means 3000 ns, or 3 µs. This is a unit scale, not a modeled oscillator's period. The field cannot express fractional nanoseconds, such as a 1 ps simulation tick, or an arbitrary rational clock frequency. |
+| **Timestamp** | A numeric reading of a clock. `TracePacket.timestamp` is an unsigned 64-bit integer; `timestamp_clock_id` selects its clock, with defaults available when omitted. Values are absolute readings by default; a custom clock can instead use differences from earlier readings to save space. The timestamp describes when the recorded activity happened, not when its packet reached the file. |
+| **Host elapsed time** | Time measured on the computer running the application. Built-in clocks include `CLOCK_MONOTONIC`, which excludes system suspend, and `CLOCK_BOOTTIME`, which includes it. These measure elapsed time rather than calendar dates. Simulator execution costs can be measured on this axis. |
+| **Wall-clock time** | Calendar time, represented by `CLOCK_REALTIME` as time since the Unix epoch. It can be adjusted by clock synchronization or the user, so it is distinct from a monotonic elapsed-time clock. A trace need not use wall-clock time. |
+| **Simulation / model time** | Time advanced by the simulator, independently of how long the simulation takes to execute. Perfetto has no dedicated simulation-time type. An exporter can supply model-time timestamps on a synthetic recording timeline or an application-defined clock. Such values do not acquire a relationship to host or wall-clock time automatically. Exact sub-nanosecond timing needs a separate representation decision because of the unit-scale limit above. |
+| **Clock snapshot (`ClockSnapshot`)** | A record pairing readings from several clocks at a synchronization point: for example, elapsed time 5 s corresponds to a particular wall-clock date. An analyzer uses these records to translate timestamps between clocks. A snapshot can also declare a clock's timestamp unit and whether later timestamps use differences. |
+| **Trace time** | The common timeline onto which Perfetto's analyzer, **Trace Processor**, converts timestamps for comparison and duration calculations. Multiple input clocks do not create independent time axes in the viewer. Current upstream supports a synthetic trace-file clock (`BUILTIN_CLOCK_TRACE_FILE`); host traces commonly use `CLOCK_BOOTTIME`, and clock metadata can select the primary clock. Clock snapshots must provide the relationships needed to align different input clocks. |
 | **Track** | An identified timeline lane for activity or measurements: for example, an OS thread, a device queue, a particular request, a numeric measurement, or a symbolic state. A track identifies what activity belongs to; it need not correspond to a host thread. |
 | **Track descriptor (`TrackDescriptor`)** | A declaration giving a track its unique identifier, name, optional parent track, and other properties. As with a VTR declaration, later observations refer to the identifier rather than repeating the description. Different tracks can have the same display name. |
-| **Track event (`TrackEvent`)** | An observation assigned to a track: an operation begins or ends, something happens at one point in time, or a value changes. For example, begin and end events on `DMA engine 0` can describe a transfer from time 10 to time 40. Such a timed operation is called a **slice**. A track event is one possible packet payload; other packet types describe other kinds of data. |
+| **Track event (`TrackEvent`)** | An observation assigned to a track: an operation begins or ends, something happens at one point in time, or a value changes. For example, begin and end events on `DMA engine 0` can describe a transfer from model time 10 ns to 40 ns. Such a timed operation is called a **slice**, with a duration of 30 ns in this example. A track event is one possible packet payload; other packet types describe other kinds of data. |
 | **Trace writer** | A component that emits packets. An instrumented process can have several writers, for example one per worker thread. A writer can report activity on several tracks, and several writers can report activity on the same track if they preserve consistent timestamps and begin/end ordering. |
 | **Packet sequence** | The ordered packets emitted by one writer. They can share encoding state: for example, an earlier packet defines a short numeric reference for `DMA transfer`, and later packets use that reference instead of repeating the string. The reader must remember that definition. Packets from different writers can interleave; `trusted_packet_sequence_id` distinguishes their sequences. A sequence identifies which writer's definitions are needed to decode a packet, while a track identifies where the activity belongs. |
 | **Tracing service** | Coordinates live recording sessions, tells processes what to collect, and gathers their data into buffers or output. A simulator can generate a valid Perfetto file directly without using this service. |
@@ -192,7 +200,21 @@ Sources: [trace file schema](https://github.com/google/perfetto/blob/main/protos
 [packet schema and sequence fields](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
 [track descriptors](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto),
 [track event generation](https://perfetto.dev/docs/reference/synthetic-track-event),
+[clock synchronization](https://perfetto.dev/docs/concepts/clock-sync),
+[clock metadata](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto),
+[built-in and trace-file clocks](https://github.com/google/perfetto/blob/main/protos/perfetto/common/builtin_clock.proto),
+[host clock semantics](https://man7.org/linux/man-pages/man2/clock_gettime.2.html),
 [service model](https://perfetto.dev/docs/concepts/service-model).
+
+**Implication for VTR.** A simulation-only export can show model time from
+simulation start without assigning any UTC date. Combining it with simulator performance
+data requires more care: advancing the model by 1 µs may take 100 ms of host time,
+and a paused simulator advances no model time at all. Clock synchronization does
+not make these two axes interchangeable. A VTR mapping must decide which axis
+defines event positions and durations, and how to retain observations relating
+model progress to execution time. Likewise, an HDL clock with a 10 ns period is
+modeled activity on the simulation timeline; declaring a Perfetto timestamp clock
+does not record that signal's edges or implement VTR clock-stretch records.
 
 #### Timeline primitives: what an observation means
 
@@ -364,20 +386,26 @@ further families without turning them into generic `TrackEvent` semantics.
 
 #### Clocks, encoding, and decoder state
 
-A **clock domain** defines the time source used by timestamps. Packets can select
-`timestamp_clock_id`; a **clock snapshot** records readings of several clocks
-at a shared synchronization point so an analyzer can translate between domains.
-Machine IDs and remote clock synchronization support multi-machine recordings.
-They do not remove the need to relate simulator time to host time explicitly.
-[Clock synchronization](https://perfetto.dev/docs/concepts/clock-sync)
+The introductory table defines clocks, units, and trace time. At the encoding
+level, `timestamp_clock_id` can be set per packet or inherited from
+`TracePacketDefaults`; the packet schema specifies `CLOCK_BOOTTIME` when neither
+provides it. Custom clock IDs 64–127 belong to one packet sequence, so the same
+number in another writer's packets can identify a different clock. Incremental
+timestamps use the preceding reading on that sequence and clock, starting from
+the snapshot's absolute reading. This requires retained decoder state, just as
+string references do. Timestamp deltas, counter deltas, and sampled CPU-time
+counters are three different quantities.
+[Packet clock selection](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
+[clock defaults](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet_defaults.proto),
+[clock encoding](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto)
 
-Packet timestamps default to integer nanoseconds. Clock metadata can select
-absolute or delta encoding and an integer `unit_multiplier_ns`, rather than an
-arbitrary fractional-nanosecond scale. A simulator must validate exact fine-tick
-handling through its writer and analyzer; relabeling picosecond ticks as
-nanoseconds changes physical units even if ordering survives. Timestamp deltas,
-counter deltas, and sampled CPU-time counters are three different quantities.
-[Clock schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto)
+Machine IDs and remote clock synchronization support multi-machine recordings.
+A simulator must still validate exact fine-tick handling through its writer and
+analyzer; relabeling picosecond ticks as nanoseconds changes physical units even
+if ordering survives. The primary trace clock does not support
+`unit_multiplier_ns`.
+[Clock synchronization](https://perfetto.dev/docs/concepts/clock-sync),
+[clock schema constraints](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto)
 
 **Interning** stores repeated strings or structured descriptors once and refers
 to them by ID. **Packet defaults** omit repeated fields such as the default
