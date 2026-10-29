@@ -15,6 +15,11 @@ can apply to their loaded data. Preserve the ordinary writer defaults and the
 finalized reader's memory-mapped access. Treat active transaction previews and
 fast attachment to very large unfinished recordings as separate, optional work.
 
+This is an implementation proposal, not evidence that a new format is necessary.
+The [reuse assessment](#49-can-an-existing-format-replace-vtr) compares existing
+formats with the broader FSDB/VWDB replacement goal and defines the experiments
+needed before choosing a storage backend.
+
 ## 1. Goals and acceptance criteria
 
 Incremental loading should provide:
@@ -121,12 +126,61 @@ unseen span beginning without additional retained state.
 | EventPipe / NetTrace | Typed events; activity/start-stop conventions supply interval meaning | Diagnostics client attaches to a running process and receives an event stream | Bound sorting and transient reference state with explicit checkpoints. |
 | FXT / Fuchsia tracing | Duration begin/end, complete durations, and correlated async begin/end | Providers hand buffers to the trace manager during streaming | Protect decoding metadata and acknowledge buffer ownership transfers. |
 
+The examples below show logical observations and representative stored records,
+not byte layouts or screenshots of vendor viewers. Each SVG includes its editable
+diagrams.net model. Example timestamps use a small relative scale for readability;
+they do not establish the format's simulation-time precision.
+
+A trace can describe several different kinds of evidence:
+
+- **Occurrences:** a request was issued, an allocation was sampled, or a log
+  message was emitted. Repeated identical occurrences must remain distinct.
+- **Intervals:** work ran between two times. The file may store one completed
+  interval, or separate lifecycle events which an analyzer joins.
+- **State observations:** a counter or symbolic state changed. Inferring a held
+  value between observations requires a defined state model and an initial value.
+- **Relationships:** an event belongs to a thread, a stage belongs to a request,
+  or one operation caused another. Thread IDs, nesting stacks, activity IDs,
+  and directed relations express different relationships.
+- **Decoding context:** schemas, strings, clocks, threads, stacks, and object
+  descriptions. These are records too, and a reader needs them to interpret
+  observations that reference them.
+
+All five can record application-defined information. An arbitrary payload's
+ability to carry bits is weaker than an existing reader knowing those bits are
+a 512-bit HDL bus with `X`/`Z`, aliases, and a value held until the next change.
+The comparison below separates those two levels of support.
+
 ### 4.1 Perfetto: early span evidence and recoverable sequence state
 
 Perfetto is a system and application performance tracing suite, originally built
 for Android and Chrome. Its protobuf trace format combines application activity,
 OS scheduling, counters, and profiling data on a common timeline for diagnosing
 functional and performance problems. [Perfetto overview](https://perfetto.dev/docs/)
+
+**Records and example.** A recording is a sequence of protobuf `TracePacket`
+messages. Packets can carry application track events, track descriptions, clock
+synchronization, or specialized data such as kernel scheduling and stack samples.
+A track is a named timeline, not necessarily an operating-system thread: custom
+tracks can represent a device, queue, or asynchronous operation.
+[Packet schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
+[track descriptions](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto)
+
+![Nested frame and layout slices, a flow to worker decode, a queue-depth counter, and symbolic player states, with representative Perfetto packets.](diagrams/reference-perfetto.drawio.svg)
+
+The example combines nested work, a dependency across tracks, a numeric counter,
+and held symbolic state. Current Perfetto supports state tracks in addition to
+slices, instants, and counters; correlation IDs can group work without asserting
+causality. Flow IDs instead connect causal steps. These are useful transaction
+visualization semantics, but none declares an HDL signal's width, state alphabet,
+or aliases. [State tracks and correlation IDs](https://perfetto.dev/blog/perfetto-v57)
+
+Event arguments can contain typed scalars and nested arrays/dictionaries through
+debug annotations; typed protobuf payloads are another extension route. A viewer
+can inspect these arguments without understanding a hardware protocol. Bus
+rendering and VTR owner/stage semantics still need a shared mapping between
+producer and consumer.
+[Debug annotation schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/debug_annotation.proto)
 
 Perfetto's protobuf `TrackEvent` represents a slice with `TYPE_SLICE_BEGIN` and
 `TYPE_SLICE_END`. The schema deliberately avoids a native complete-duration
@@ -168,6 +222,32 @@ metadata, allowing recording and analysis tools to share traces. LTTng uses CTF
 to record Linux kernel and user-space activity for investigating performance,
 concurrency, and failures. [LTTng documentation](https://lttng.org/docs/v2.13/)
 
+**Records and example.** CTF separates metadata describing event classes and
+binary layouts from streams containing packets of event instances. An event's
+type ID selects its schema; context can identify CPU, process, and thread, while
+payload fields hold observations such as an address or result. CTF 1.8.3 supports
+integers, floating point, enumerations, structures, variants, arrays, sequences,
+and strings. A field named `request_id` has no built-in transaction meaning:
+instrumentation and analysis must agree on that meaning.
+[CTF 1.8.3 specification](https://github.com/efficios/ctf/blob/master/common-trace-format-specification.md)
+
+![Request start and end events on two CTF streams reconstruct one interval by request ID; scheduling events and schema-defined fields share the trace.](diagrams/reference-ctf.drawio.svg)
+
+Here `request_start(id=42, address=...)` and `request_end(id=42, result=...)`
+occur in different streams; the analyzer derives the request interval. A
+`sched_switch` is another event class, not a request phase. An application could
+instead define a completed-span event with explicit begin/end fields, or a
+signal-change event with signal ID and packed logic. Those encodings can use
+ordinary CTF fields; a generic reader would expose fields rather than supplying
+hardware waveforms, runtime ownership, or relations.
+
+Packet time coverage and discarded-event counts are distinct from a snapshot
+of held signal values. A hardware profile would need declarations, initial
+values, logic packing, same-time ordering, and absence-of-capture semantics.
+That is a possible CTF application profile, rather than a limit on what its bytes
+can carry. The live relay below is additional infrastructure; a custom CTF writer
+does not automatically become an LTTng live producer.
+
 CTF supplies binary event streams whose payload meanings come from metadata.
 Span reconstruction is a schema/instrumentation convention, rather than a
 universal interval row built into the container. LTTng live is the additional
@@ -202,6 +282,33 @@ applications. Its binary recordings associate timestamps and durations with
 typed payloads, capturing runtime behavior and custom application operations
 for performance analysis and failure investigation.
 [Flight Recorder overview](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.jfr/jdk/jfr/package-summary.html)
+
+**Records and example.** The central observation is a committed typed event:
+an instantaneous event or a completed duration, with fields describing the
+operation. Examples include garbage collections, file/socket operations,
+allocation or execution samples, exceptions, and custom application events.
+Recorded events can refer to the committing thread and a captured stack trace;
+the event type describes their fields.
+[Recorded event interface](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.jfr/jdk/jfr/consumer/RecordedEvent.html),
+[event model](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.jfr/jdk/jfr/package-summary.html)
+
+![Overlapping completed JFR duration events, a stack sample, and commit points; file-read and garbage-collection records carry start time and duration.](diagrams/reference-jfr.drawio.svg)
+
+The example's file read and collection overlap without requiring a nesting stack
+or shared transaction ID. Each is a separate committed event. A stack sample
+is an observation at one instant, not proof that a method occupied the whole
+interval between samples. On disk, chunks also carry metadata and constant-pool
+checkpoints used to decode referenced data; these describe interpretation rather
+than application work.
+[OpenJDK chunk reader](https://github.com/openjdk/jdk/blob/master/src/jdk.jfr/share/classes/jdk/jfr/internal/consumer/ChunkHeader.java)
+
+The Java custom-event API accepts primitive fields, strings, threads, and classes;
+it does not persist arbitrary object graphs or arrays. This is an API constraint,
+not a claim that independently written JFR bytes can contain only those types.
+Wide logic vectors and nested VTR payloads need an explicit encoding and matching
+tooling. A custom `requestId` or `parentId` field is application data, rather than
+automatic VTR ownership or referential validation.
+[Custom event field types](https://docs.oracle.com/en/java/javase/25/jfapi/data-types.html)
 
 JFR's `EventStream.openRepository(Path)` follows a recording repository,
 including one outside the current JVM. By default it starts with the next event
@@ -240,6 +347,30 @@ binary event serialization format. Together they capture runtime events, such
 as garbage collection and JIT compilation, alongside custom application events
 for profiling, monitoring, and diagnostics. [EventPipe overview](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/eventpipe)
 
+**Records and example.** Distinguish EventPipe, the capture mechanism, from
+NetTrace, the file format. NetTrace v6 explicitly targets uses beyond .NET. Its
+five logical tables hold events, event metadata, stacks, threads, and label lists.
+Events reference decoding and correlation context; stack rows contain instruction
+addresses rather than a universal source-code database. Labels can carry activity
+and related-activity identifiers.
+[NetTrace table model](https://github.com/microsoft/perfview/blob/main/src/TraceEvent/EventPipe/NetTraceFormat.md)
+
+![Request start and stop events correlate across threads, alongside runtime collection events and samples; NetTrace tables describe events and their context.](diagrams/reference-nettrace.drawio.svg)
+
+In the example, a provider's request start/stop convention produces an interval;
+garbage-collection events belong to another provider. Correlation follows work
+between threads, while stack samples explain where execution was observed. An
+opcode or event name does not establish a universal interval schema: the producer
+and analyzer must agree which fields identify the work. EventSource supports
+typed application parameters, including serializable structures and arrays.
+[EventSource instrumentation](https://learn.microsoft.com/en-us/dotnet/core/diagnostics/eventsource-instrumentation)
+
+A standalone NetTrace writer could define declaration, value-change, completed
+transaction, and relation events without launching .NET. That reuses framing,
+payload descriptions, and reference management. It still needs a hardware profile,
+waveform checkpoints, selective indexes, and a reader interpreting them. Listing
+those events with a standard decoder does not supply those database operations.
+
 Microsoft's diagnostics client can target a running process, start an EventPipe
 session, and parse its event stream immediately with `EventPipeEventSource`.
 This is a supported live collection path, rather than an assertion about tailing
@@ -273,6 +404,28 @@ FXT is Fuchsia's compact binary format for collecting, transmitting, and storing
 system and application trace records. It combines events from multiple providers
 so analysis tools can examine execution and interactions across threads and
 processes. [Format overview](https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format#overview)
+
+**Records and example.** FXT has explicit event subtypes for instants, counters,
+durations, asynchronous work, and flows. Other records describe providers,
+strings, threads, userspace/kernel objects, scheduling, logs, and binary blobs.
+Providers have separate decoding contexts: a provider ID helps interpret local
+references, rather than identifying an application transaction globally.
+[Record types](https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format#record-types)
+
+![FXT synchronous durations, an asynchronous request spanning threads, a flow between work items, and a counter; records also describe objects and logs.](diagrams/reference-fxt.drawio.svg)
+
+An ordinary duration represents thread-local nested work. An asynchronous duration
+uses a correlation ID and can span threads; flow records describe movement of
+work between events rather than its duration. These distinctions make FXT useful
+for software-like transaction timelines.
+
+Arguments are typed named values, including numbers, strings, pointers, object
+IDs, booleans, and blobs. Ordinary event records have a four-bit argument count,
+so large structured transactions cannot assume unlimited independent arguments.
+A blob can hold such data, but its schema and hardware meaning need their own
+agreement. Object annotations label resources; they do not supply HDL scope
+kinds, aliases, or signal-history indexes.
+[Arguments](https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format#argument-types)
 
 FXT supports thread-local duration begin/end, complete-duration records carrying
 an end timestamp, and async begin/end records joined by a correlation ID across
@@ -335,11 +488,216 @@ claimed for those systems:
    Add late-attachment bootstrap cost, gap recovery, metadata pressure, and
    slow-consumer behavior to the existing incremental performance gates.
 
-Together these ideas support the existing-format-first proposal. The additional
-contracts belong initially in the incremental session, publication receipt, and
-optional live protocols. None of the surveyed designs establishes that VTR needs
-to replace its final directory or complete transaction blocks to provide live
-consumption.
+These ideas can be applied to the current VTR container without a format change.
+The broader choice of retaining that encoding or adopting a reference format also
+requires the hardware capability and reuse assessment below.
+
+### 4.7 The FSDB and VWDB replacement baseline
+
+Replacing a waveform database requires more than recording spans. The target
+workflow includes finding a design object, jumping to a late simulation time,
+reading its current value and nearby transitions, and following a transaction
+back to its fields, stages, related work, and surrounding signals. Capture must
+preserve what the simulator observed, including unknown logic and repeated
+occurrences. A trace encoding and its reader together must meet that contract.
+
+FSDB and VWDB are vendor databases with public product descriptions, rather than
+public wire specifications in the cited material. The table records documented
+workflows; **unverified** means the reviewed public sources do not establish a
+specific storage or live-reader contract. It does not mean the product lacks it.
+No claim about their internal block layouts follows from these descriptions.
+
+| Capability | FSDB / Synopsys Verdi evidence | VWDB / Cadence Verisium evidence |
+| --- | --- | --- |
+| Digital waveform capture and analysis | FSDB stores simulation signal activity for Verdi waveform debug and replay. [Waveform reuse](https://www.synopsys.com/verification/resources/datasheets/verdi-idx.html) | VWDB is the waveform database used in Cadence simulation/emulation debug flows. [VWDB introduction](https://community.cadence.com/cadence_blogs_8/b/fv/posts/what-makes-next-generation-debug-solution) |
+| Selected signals, scopes, and time windows | WaveUtils documents on-demand reads, signal/event reports, and scope/time extraction. [WaveUtils](https://www.synopsys.com/blogs/chip-design/verdi-waveform-utilities.html) | Python APIs expose design and waveform interrogation; exact on-disk seek/index contracts are unverified. [Python access](https://community.cadence.com/cadence_blogs_8/b/fv/posts/verisium-debug-python-app-store) |
+| Transactions and testbench observations | Synopsys explicitly associates enhanced FSDB with UVM transaction recording, logs, and transaction views. [Verdi features](https://www.synopsys.com/verification/debug/verdi.html) | Verisium documents UVM/testbench debug and SmartLog; which transaction/relation records reside in VWDB itself is unverified. [Verisium features](https://www.cadence.com/en_US/home/tools/system-design-and-verification/ai-driven-verification/verisium-debug.html) |
+| Design/source correlation | Verdi combines FSDB with other databases, including KDB; the waveform file is not the entire debug environment. [Platform databases](https://www.synopsys.com/content/dam/synopsys/verification/datasheets/verdi-ds.pdf) | Palladium's flow pairs VWDB waveforms with an IXCOM-derived design database. [Emulation and design data](https://community.cadence.com/cadence_blogs_8/b/fv/posts/verisium-debug-for-palladium) |
+| Specialized HDL, low-power, and mixed-signal debug | Documented platform capabilities; exact logic-state, strength, delta-region, and analog encodings require SDK/manual validation. [Supported workflows](https://www.synopsys.com/content/dam/synopsys/verification/datasheets/verdi-ds.pdf) | Documented platform capabilities; exact representations in VWDB require SDK/manual validation. [Supported workflows](https://www.cadence.com/en_US/home/tools/system-design-and-verification/ai-driven-verification/verisium-debug.html) |
+| Attach to an existing growing recording | Interactive debug is documented, but the cited public sources do not specify an independent reader's publication cursor, late-attach bootstrap, or partial-tail rules. | Interactive and postprocess modes are documented, but the cited public sources do not specify these independent-reader contracts. [Operation modes](https://login.cadence.com/content/cadence-www/global/en_US/home/training/all-courses/86320.html) |
+
+The initial replacement scope should be VTR's documented data and query model:
+
+- HDL scopes and variables, stable IDs, static and dynamic aliases, declared
+  widths, 2/4/9-state vectors, real values, bytes, and event occurrences.
+- Exact integer simulation ticks in a declared decimal timescale; preserve
+  multiple changes and occurrences at the same tick without converting through
+  floating-point seconds.
+- Completed transactions, independently identified events/stages/logs, nested
+  payloads, runtime ownership, directed relations, and constant-period clocks.
+  Intervals can overlap, and record timestamps can arrive late.
+- Compressed, selective signal/time and record queries, bounded decoding, crash
+  recovery, and the incremental publication contract proposed here.
+
+These are grounded in [SPEC.md](SPEC.md), [TRANSACTIONS.md](TRANSACTIONS.md),
+and [RATIONALE.md](RATIONALE.md). They do **not** establish full parity with
+commercial debug platforms. VTR's [VDB boundary](../README.md#trace-and-application-boundaries)
+keeps source/netlist knowledge separate. Signal strength, an explicit simulator
+scheduler-region/delta-cycle coordinate, full dynamic-object histories, assertion
+semantics, power-intent semantics, and analog solver-specific data need separate
+requirements and support audits. Preserving ordered same-time changes is useful,
+but does not itself preserve which simulator scheduling region produced them.
+Neither this proposal nor the current VTR format proves complete FSDB/VWDB parity.
+
+### 4.8 Capability comparison against that baseline
+
+**Built-in** below means the reviewed representation carries the stated meaning.
+**Profile** means standard fields can encode it, but producers and readers need a
+hardware-specific agreement. This is reusable serialization, not turnkey waveform
+support. Entries concern the native formats and APIs reviewed above, rather than
+what an arbitrary opaque blob could contain.
+
+| Record capability needed by the replacement | Perfetto | CTF / LTTng | JFR | NetTrace v6 | FXT |
+| --- | --- | --- | --- | --- | --- |
+| Wide packed HDL values, including `X`/`Z` and nine-state logic | Profile; counters/state tracks alone do not declare this | Profile using fields/arrays | Profile; ordinary Java event API needs flattening or another encoding | Profile using typed fields/arrays | Profile using arguments/blobs |
+| HDL scope kinds, variables, aliases, declaration growth | Profile over track/argument metadata | Profile over schema/events | Profile over metadata/events | Profile over metadata/events | Profile over object/argument records |
+| Numeric observations | Built-in counters and typed arguments | Typed event fields | Typed event fields | Typed event fields | Built-in counters and arguments |
+| Held symbolic state | Built-in state tracks | Profile | Profile | Profile | Profile |
+| Span representation | Built-in track-local begin/end | Profile: start/stop or completed event | Built-in committed duration event | Profile: provider-defined events | Built-in begin/end, complete, async |
+| Overlapping work independent of thread nesting | Separate custom tracks and correlation | Profile with IDs or completed rows | Independent committed duration events | Profile with activity labels/IDs | Async IDs |
+| Structured payloads | Nested annotations or protobuf fields | Schema-defined structures/arrays/sequences | Java API has scalar/reference restrictions; binary writer is a separate choice | Metadata describes objects and arrays | Flat typed arguments; structured blob needs schema |
+| VTR's global record IDs, ownership, embedded/located stages, typed relations | Profile; flows and correlation help but have different semantics | Profile | Profile | Profile; labels help but do not validate ownership | Profile; async/flow IDs have narrower roles |
+| Repeated identical observations | Distinct events | Distinct events | Distinct events, subject to recording configuration | Distinct events, subject to recording configuration | Distinct events |
+| Constant-period clock stretches and signal clock association | Profile | Profile | Profile | Profile | Profile |
+
+A profile can remain wire-compatible with the host format. However, representing
+VTR semantics as `signal_declare`, `signal_change`, `transaction_complete`, and
+`relation` events is still domain-model design. The savings are in reusing the
+container, schema machinery, and tools, rather than eliminating that work.
+
+**Time is a separate compatibility check.** A simulator's time advances according
+to the simulated design, independently of the host clock. A tracing API which
+measures elapsed wall time is not interchangeable with one accepting simulation
+timestamps.
+
+| Candidate | Native time representation and consequence |
+| --- | --- |
+| Perfetto | Packet timestamps default to nanoseconds. Custom clock units use an integer `unit_multiplier_ns`; that mechanism does not express a fractional nanosecond. Exact picosecond/femtosecond simulation time needs a mapping, an additional tick field, or adapted tooling. Treating one simulation tick as one displayed nanosecond preserves ordering but changes the physical unit. [Clock schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto) |
+| CTF | Clock metadata defines a frequency and integer cycle values. A simulation clock can therefore retain fine ticks. Consumers must use raw cycles where needed: Babeltrace also offers conversion to signed nanoseconds, which is a different range/precision boundary. [Clock snapshots](https://babeltrace.org/docs/v2.1/libbabeltrace2/group__api-tir-cs.html) |
+| JFR | Chunks describe start ticks and ticks per second, but standard recorded-event time access exposes instants and nanosecond durations. A custom native writer's raw resolution does not establish end-to-end subnanosecond support through JFR consumers. The ordinary `begin/end` API measures execution time, not supplied simulation time. [Chunk reader](https://github.com/openjdk/jdk/blob/master/src/jdk.jfr/internal/consumer/ChunkHeader.java), [duration access](https://docs.oracle.com/en/java/javase/25/docs/api/jdk.jfr/jdk/jfr/consumer/RecordedEvent.html) |
+| NetTrace | Trace metadata supplies tick frequency; event timestamps use signed 64-bit ticks. A standalone writer can choose simulation ticks, but must account for VTR's unsigned range and check consumer conversions. The EventPipe capture API's runtime timestamps are a separate constraint. [Trace and event layouts](https://github.com/microsoft/perfview/blob/main/src/TraceEvent/EventPipe/NetTraceFormat.md) |
+| FXT | Initialization supplies ticks per second and events carry unsigned 64-bit ticks. The representation can describe a fine simulation clock; SDKs and viewers still need validation for supplied timestamps and exact unit conversion. [Timestamps](https://fuchsia.dev/fuchsia-src/reference/tracing/trace-format#timestamps) |
+
+For every candidate, specify a deterministic tie-break for same-tick changes
+across producers. File order within a stream does not create a simulator-wide
+scheduler order. Keep late transaction begin/end fields distinct from capture
+time where a transport or sorter requires monotonic progress. In particular,
+CTF's stream clock and a completed transaction's application begin field can
+serve different purposes.
+
+**Database access is the largest unproven part of reuse.** The reviewed formats
+provide packet, chunk, or block framing and useful software-trace semantics.
+They do not prescribe VTR's per-signal compressed histories, dirty-group frames,
+previous-dirty links, and alias-aware selective decoding. Packet time indexes
+can accelerate seeking without answering the held value of a particular signal
+at the seek point. A writer must provide a checkpoint, a signal index, or enough
+history for that question. Whole-file compression alone does not provide
+independently decodable signal/time ranges.
+
+| Candidate | Stored organization useful for reuse | What a waveform query still needs |
+| --- | --- | --- |
+| Perfetto | Packet sequences, interned data, and imported query tables | A measured alternative to importing all relevant observations before querying a few signals |
+| CTF | Metadata plus packet streams; packet time coverage supports seeking | Signal declarations and held-value checkpoints/indexes beyond packet time indexes |
+| JFR | Chunks with metadata and constant pools; event streaming | Signal-specific lookup and state reconstruction independent of event iteration |
+| NetTrace | Typed blocks, event-block time bounds, and reference-cache epochs | Signal-specific locators and checkpointed values; block time bounds alone are insufficient |
+| FXT | Sequential size-framed records with provider-local reference state | Seek bootstrap, signal indexes, and held-value checkpoints |
+
+These are deductions from the layouts reviewed in sections 4.1–4.5. They are
+not assertions that third-party tools cannot add indexes or that one layout is
+slower. Index construction and decoding costs need measurement on the same data.
+
+Perfetto supplies a substantial query engine and viewer, so it could save more
+application work than a serialization-only choice. Its normal analysis path
+imports observations into query tables; that must be compared with VTR's direct
+file queries. Its documented sorting window can reject sufficiently late data;
+full sorting increases memory use. Arbitrarily late VTR record timestamps need
+an explicit ingestion strategy.
+[Trace Processor memory model](https://perfetto.dev/docs/analysis/batch-trace-processor),
+[ordering and flush behavior](https://github.com/google/perfetto/blob/main/docs/concepts/buffers.md)
+
+**Live support and losslessness are also separate.** The five live paths in the
+first comparison table are reusable designs, but none implies the exact same
+local-file refresh API. CTF's live route needs a compatible relay producer; JFR's
+route follows repositories; EventPipe normally starts a runtime capture session;
+FXT's provider streaming transfers buffers. Perfetto's packet ingestion does not
+by itself refresh a browser view. Every evaluation needs late attachment with
+metadata and active work, explicit temporary EOF, and history retention tests.
+A profiling configuration that samples, filters short events, or drops full
+buffers is not acceptable as silent behavior for an exhaustive waveform dump.
+Loss policies belong to the writer/system configuration as well as the format.
+
+### 4.9 Can an existing format replace VTR?
+
+**For a transaction-only or simulator-performance view, reuse is credible now.**
+Perfetto is the strongest first experiment when the goal is to reuse a working
+timeline, query engine, counters, states, and causal flows. FXT is attractive for
+compact explicit durations and asynchronous work. CTF and NetTrace offer typed
+event interchange with broad payload descriptions. JFR is especially useful when
+correlating JVM behavior with application events. These are suitability judgments
+from the reviewed interfaces, not measured performance rankings.
+
+**For the combined FSDB/VWDB replacement scope, no candidate is established as an
+as-is replacement by this research.** There is no evidence here that the task is
+impossible with an existing format. In particular, CTF and standalone NetTrace
+could carry a lossless hardware profile without changing their basic framing.
+The unresolved work is the hardware schema, exact-time path, publication/bootstrap
+contract, and indexed storage/query behavior at waveform scale.
+
+| Candidate | Reuse that could remove VTR work | Remaining work for the combined replacement | Assessment |
+| --- | --- | --- | --- |
+| Perfetto | Track/state/counter model, SDKs, SQL analysis, timeline UI, flows | Exact simulation-time mapping, HDL profile, arbitrary overlaps/late arrivals, selective waveform storage and rendering | Best prototype for reusing analysis/UI; do not assume its imported tables replace a waveform database. |
+| CTF / LTTng | Metadata-described binary types, packet streams, Babeltrace ecosystem, live protocol design | Hardware profile, simulator writer, relay integration if used, signal checkpoints/indexes and viewer | Strong candidate for reusing a generic trace format; evaluate independently of adopting the whole LTTng capture stack. |
+| JFR | Typed committed durations, metadata/pools, repository following, JVM diagnostics tools | Native simulator writer and timestamp control, richer payload mapping, active previews, waveform indexes/UI | Good JVM integration/export target; more adaptation for this hardware database scope. The binary format is not restricted to JVM-originated bytes. |
+| NetTrace v6 | Typed event blocks, object/array payload metadata, reference epochs, loss detection | Standalone writer/reader version validation, hardware profile, clock/range policy, waveform indexes/UI, live bootstrap | Strong generic event-storage candidate alongside CTF; v6's general-purpose intent deserves an actual prototype. |
+| FXT | Compact duration/async/flow records, object/log records, simple framing | Large structured payload profile, HDL declarations, selective indexes, simulator-time and live-reader integration | Useful transaction interchange; embedding custom waveform blocks in blobs would retain most waveform-format design work. |
+
+There are three different reuse decisions:
+
+1. **Adopt an existing format end to end.** Generate supported observations and
+   use its current readers/viewers. Accept this only if their semantics, precision,
+   and resource use meet the required workflow.
+2. **Adopt its wire format plus a hardware profile and external indexes.** Keep
+   valid CTF or NetTrace, for example, while implementing hardware semantics and
+   selective query acceleration. Count profile, sidecar, and ingestion complexity
+   in the cost comparison. This can be a successful replacement even though a
+   generic viewer cannot render every hardware record.
+3. **Retain a waveform-specialized backend and integrate existing analysis.**
+   Export transactions, counters, and selected signals to Perfetto/FXT, or join
+   software traces using explicit clock mappings. This delivers interoperability
+   while keeping lossless waveform data in its indexed representation.
+
+An exporter is not automatically a lossless archive converter. Publish its
+mapping for IDs, ownership, relations, open spans, same-time ordering, precision,
+and unsupported values. A subset export is useful when its omissions are explicit.
+
+Before treating VTR's own encoding as the preferred long-term choice, evaluate:
+
+- A **CTF hardware profile** and a **NetTrace v6 hardware profile** against the
+  same representative recordings. Start with declarations, logic changes, complete
+  transactions, payloads, and relations; add indexes only where query measurements
+  require them. Validate the output with an independent existing decoder.
+- A **Perfetto transaction/state export** opened in the existing viewer, including
+  overlapping operations, stages outside owner bounds, causal relations, and an
+  operation active at attachment. Check what works without custom importer/UI code.
+- Exact round trips for 512/4096-bit buses with `X`/`Z` and nine-state values,
+  aliases, repeated same-tick events, fine ticks, large timestamps, nested payloads,
+  forward relations, and late completed transactions. Include interrupted writes
+  and loss reporting. Do not allow approximate timestamps or stringified values
+  to pass as equivalent typed data.
+- Cold late-time reads of a few signals from a large recording, value-at-time
+  queries on quiet signals, long intervals intersecting short windows, and repeated
+  refresh with a slow consumer. Measure bytes read, decompression, memory, time to
+  first useful view, steady capture overhead, and file plus index size. Include any
+  required import pass and index build in the totals.
+- If licensed FSDB/VWDB SDKs are available, the same observable queries and dump
+  configuration through their supported tools. Verify logic/strength/delta and
+  transaction capabilities with those SDKs rather than inferring wire features
+  from product pages. Vendor performance claims are not a controlled comparison.
+
+The reuse prototypes and vendor checks are proposed work, not results of this
+research. This document justifies the incremental contracts independently of the
+backend; it does not prove that bespoke VTR serialization is faster, smaller, or
+cheaper to maintain than these alternatives.
 
 ## 5. Distinguish bytes, observations, and time
 
