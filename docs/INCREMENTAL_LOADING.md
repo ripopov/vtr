@@ -153,67 +153,318 @@ The comparison below separates those two levels of support.
 
 ### 4.1 Perfetto: early span evidence and recoverable sequence state
 
-Perfetto is a system and application performance tracing suite, originally built
-for Android and Chrome. Its protobuf trace format combines application activity,
-OS scheduling, counters, and profiling data on a common timeline for diagnosing
-functional and performance problems. [Perfetto overview](https://perfetto.dev/docs/)
+Perfetto records system and application behavior for performance analysis and
+debugging. Its native protobuf format can combine application work, operating
+system activity, profiles, resource measurements, and diagnostic context in one
+recording. `TrackEvent` is its general application timeline model, not the whole
+format. [Perfetto overview](https://perfetto.dev/docs/)
 
-**Records and example.** A recording is a sequence of protobuf `TracePacket`
-messages. Packets can carry application track events, track descriptions, clock
-synchronization, or specialized data such as kernel scheduling and stack samples.
-A track is a named timeline, not necessarily an operating-system thread: custom
-tracks can represent a device, queue, or asynchronous operation.
-[Packet schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
-[track descriptions](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto)
+This capability review covers upstream schemas and documentation reviewed
+2026-10-29. The format is extensible: the catalog below covers its defined feature
+families and extension mechanisms, while linked schemas specify individual
+fields. Producer, SDK, Trace Processor, and UI versions determine which features
+work end to end. The packet schema distinguishes stable public interfaces from
+context-specific and experimental payloads; merely finding a message in that
+schema is not a stability guarantee.
+[Packet schema and stability boundaries](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto)
+
+#### Recording, transport, and timeline vocabulary
+
+| Concept | Definition |
+| --- | --- |
+| **Trace** | A recording containing packets from one or more sources. A saved protobuf `Trace` has a repeated `packet` field; packets can also be transported directly. The wrapper is not a requirement to assemble the whole recording in memory. |
+| **Trace packet (`TracePacket`)** | An envelope carrying a payload, such as a track event or a scheduler-event bundle, together with applicable timestamp, source identity, and decoding context. A packet is not necessarily one application event. |
+| **Producer** | A participant contributing data to the tracing service, usually an instrumented process. One producer can offer several data sources. |
+| **Data source** | A named capture facility, such as application track events, kernel events, or a profiler. Its configuration controls what it collects; a data source is not a timeline track. |
+| **Trace writer and packet sequence** | A writer emits an ordered sequence of packets. The service identifies the producer/writer pair with `trusted_packet_sequence_id`. Decoding state can belong to this sequence. Packets from different writers can interleave. |
+| **Tracing service** | The component managing producers, recording sessions, central buffers, configuration, and collection. These are capture-system responsibilities, not mandatory services for a tool that directly generates a valid trace file. |
+| **Consumer** | A client controlling a capture session and reading its trace data. This role is distinct from a later analyzer or viewer opening the saved recording. |
+| **Track** | An identified timeline on which observations occur: for example, a thread, device queue, request lifetime, numeric counter, or symbolic state. It is not inherently an OS thread, a writer, or a transaction. |
+| **Track descriptor (`TrackDescriptor`)** | Metadata declaring a track's UUID, name, optional parent, process/thread association, and specialized properties. The UUID identifies the track even if other tracks have the same display name. |
+| **Track event (`TrackEvent`)** | An application observation assigned to a track, with a kind such as slice begin, instant, counter, or state, and applicable name, categories, arguments, or relationship IDs. It is one kind of packet payload. |
+
+Sources: [trace wrapper](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace.proto),
+[service model](https://perfetto.dev/docs/concepts/service-model),
+[track descriptors](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto).
+
+A track and a packet sequence answer different questions. A worker can emit an
+event on a request's custom track rather than its default thread track. That
+event still uses the worker writer's sequence-local decoding context. Conversely,
+one track can receive events from multiple writers, provided their timestamps,
+identities, and lifecycle ordering remain consistent.
+[Track event generation](https://perfetto.dev/docs/reference/synthetic-track-event)
+
+#### Timeline primitives: what an observation means
 
 ![Nested frame and layout slices, a flow to worker decode, a queue-depth counter, and symbolic player states, with representative Perfetto packets.](diagrams/reference-perfetto.drawio.svg)
 
-The example combines nested work, a dependency across tracks, a numeric counter,
-and held symbolic state. Current Perfetto supports state tracks in addition to
-slices, instants, and counters; correlation IDs can group work without asserting
-causality. Flow IDs instead connect causal steps. These are useful transaction
-visualization semantics, but none declares an HDL signal's width, state alphabet,
-or aliases. [State tracks and correlation IDs](https://perfetto.dev/blog/perfetto-v57)
+| Primitive | Definition and representation | Example |
+| --- | --- | --- |
+| **Slice** | A timed operation formed by `TYPE_SLICE_BEGIN` and `TYPE_SLICE_END` on one track. Pairing follows that track's nesting stack; the end does not need to repeat the beginning's name. | `RenderFrame` contains a `Layout` slice. |
+| **Instant** | A point occurrence with no duration, represented by `TYPE_INSTANT`. It may occur inside a slice but does not update a held value or close the enclosing slice. | A `vsync` notification. |
+| **Counter** | A numeric observation on a counter track, represented by `TYPE_COUNTER`. Values can be signed 64-bit integers or doubles. A sample is not an individual request or an HDL vector declaration. | Queue depth changes from 0 to 2 to 1. |
+| **State** | A symbolic held value on a state track. Each `TYPE_STATE` update replaces the previous state; clearing the state marks the track idle. The value persists until another transition. | `Buffering` becomes `Playing`, then `Paused`. |
 
-Event arguments can contain typed scalars and nested arrays/dictionaries through
-debug annotations; typed protobuf payloads are another extension route. A viewer
-can inspect these arguments without understanding a hardware protocol. Bus
-rendering and VTR owner/stage semantics still need a shared mapping between
-producer and consumer.
-[Debug annotation schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/debug_annotation.proto)
+[TrackEvent schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto),
+[state-track semantics](https://perfetto.dev/blog/perfetto-v57).
 
-Perfetto's protobuf `TrackEvent` represents a slice with `TYPE_SLICE_BEGIN` and
-`TYPE_SLICE_END`. The schema deliberately avoids a native complete-duration
-event: waiting for completion delays publication, reorders evidence, and loses
-unfinished slices when a trace ends. These slices nest on a track; arbitrary
-overlapping transactions must not be forced into one track's nesting stack.
-This directly exposes the tradeoff between compact final records and early
-evidence. [TrackEvent schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto)
+A **thread track** associates synchronous activity with an OS thread. A **process
+track** associates activity with a process. A **custom track** describes a logical
+resource or operation without requiring either association. Asynchronous work
+can begin on one host thread and end on another by emitting both observations
+on the same custom track. Multiple independently overlapping requests need
+separate tracks or another unambiguous allocation scheme; correlation IDs do
+not change begin/end pairing. Slice nesting on one track requires children to
+end before their enclosing slices.
+[Track associations and async generation](https://perfetto.dev/docs/reference/synthetic-track-event)
 
-Incremental interned data and defaults belong to a packet sequence.
-`SEQ_INCREMENTAL_STATE_CLEARED` establishes a fresh decoding state;
-`SEQ_NEEDS_INCREMENTAL_STATE` identifies dependent packets. After packet loss,
-readers skip dependent packets until state becomes valid again. This supports
-recovery of subsequent evidence, not recovery of missing slice beginnings.
-[TracePacket schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto)
+Modern `TrackEvent` intentionally represents slices as begin/end evidence rather
+than a single complete-duration event. This allows the beginning to be recorded
+while work is active. It does not make every Perfetto payload a begin/end pair:
+specialized schemas can store durations directly, and legacy event fields can
+carry complete events. For example, `GpuRenderStageEvent` carries a duration,
+an event ID, and dependencies on other GPU events. Therefore, a restriction of
+`TrackEvent` is not a restriction of the entire protobuf format.
+[TrackEvent design](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto),
+[GPU render-stage records](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/gpu/gpu_render_stage_event.proto)
 
-The tracing service can drain buffers during recording, including writing
-streaming output. Its dataflow is explicitly optimized for capture overhead,
-not minimal read latency. Separately, the Trace Processor interface supports
-repeated `Parse` calls, `Flush` to expose sorting-buffer contents, queries over
-loaded data, and a distinct `NotifyEndOfFile`. These mechanisms do not by
-themselves promise that the browser UI tails an arbitrary growing file.
-[Buffer dataflow](https://perfetto.dev/docs/concepts/buffers),
-[Trace Processor interface](https://github.com/google/perfetto/blob/main/include/perfetto/trace_processor/trace_processor.h)
+A **counter descriptor** supplies units, scaling, optional built-in meaning such
+as thread CPU time or instruction count, and display properties such as a shared
+y-axis key. Some counters can use sequence-local deltas instead of absolute
+values. A slice or instant can also carry **extra counter values** sampled at its
+timestamp, avoiding separate event packets for each observation. Counter units
+and timestamp clock units are different declarations.
+[Counter descriptor](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/counter_descriptor.proto)
 
-**Implication for VTR:** make early transaction evidence an explicit capability.
-The optional overlay should publish a stable owner ID and beginning before the
-owner finishes. A late subscriber needs an active-owner snapshot in addition
-to declarations; a dictionary checkpoint alone cannot reconstruct active spans.
-Keep VTR's durable complete records for postmortem access, and measure the
-additional preview work. Add a resumable decoder-state token to any live
-transport that uses transient interning. Preserve a separate end-of-input
-operation so a temporary EOF cannot close active spans or finalize a session.
+#### Identities, grouping, and causality
+
+These identifiers are not interchangeable:
+
+| Concept | What it identifies or connects | What it does not establish |
+| --- | --- | --- |
+| **Track UUID (`track_uuid`)** | The timeline receiving the event. `TrackDescriptor.uuid` declares it. Zero denotes the implicit trace-global track. | The identity of each slice on that track. |
+| **Parent track UUID (`parent_uuid`)** | A structural association between tracks, used for grouping and inherited context. | Runtime ownership of one transaction by another, or temporal containment of their intervals. |
+| **Slice nesting** | An enclosing/inner operation relationship determined by the begin/end stack on one track. | An arbitrary parent pointer between independent records on different tracks. |
+| **Correlation ID** | An opaque label grouping slices belonging to the same logical operation. It can be a `uint64`, a string, or an interned string reference. | An execution order, causal edge, begin/end matching key, or universally unique event ID. |
+| **Flow ID** | A trace-global identifier connecting an ordered chain of participating events through `flow_ids`. Timestamp order determines the direction, allowing a handoff across tracks or threads. | Transaction ownership, an arbitrary relation kind, or evidence that uninstrumented intermediate work was captured. |
+| **Terminating flow ID** | An entry in `terminating_flow_ids` marking the end of a flow. After termination the ID can be reused for another flow. | Completion of the enclosing slice or every slice sharing a correlation ID. |
+| **Interned ID (`iid`)** | A lookup key into a particular interned-data table in the relevant sequence and decoding-state lifetime. | A track UUID, correlation value, or durable recording-wide record identity. |
+| **PID/TID and machine ID** | Execution context identifying processes, threads, and machines. | A request identity; one request can move between threads and machines. |
+
+[Identity and relationship fields](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto),
+[descriptor relationships](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto),
+[interned tables](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/interned_data/interned_data.proto).
+
+For example, consider two phases of request `req-7` and an independent diagnostic
+observation about that request. The following is a logical event listing, not
+literal protobuf syntax:
+
+| Time | Track | Observation | Meaning |
+| ---: | --- | --- | --- |
+| 10 | Main | Begin `Submit`, correlation `req-7`, flow 42 | Starts a slice and a causal handoff chain. |
+| 12 | Main | End | Closes `Submit` through the Main track's stack. |
+| 20 | Worker | Begin `Decode`, correlation `req-7`, terminating flow 42 | Starts a different slice; the flow connects it to the submitting work. |
+| 30 | Worker | End | Closes `Decode`; no request ID is needed for pairing. |
+| 35 | Diagnostics | Instant `Inspect`, argument `request="req-7"` | Attaches request context without claiming it caused either phase. |
+
+The shared correlation ID groups `Submit` and `Decode` as one logical operation.
+Flow 42 additionally asserts a handoff between them. Another slice may share
+`req-7` without joining that flow. A diagnostic argument containing the same
+string is ordinary payload data, not automatically a correlation-field value.
+Applications choose their identifier namespaces; none of these fields by itself
+provides VTR's validated global record-ID and typed-relation model. Trace
+Processor's imported row identities should not be substituted for producer-issued
+record IDs in an interchange contract.
+
+Descriptors also carry names, descriptions, child/process/thread ordering hints,
+sibling merge policies and keys, and custom **dimensions** such as resource rank
+or stage. Dimensions classify tracks and participate in their identity/merging
+rules. They differ from per-event arguments. Display merging may put several
+logical tracks in one visual group without changing the original event meaning.
+Some process/thread associations override simple parent-based nesting; a
+`parent_uuid` is not a promise of a particular UI tree layout.
+[Track grouping, ordering, merging, and dimensions](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto)
+
+#### Names, categories, arguments, callstacks, and extensions
+
+An **event name** labels an observation, such as `Decode`. A **category** groups
+instrumentation for capture configuration, such as `render` or `memory`; it is
+not an ownership hierarchy. Names and categories can be inline or interned.
+**Arguments** describe the individual observation: request address, byte count,
+status, or structured application data.
+[Track event instrumentation](https://perfetto.dev/docs/instrumentation/track-events)
+
+There are two general routes for application payloads:
+
+- **Debug annotations** are named values supporting booleans, signed/unsigned
+  integers, doubles, pointers, strings, and nested dictionaries/arrays. They are
+  useful without defining a new protobuf schema; some values can be interned.
+  [Debug annotations](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/debug_annotation.proto)
+- **Typed protobuf extensions** attach application-defined fields and nested
+  messages to `TrackEvent`. An `ExtensionDescriptor` packet can embed the protobuf
+  descriptor set, making the schema travel with the recording. With descriptors
+  available, Trace Processor decodes these fields into its `args` table and the
+  UI exposes them in event details. This does not require a custom importer for
+  each field. Automatic argument decoding currently applies to `TrackEvent`
+  extensions, not arbitrary extensions to every other message.
+  Extension field numbers must avoid collisions with other schemas in the trace.
+  [Typed extensions and descriptor delivery](https://perfetto.dev/docs/instrumentation/extensions)
+
+A **callstack** describes the executing code associated with an event. It can be
+inline function/source frames or a reference to interned frames, mappings, build
+IDs, and symbol strings. An optional **callstack weight** attributes a numeric
+amount to that occurrence for weighted analysis. A captured callstack explains
+where execution was observed; it is not the same relationship as slice nesting
+or a request's ownership tree.
+[Callstack generation and weights](https://perfetto.dev/docs/reference/synthetic-track-event),
+[profiling references](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/interned_data/interned_data.proto)
+
+The schema also contains specialized arguments for task execution, log messages,
+source locations, screenshots, Chrome scheduler/frame state, IPC, histograms,
+application state, and other producer-specific observations. Many are explicitly
+outside the stable generic interface. A simulator should use supported public
+fields and its own typed extension rather than assigning hardware meanings to
+an unrelated Chrome-specific field.
+[Specialized and legacy TrackEvent arguments](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto)
+
+For VTR reuse, typed extensions are more capable than storing a transaction as
+one opaque string. They can preserve structured fields, arrays, and packed bytes
+for generic inspection. A schema defining a 512-bit four-state bus still needs
+to specify width, packing, aliases, and held-value semantics. Descriptor-driven
+argument display does not automatically supply a waveform renderer or a
+signal/time index.
+
+#### Record families beyond application track events
+
+The native packet format also carries the following families. Some payloads
+have specialized interval, identity, and relationship semantics of their own.
+Support for a family means there is a representation and matching tooling for
+particular producers; it does not mean every capture records every family.
+
+| Family | Information represented and schema examples |
+| --- | --- |
+| **Kernel and scheduler activity** | Linux `FtraceEventBundle`, Windows `EtwTraceEventBundle`, and generic kernel task-state, task-rename, process-tree, CPU/GPU-frequency records. These can reconstruct scheduling and execution context alongside application slices. [Generic task schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/generic_kernel/generic_task.proto) |
+| **System, process, and hardware observations** | Process/thread inventories and sampled process statistics; system/CPU/GPU/interrupt descriptions; system counters, memory maps (`SmapsPacket`), cgroup memory statistics, inode/file mappings, and CPU attribution. [System statistics schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/sys_stats), [process schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/ps) |
+| **Execution and weighted stack profiles** | `PerfSample`, streaming profiles, and transport-neutral `StackSample`. Samples can associate a task or asynchronous context, callstack, execution context, and measurement weights such as cycles, bytes, faults, or counts. A sample is not proof of continuous execution between sample times. [StackSample schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/profiling/stack_sample.proto) |
+| **Allocations, frees, and memory graphs** | Aggregated heap snapshots (`ProfilePacket`), a streaming allocation/free representation marked for local testing, and app-reported `MemoryTrackerSnapshot` graphs with attribution edges. Managed heap graphs also exist through Android extensions. These memory-ownership edges have model-specific meaning. [Heap/profile records](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/profiling/profile_packet.proto), [memory attribution graph](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/memory_graph.proto) |
+| **Symbols, runtimes, and generated code** | Module symbols, deobfuscation mappings, ART metadata, V8 JavaScript/internal/WebAssembly/regular-expression code descriptions and code moves, plus interned frames and executable mappings. These relate sampled addresses to code. [V8 schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/chrome/v8.proto), [symbolization](https://perfetto.dev/docs/learning-more/symbolization) |
+| **GPU, graphics, and compute** | GPU counters, timed render/compute stages, queue/context descriptions, graphics frames, Vulkan API and memory events, GPU memory totals, and GPU logs. Render-stage records can include event IDs and explicit wait dependencies. [GPU schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/gpu) |
+| **Power, energy, and residency** | Battery measurements, power rails, energy-estimation breakdowns, entity-state residency, frequency/power observations, and kernel/application wakelocks. [Power schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/power) |
+| **Logs and diagnostic messages** | Android log packets, systemd journal records, GPU logs, Chrome logging arguments, and platform-specific structured logs. They retain source-specific priority, context, or payload conventions. [Android logs](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/android/android_log.proto), [journald](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/linux/journald_event.proto) |
+| **Browser and platform context** | Chrome event bundles, benchmark/application metadata, display state, Android package/user inventories, properties, flags, game interventions, statsd atoms, per-UID CPU data, and modem events/token dictionaries. These provide interpretation and environment details rather than generic request lifecycles. [Android schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/android), [Chrome schemas](https://github.com/google/perfetto/tree/main/protos/perfetto/trace/chrome) |
+| **Platform extensions** | Android heap graphs, network packets, frame timelines, input events, Bluetooth, wakelocks, and Winscope layer/transaction/shell-transition/ProtoLog data. These use extension schemas, some maintained outside the core tree; a SurfaceFlinger transaction is a platform object with its own schema, not VTR's generic transaction. [Mirrored Android schemas](https://github.com/google/perfetto/tree/main/protos/third_party/android) |
+| **Recording context and control evidence** | Trace UUID, configuration, attributes and provenance; trigger/clone-trigger records; tracing-service and concurrent-session events; loss/buffer statistics; recovered-trace information; Perfetto's own metatrace and experimental producer statistics. These explain how a recording was obtained and what may be absent. [Recording/context payloads](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto) |
+| **Analysis and presentation context** | UI state, track-event ranges of interest, and translation tables used to interpret/display recorded identifiers. These help a consumer present data; they are not additional waveform values or a portable SQL query index. [UI state](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/ui_state.proto), [translations](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/translation/translation_table.proto) |
+
+The [packet payload registry](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto)
+and [schema tree](https://github.com/google/perfetto/tree/main/protos/perfetto/trace)
+are the field-level references for these families. Reserved tags and test-only
+messages do not add application capabilities. New registered extensions can add
+further families without turning them into generic `TrackEvent` semantics.
+
+#### Clocks, encoding, and decoder state
+
+A **clock domain** defines the time source used by timestamps. Packets can select
+`timestamp_clock_id`; a **clock snapshot** records readings of several clocks
+at a shared synchronization point so an analyzer can translate between domains.
+Machine IDs and remote clock synchronization support multi-machine recordings.
+They do not remove the need to relate simulator time to host time explicitly.
+[Clock synchronization](https://perfetto.dev/docs/concepts/clock-sync)
+
+Packet timestamps default to integer nanoseconds. Clock metadata can select
+absolute or delta encoding and an integer `unit_multiplier_ns`, rather than an
+arbitrary fractional-nanosecond scale. A simulator must validate exact fine-tick
+handling through its writer and analyzer; relabeling picosecond ticks as
+nanoseconds changes physical units even if ordering survives. Timestamp deltas,
+counter deltas, and sampled CPU-time counters are three different quantities.
+[Clock schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/clock_snapshot.proto)
+
+**Interning** stores repeated strings or structured descriptors once and refers
+to them by ID. **Packet defaults** omit repeated fields such as the default
+track or timestamp clock. Together with delta encoding, these reduce capture
+size but require retained decoder state. The reader must use the correct
+sequence, interned table, and reset generation; the same numeric IID can mean
+something different elsewhere.
+[Interned-data definitions](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/interned_data/interned_data.proto),
+[packet defaults](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet_defaults.proto)
+
+An **incremental-state reset** (`SEQ_INCREMENTAL_STATE_CLEARED`) starts a fresh
+decoding-state lifetime. `SEQ_NEEDS_INCREMENTAL_STATE` identifies dependent
+packets. **Loss evidence** (`previous_packet_dropped`) invalidates prior state;
+current schemas can describe loss causes. `first_packet_on_sequence` helps
+separate a writer's actual beginning from a retained suffix after missing data.
+Decoding can resume from a suitable reset, but missing slice beginnings, held
+states, and application history are not reconstructed by resetting a dictionary.
+[Sequence state and loss fields](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto)
+
+The format also supports **compressed packet batches**, using deflate or Zstd,
+and **synchronization markers** that help partition long traces. A marker is
+not a complete checkpoint of decoding state or open slices. Compression operates
+on packet batches, not VTR-style independently indexed signal columns.
+[Compression support](https://perfetto.dev/blog/perfetto-v58),
+[packet framing and markers](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto)
+
+The upstream packet schema additionally carries **ProtoVM program/state
+snapshots**, allowing the corresponding decoder to reconstruct full-state
+packets from patches. This is a specialized stateful encoding mechanism, not a
+promise of arbitrary HDL waveform support. **Trusted source fields** record
+service-assigned producer UID/PID and sequence identity. Deprecated process/thread
+descriptors, legacy timestamp/CPU-time fields, and `LegacyEvent` phase/duration
+fields remain part of the readable schema surface, but new application mappings should use
+the supported current interfaces.
+[Encoding, attribution, and legacy fields](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
+[legacy event schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_event.proto)
+
+The reviewed `Trace`/`TracePacket` layout has no VTR-style final directory/trailer
+or mandatory payload checksum on each packet. Protobuf packet boundaries and
+compression framing are useful building blocks, but do not establish VTR's
+validation, finalized-file, or selective-query contracts. A reader of a growing
+file still needs to distinguish a partial final packet from a completed recording.
+[File wrapper](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace.proto)
+
+#### Incremental consumption and implications for VTR
+
+**Publication** means capture buffers have made data available to the consumer;
+it is separate from the event's timestamp. **Retention** determines which history
+survives in ring/discard buffers or streamed output. **Flush** asks producers to
+commit buffered data, including sparse sources that otherwise retain old events.
+These are capture policies. File length, a recent event timestamp, and an
+interning reset are not interchangeable completion certificates.
+[Buffering and flush behavior](https://perfetto.dev/docs/concepts/buffers)
+
+**Trace Processor** is the analyzer importing packets into queryable tables;
+**PerfettoSQL** is its query/analysis interface; **Perfetto UI** renders that
+interpreted model. These are substantial reuse opportunities, not additional
+on-disk event types. The processor supports repeated `Parse`, explicit `Flush`
+of its sorting queues, queries over loaded data, and a distinct
+`NotifyEndOfFile`. A processor flush differs from a producer/service flush.
+Neither interface alone establishes that the browser tails an arbitrary growing
+file. Importing other formats such as Chrome JSON also does not make every
+feature of those formats a native Perfetto record.
+[Trace Processor interface](https://github.com/google/perfetto/blob/main/include/perfetto/trace_processor/trace_processor.h),
+[analysis API](https://perfetto.dev/docs/analysis/trace-processor)
+
+Packet order across writers is not global timestamp order. Trace Processor's
+normal bounded sorting window can reject sufficiently late observations; full
+sorting trades additional memory for wider reordering. This matters for VTR
+transactions completed long after their beginning or supplied with past times.
+[Ordering and sorting limits](https://perfetto.dev/docs/concepts/buffers)
+
+**Implication for VTR:** Perfetto already supplies named resource timelines,
+async work through custom tracks, numeric and symbolic histories, causal flows,
+operation grouping, profiles, and inspectable typed extensions. A reuse prototype
+should exploit those capabilities before inventing equivalents. It still needs
+an explicit mapping for VTR record IDs, runtime ownership, non-contained stages,
+relation kinds, HDL values/aliases, exact simulation time, arbitrary late arrivals,
+and selective signal/time queries.
+
+For incremental loading, publish owner beginnings and stable application IDs
+before completion when active work must be visible. Pair late attachment with
+required declarations and an active-work/held-state snapshot. A decoder reset
+alone is insufficient. Keep source finalization separate from temporary EOF,
+and distinguish complete durable records from provisional observations. These
+contracts remain necessary whether VTR keeps its current container or adopts
+Perfetto as a backend.
 
 ### 4.2 CTF and LTTng live: packet discovery, metadata gates, and idle progress
 
