@@ -138,12 +138,13 @@ fn kanata_gzip_and_malformed_input() {
     for input in [
         "",
         "Kanata\t0003\n",
-        "Kanata\t0004\nC=\t-1\n",
+        "Kanata\t0004\nC\t-1\n",
+        "Kanata\t0004\nC=\t-1\nC=\t-2\n",
         "Kanata\t0004\nC=\t9\nC=\t8\n",
         "Kanata\t0004\nI\t0\n",
         "Kanata\t0004\nL\t8\t0\tmissing\n",
         "Kanata\t0004\nI\t0\t0\t0\nI\t0\t0\t0\n",
-        "Kanata\t0004\nC=\t18446744073709551615\nC\t1\n",
+        "Kanata\t0004\nC=\t9223372036854775807\nC\t1\n",
         "Kanata\t0004\nunknown\n",
     ] {
         let source = dir.path().join("bad.kanata");
@@ -154,6 +155,63 @@ fn kanata_gzip_and_malformed_input() {
             "{input}"
         );
     }
+}
+#[test]
+fn kanata_sample_with_negative_start_cycle_converts() {
+    // Published with the Kanata format documentation: Dhrystone on RSD, starting at cycle -1.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sample.vtr");
+    let mut w = writer(&path);
+    vtr_convert::kanata::convert_kanata(
+        fixture("kanata-sample-2.log.gz"),
+        &mut w,
+        &Default::default(),
+    )
+    .unwrap();
+    w.close().unwrap();
+    let r = Reader::open(path).unwrap();
+    r.validate().unwrap();
+    assert!(r.metadata().attributes.iter().any(|a| {
+        r.string(a.key).unwrap() == "kanata.start_cycle" && a.value == Value::I64(-1)
+    }));
+    let clock = r.find_generator("cpu.cycle").unwrap();
+    let mut stretches = Vec::new();
+    r.transactions(
+        TransactionQuery {
+            generator: Some(clock),
+            ..Default::default()
+        },
+        |record| {
+            stretches.push(record);
+            true
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        stretches
+            .iter()
+            .map(|record| (record.begin(), record.end()))
+            .collect::<Vec<_>>(),
+        [(0, 4542)]
+    );
+    assert_eq!(r.cycle_at(clock, 0).unwrap(), Some(0));
+    // The sample ends with 41 instructions still in flight, 374 flushed, and 3626 retired.
+    let mut counts = [0usize; 3];
+    let mut records = 0;
+    r.transactions(TransactionQuery::default(), |record| {
+        if record.generator() != Some(clock) {
+            records += 1;
+            counts[match record.status() {
+                Status::Open => 0,
+                Status::Aborted => 1,
+                _ => 2,
+            }] += 1;
+        }
+        true
+    })
+    .unwrap();
+    assert_eq!(records, 4041);
+    assert_eq!(counts, [41, 374, 3626]);
 }
 #[test]
 fn vcd_short_vectors_strings_and_dump_intervals() {

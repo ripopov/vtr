@@ -67,6 +67,13 @@ pub fn convert_input(
     convert_reader(BufReader::new(reader), w, progress)
 }
 
+/// Kanata `C=` accepts negative absolute cycles, while VTR timestamps are
+/// unsigned. Negative cycles precede the displayed timeline and saturate to zero,
+/// so later cycles keep their absolute numbers.
+fn timestamp(cycle: i64) -> u64 {
+    cycle.max(0) as u64
+}
+
 fn convert_reader(
     reader: impl BufRead,
     w: &mut Writer,
@@ -88,8 +95,8 @@ fn convert_reader(
     let mut clock_running = false;
     let mut threads: HashMap<u64, Source<Instruction>> = HashMap::new();
     let mut ops: BTreeMap<u64, Op> = BTreeMap::new();
-    let mut cycle = 0u64;
-    let mut start_set = false;
+    let mut cycle = 0i64;
+    let mut start: Option<i64> = None;
     for (line_index, line) in lines.enumerate() {
         let line = line?;
         let fields: Vec<_> = line.split('\t').collect();
@@ -110,21 +117,25 @@ fn convert_reader(
             );
             match cmd {
                 "C" | "C=" => {
-                    let n = num(1)?;
+                    let n: i64 = arg(1)?.parse()?;
                     let next = if cmd == "C" {
+                        ensure!(n >= 0, "cycle increment must not be negative");
                         cycle.checked_add(n).context("cycle overflow")?
                     } else {
                         n
                     };
-                    ensure!(next >= cycle, "cycles must not go backwards");
-                    cycle = next;
-                    w.advance_time(cycle)?;
-                    if !start_set {
-                        super::metadata_attribute(w, "kanata.start_cycle", Value::U64(cycle))?;
-                        start_set = true;
+                    if start.is_some() {
+                        ensure!(next >= cycle, "cycles must not go backwards");
                     }
+                    cycle = next;
+                    if start.is_none() {
+                        start = Some(cycle);
+                        super::metadata_attribute(w, "kanata.start_cycle", Value::I64(cycle))?;
+                    }
+                    let time = timestamp(cycle);
+                    w.advance_time(time)?;
                     if !clock_running {
-                        w.clock_run(clock, cycle, 1)?;
+                        w.clock_run(clock, time, 1)?;
                         clock_running = true;
                     }
                 }
@@ -144,17 +155,18 @@ fn convert_reader(
                             *e.insert(generator)
                         }
                     };
-                    if !start_set {
-                        super::metadata_attribute(w, "kanata.start_cycle", Value::U64(cycle))?;
-                        start_set = true;
+                    if start.is_none() {
+                        start = Some(cycle);
+                        super::metadata_attribute(w, "kanata.start_cycle", Value::I64(cycle))?;
                     }
+                    let time = timestamp(cycle);
                     if !clock_running {
-                        w.clock_run(clock, cycle, 1)?;
+                        w.clock_run(clock, time, 1)?;
                         clock_running = true;
                     }
                     let tx = w.begin_at(
                         r#gen,
-                        cycle,
+                        time,
                         &Instruction {
                             simulation_id: gid,
                             line: line_index as u64 + 2,
@@ -192,6 +204,7 @@ fn convert_reader(
                     let op = ops
                         .get_mut(&id)
                         .with_context(|| format!("unknown instruction {id}"))?;
+                    let time = timestamp(cycle);
                     match cmd {
                         "L" => {
                             let text = arg(3)?.replace("\\n", "\n");
@@ -227,17 +240,16 @@ fn convert_reader(
                                     .rev()
                                     .find(|s| s.lane == lane && s.end.is_none())
                                 {
-                                    previous.end = Some(cycle);
+                                    previous.end = Some(time);
                                 }
                                 op.stages.push(Stage {
                                     name: name.into(),
                                     lane: lane.into(),
-                                    begin: cycle,
+                                    begin: time,
                                     ..Default::default()
                                 });
                             } else {
-                                active.context("ending a stage that is not open")?.end =
-                                    Some(cycle);
+                                active.context("ending a stage that is not open")?.end = Some(time);
                             }
                         }
                         "R" => {
@@ -245,7 +257,7 @@ fn convert_reader(
                             let rid = arg(2)?.parse::<i64>()?;
                             let flushed = num(3)?;
                             ensure!(flushed <= 1, "retirement type must be 0 or 1");
-                            op.retired = Some((cycle, rid, flushed == 1));
+                            op.retired = Some((time, rid, flushed == 1));
                         }
                         _ => unreachable!(),
                     }
@@ -256,7 +268,7 @@ fn convert_reader(
         let mut parse = parse;
         parse(w, &mut ops).with_context(|| format!("Kanata line {}", line_index + 2))?;
     }
-    w.advance_time(cycle)?;
+    w.advance_time(timestamp(cycle))?;
     let counter = progress.begin(vtr_progress::Phase::Writing, Some(ops.len() as u64));
     for op in ops.values() {
         for (key, text) in [("vtr.label", &op.label), ("detail", &op.detail)] {
