@@ -22,8 +22,8 @@ fn logging_key_lookup_uses_the_first_text_match_across_string_aliases() {
         Value::Text("other".into()),
         Value::Text("first {}".into()),
         Value::Text("second {}".into()),
-        Value::U64(2),
-        Value::U64(4),
+        Value::Enum { value: 2, name: 0 },
+        Value::Enum { value: 4, name: 0 },
     ]
     .into_iter()
     .enumerate()

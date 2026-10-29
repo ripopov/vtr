@@ -47,6 +47,19 @@ void verify_capture(const std::filesystem::path& path) {
     for (const auto& metadata : vtr::logging::callsites(reader)) {
         info += metadata.severity == 2;
         warning += metadata.severity == 3;
+        const auto& type = reader.types()[metadata.datatype.value];
+        bool severity_found = false;
+        for (const auto& attribute : type.attributes) {
+            if (reader.string(attribute.key) != "log.severity")
+                continue;
+            const auto& severity = std::get<vt::EnumValue>(attribute.data.data);
+            check(severity.value == static_cast<std::int64_t>(metadata.severity) &&
+                      reader.string(severity.literal) ==
+                          (metadata.severity == 2 ? "info" : "warn"),
+                  "severity enum retains its numeric code and display name");
+            severity_found = true;
+        }
+        check(severity_found, "callsite requires severity metadata");
         check(metadata.line.has_value() && metadata.file.has_value() &&
                   metadata.function.has_value(),
               "complete static logging metadata");

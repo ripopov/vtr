@@ -60,7 +60,11 @@ pub(crate) fn datatype_options(
         },
         Attribute {
             key: intern("log.severity")?,
-            value: Value::U64(options.severity),
+            value: Value::Enum {
+                value: i64::try_from(options.severity)
+                    .map_err(|_| Error::invalid("log severity exceeds i64"))?,
+                name: intern(Severity::from_code(options.severity).name())?,
+            },
         },
     ];
     for (key, value) in [
@@ -120,8 +124,8 @@ pub fn metadata(reader: &Reader, datatype: TypeId) -> Result<Option<LogMetadata>
             .ok_or_else(|| Error::invalid("log format is missing"))?,
     )?;
     let severity = match values.get("log.severity") {
-        Some(Value::U64(code)) => Severity::from_code(*code),
-        _ => return Err(Error::invalid("log severity requires u64")),
+        Some(Value::Enum { value, .. }) if *value >= 0 => Severity::from_code(*value as u64),
+        _ => return Err(Error::invalid("log severity requires a nonnegative enum")),
     };
     let file = values
         .get("log.file")

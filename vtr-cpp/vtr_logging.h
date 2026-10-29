@@ -14,6 +14,25 @@ struct CallsiteOptions {
     std::optional<std::string_view> function = {};
 };
 
+inline std::string_view severity_name(std::uint64_t severity) {
+    switch (severity) {
+    case 0:
+        return "trace";
+    case 1:
+        return "debug";
+    case 2:
+        return "info";
+    case 3:
+        return "warn";
+    case 4:
+        return "error";
+    case 5:
+        return "fatal";
+    default:
+        return "other";
+    }
+}
+
 inline DatatypeOptions datatype_options(Writer& writer, CallsiteOptions options) {
     DatatypeOptions result{.name = "LogMessage"};
     auto add = [&](std::string_view key, Value value) {
@@ -21,7 +40,10 @@ inline DatatypeOptions datatype_options(Writer& writer, CallsiteOptions options)
     };
     add("kind", Value(std::string("callsite")));
     add("log.format", Value(std::string(options.format)));
-    add("log.severity", Value(options.severity));
+    if (options.severity > static_cast<std::uint64_t>(INT64_MAX))
+        throw Error(ErrorCode::invalid_argument, "Log severity exceeds i64");
+    add("log.severity", Value(EnumValue{static_cast<std::int64_t>(options.severity),
+                                        writer.intern(severity_name(options.severity))}));
     if (options.file)
         add("log.file", Value(std::string(*options.file)));
     if (options.line)
@@ -75,10 +97,12 @@ inline std::optional<LogMetadata> metadata(const Reader& reader, TypeId datatype
         return std::nullopt;
     const auto format = find("log.format");
     const auto severity = find("log.severity");
-    if (!format || !severity || !std::holds_alternative<std::uint64_t>(severity->data))
-        throw Error(ErrorCode::invalid_argument, "Log format and u64 severity are required");
-    LogMetadata result{datatype, metadata_text(reader, *format),
-                       std::get<std::uint64_t>(severity->data)};
+    if (!format || !severity || !std::holds_alternative<EnumValue>(severity->data))
+        throw Error(ErrorCode::invalid_argument, "Log format and enum severity are required");
+    const auto code = std::get<EnumValue>(severity->data).value;
+    if (code < 0)
+        throw Error(ErrorCode::invalid_argument, "Log severity requires a nonnegative enum");
+    LogMetadata result{datatype, metadata_text(reader, *format), static_cast<std::uint64_t>(code)};
     if (const auto file = find("log.file"))
         result.file = metadata_text(reader, *file);
     if (const auto function = find("log.func"))

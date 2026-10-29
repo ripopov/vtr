@@ -388,3 +388,69 @@ fn later_declarations_cannot_repair_an_earlier_log_block() {
     output.finish(false, 0).unwrap();
     assert!(Reader::from_bytes(output.into_inner()).is_err());
 }
+
+#[test]
+fn severity_enums_round_trip_names_and_unknown_codes() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("severity.vtr");
+    let mut writer = Writer::create(&path).unwrap();
+    let logger = writer.logger(SourceOptions::new("log", None)).unwrap();
+    let cases = [
+        (0, "trace"),
+        (1, "debug"),
+        (2, "info"),
+        (3, "warn"),
+        (4, "error"),
+        (5, "fatal"),
+        (6, "other"),
+        (i64::MAX as u64, "other"),
+    ];
+    let mut datatypes = Vec::new();
+    for (code, _) in cases {
+        let datatype = vtr::logging::declare::<()>(
+            &mut writer,
+            vtr::logging::CallsiteOptions {
+                severity: code,
+                ..vtr::logging::CallsiteOptions::new("ready")
+            },
+        )
+        .unwrap();
+        writer.log(logger, datatype, &(), None).unwrap();
+        datatypes.push(datatype.id());
+    }
+    assert!(
+        vtr::logging::declare::<()>(
+            &mut writer,
+            vtr::logging::CallsiteOptions {
+                severity: u64::MAX,
+                ..vtr::logging::CallsiteOptions::new("invalid")
+            },
+        )
+        .is_err()
+    );
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    assert_eq!(reader.validate().unwrap().records, cases.len() as u64);
+    for (datatype, (code, name)) in datatypes.into_iter().zip(cases) {
+        let declaration = reader.declarations().types.get(datatype).unwrap();
+        let severity = declaration
+            .attributes
+            .iter()
+            .find(|attribute| reader.string(attribute.key).unwrap() == "log.severity")
+            .unwrap();
+        let vtr::Value::Enum {
+            value,
+            name: literal,
+        } = severity.value
+        else {
+            panic!("severity is not an enum");
+        };
+        assert_eq!(value, code as i64);
+        assert_eq!(reader.string(literal).unwrap(), name);
+        let metadata = vtr::logging::metadata(&reader, datatype).unwrap().unwrap();
+        assert_eq!(metadata.severity.name(), name);
+        if code > 5 {
+            assert_eq!(metadata.severity, vtr::logging::Severity::Other(code));
+        }
+    }
+}

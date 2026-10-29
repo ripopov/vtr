@@ -884,7 +884,10 @@ void Writer::generator_attribute(GeneratorId generator, Id key, const Value& val
                     "invalid associated clock generator");
         }
         if (kind == RecordKind::log) {
-            if (name == "log.severity" || name == "log.line") {
+            if (name == "log.severity") {
+                require(value.tag == Tag::enumeration, "invalid log severity metadata type");
+            }
+            if (name == "log.line") {
                 require(value.tag == Tag::u64, "invalid numeric log metadata type");
             }
             if (name == "log.file" || name == "log.func") {

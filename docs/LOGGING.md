@@ -62,12 +62,14 @@ fields in declaration order; unit supplies none.
 | --- | --- | --- |
 | `kind` | text or str | `callsite` |
 | `log.format` | text or str | Required format string |
-| `log.severity` | u64 | Required: trace 0, debug 1, info 2, warn 3, error 4, fatal 5 |
+| `log.severity` | enum | Required: trace 0, debug 1, info 2, warn 3, error 4, fatal 5 |
 | `log.file` | text or str | Optional runtime source file |
 | `log.line` | u64 | Optional runtime source line |
 | `log.func` | text or str | Optional runtime function |
 
-Declaration helpers default severity to info. Other numeric codes are preserved.
+Declaration helpers default severity to info. Severity attributes carry the numeric
+code and its lowercase name. Other nonnegative codes through `i64::MAX` are
+preserved with the name `other`.
 Source provenance describes the runtime statement; design-source mappings belong
 to VDB. Arbitrary application attributes can coexist with these conventions.
 Logging lookups match key text and use the first matching attribute when distinct
