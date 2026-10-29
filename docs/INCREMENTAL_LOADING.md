@@ -170,29 +170,29 @@ schema is not a stability guarantee.
 
 #### Recording, transport, and timeline vocabulary
 
+The terms below introduce the stored data first, then the timeline model,
+writers, and live capture roles. Perfetto encodes its records using Protocol
+Buffers, a binary encoding whose fields are defined by schemas.
+
 | Concept | Definition |
 | --- | --- |
-| **Trace** | A recording containing packets from one or more sources. A saved protobuf `Trace` has a repeated `packet` field; packets can also be transported directly. The wrapper is not a requirement to assemble the whole recording in memory. |
-| **Trace packet (`TracePacket`)** | An envelope carrying a payload, such as a track event or a scheduler-event bundle, together with applicable timestamp, source identity, and decoding context. A packet is not necessarily one application event. |
-| **Producer** | A participant contributing data to the tracing service, usually an instrumented process. One producer can offer several data sources. |
-| **Data source** | A named capture facility, such as application track events, kernel events, or a profiler. Its configuration controls what it collects; a data source is not a timeline track. |
-| **Trace writer and packet sequence** | A writer emits an ordered sequence of packets. The service identifies the producer/writer pair with `trusted_packet_sequence_id`. Decoding state can belong to this sequence. Packets from different writers can interleave. |
-| **Tracing service** | The component managing producers, recording sessions, central buffers, configuration, and collection. These are capture-system responsibilities, not mandatory services for a tool that directly generates a valid trace file. |
-| **Consumer** | A client controlling a capture session and reading its trace data. This role is distinct from a later analyzer or viewer opening the saved recording. |
-| **Track** | An identified timeline on which observations occur: for example, a thread, device queue, request lifetime, numeric counter, or symbolic state. It is not inherently an OS thread, a writer, or a transaction. |
-| **Track descriptor (`TrackDescriptor`)** | Metadata declaring a track's UUID, name, optional parent, process/thread association, and specialized properties. The UUID identifies the track even if other tracks have the same display name. |
-| **Track event (`TrackEvent`)** | An application observation assigned to a track, with a kind such as slice begin, instant, counter, or state, and applicable name, categories, arguments, or relationship IDs. It is one kind of packet payload. |
+| **Trace** | The whole recording: captured activity and the declarations needed to interpret it. It can combine data from several processes and machines. |
+| **Trace packet (`TracePacket`)** | One unit of the recording. It can contain a declaration, an application event, or a batch of operating-system events, together with fields such as timestamps and source identifiers. One packet is not necessarily one transaction or observation. The file's top-level `Trace` schema stores a list of these packets in its repeated `packet` field. Writers can append entries and readers can process them as they arrive, without first assembling the whole recording in memory. |
+| **Track** | An identified timeline lane for activity or measurements: for example, an OS thread, a device queue, a particular request, a numeric measurement, or a symbolic state. A track identifies what activity belongs to; it need not correspond to a host thread. |
+| **Track descriptor (`TrackDescriptor`)** | A declaration giving a track its unique identifier, name, optional parent track, and other properties. As with a VTR declaration, later observations refer to the identifier rather than repeating the description. Different tracks can have the same display name. |
+| **Track event (`TrackEvent`)** | An observation assigned to a track: an operation begins or ends, something happens at one point in time, or a value changes. For example, begin and end events on `DMA engine 0` can describe a transfer from time 10 to time 40. Such a timed operation is called a **slice**. A track event is one possible packet payload; other packet types describe other kinds of data. |
+| **Trace writer** | A component that emits packets. An instrumented process can have several writers, for example one per worker thread. A writer can report activity on several tracks, and several writers can report activity on the same track if they preserve consistent timestamps and begin/end ordering. |
+| **Packet sequence** | The ordered packets emitted by one writer. They can share encoding state: for example, an earlier packet defines a short numeric reference for `DMA transfer`, and later packets use that reference instead of repeating the string. The reader must remember that definition. Packets from different writers can interleave; `trusted_packet_sequence_id` distinguishes their sequences. A sequence identifies which writer's definitions are needed to decode a packet, while a track identifies where the activity belongs. |
+| **Tracing service** | Coordinates live recording sessions, tells processes what to collect, and gathers their data into buffers or output. A simulator can generate a valid Perfetto file directly without using this service. |
+| **Producer** | A participant supplying data to the tracing service, usually an application process with tracing instrumentation. It uses trace writers to emit packets. |
+| **Data source** | A named collection facility offered by a producer, such as application events, kernel events, or a profiler. Recording configuration selects and configures these facilities. One producer can offer several data sources, and one data source can report activity on many tracks. |
+| **Consumer** | A client that starts or controls a recording session and reads data from the tracing service. A viewer opening an already saved file does not need to take this role. |
 
-Sources: [trace wrapper](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace.proto),
-[service model](https://perfetto.dev/docs/concepts/service-model),
-[track descriptors](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto).
-
-A track and a packet sequence answer different questions. A worker can emit an
-event on a request's custom track rather than its default thread track. That
-event still uses the worker writer's sequence-local decoding context. Conversely,
-one track can receive events from multiple writers, provided their timestamps,
-identities, and lifecycle ordering remain consistent.
-[Track event generation](https://perfetto.dev/docs/reference/synthetic-track-event)
+Sources: [trace file schema](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace.proto),
+[packet schema and sequence fields](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/trace_packet.proto),
+[track descriptors](https://github.com/google/perfetto/blob/main/protos/perfetto/trace/track_event/track_descriptor.proto),
+[track event generation](https://perfetto.dev/docs/reference/synthetic-track-event),
+[service model](https://perfetto.dev/docs/concepts/service-model).
 
 #### Timeline primitives: what an observation means
 
