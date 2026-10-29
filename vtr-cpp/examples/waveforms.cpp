@@ -1,6 +1,7 @@
 #include "vtr_reader.h"
 #include "vtr_writer.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -20,15 +21,17 @@ void write_waveforms(const std::filesystem::path& path) {
         trace.signal({.name = "bus", .parent = core}, {.width = 4, .alphabet = vt::States::four});
     (void)trace.alias(counter, {.name = "counter_alias", .parent = core});
 
+    // Rotate 0, 1, X, Z across four least-significant-first two-bit states.
+    const std::array packed_bus_states{
+        std::byte{0xe4}, std::byte{0x39}, std::byte{0x4e}, std::byte{0x93}};
     for (std::uint64_t tick = 0; tick < 10; ++tick) {
         trace.advance_time(tick);
         trace.emit(counter, tick);
         trace.emit_real(temperature, 20.0 + static_cast<double>(tick) * 0.25);
+        const vt::Bytes bus_value{packed_bus_states[tick % packed_bus_states.size()]};
+        trace.emit_packed(bus, bus_value);
     }
 
-    // Four least-significant-first two-bit states: 0, 1, X, Z.
-    const vt::Bytes packed_bus_states{std::byte{0xe4}};
-    trace.emit_packed(bus, packed_bus_states);
     trace.close();
 }
 
