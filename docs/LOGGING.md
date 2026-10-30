@@ -27,8 +27,8 @@ sharing their argument schemas.
 C++ provides the corresponding `logger`, `datatype<T>`, `declare_datatype`, `log`,
 `log_at` and `log_raw` operations. The optional `vtr_logging.h` frontend provides
 `vtr::logging::declare<T>`, `declare_raw`, `metadata`, `callsites` and `format_log`.
-The [C++ macro helper](../vtr-cpp/examples/logging.h) checks brace-style literal
-formats at compile time and skips argument evaluation when the level is disabled. Immutable
+The [C++ macro helper](../vtr-cpp/examples/logging.h) checks literal formats at
+compile time and skips argument evaluation when the level is disabled. Immutable
 static descriptors contain no recording-local IDs. Writer-owned registration
 shares their datatype declarations across loggers; producer-local frontend
 bindings retain typed handles and must be serialized by their logical producer.
@@ -137,13 +137,6 @@ auto site = vtr::logging::declare<std::uint64_t>(
 writer.log_at(logger, site, tick, std::uint64_t{0x8000});
 // The reader renders "address=0x8000" from the captured value.
 ```
-
-The example macro helper provides `LOG_PRINTF_INFO` and `LOG_PRINTF_AT` with
-the same lazy, writer-bound callsite registration as its brace macros. It
-normalizes strings to views before capture. Literal descriptors contain no
-recording-local handles, and disabled calls do not evaluate arguments or
-register callsites. Printf formats are interpreted at read time rather than
-checked with `std::format_string`.
 
 Supported presentations are `d i u o x X`, `f F e E g G a A`, `c s p`, and
 `%%`, plus binary `b B`. Flags are `- + space # 0` and POSIX `'`. Width and

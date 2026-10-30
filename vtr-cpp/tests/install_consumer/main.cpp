@@ -8,7 +8,7 @@ int main(int argc, char** argv) {
     if (argc != 2)
         return 2;
     try {
-        vtr::RecordId id(0), message(0), printf_message(0);
+        vtr::RecordId id(0), message(0);
         {
             vtr::Writer writer(argv[1], {.mode = vtr::ExecutionMode::inline_});
             auto source = writer.transactions<std::array<std::uint64_t, 3>>({.name = "request"});
@@ -21,9 +21,6 @@ int main(int argc, char** argv) {
             const auto datatype =
                 vtr::logging::declare<std::uint64_t>(writer, {.format = "value {}"});
             message = writer.log(logger, datatype, std::uint64_t{42});
-            const auto printf_type = vtr::logging::declare<std::uint64_t>(
-                writer, {.format = "value %#x", .style = vtr::logging::FormatStyle::printf});
-            printf_message = writer.log(logger, printf_type, std::uint64_t{42});
             writer.close();
         }
         std::optional<vtr::Record> retained;
@@ -34,11 +31,8 @@ int main(int argc, char** argv) {
             const auto log = reader.lookup(message);
             if (!log || vtr::logging::format_log(reader, *log) != "value 42")
                 return 1;
-            const auto printf_log = reader.lookup(printf_message);
-            if (!printf_log || vtr::logging::format_log(reader, *printf_log) != "value 0x2a")
-                return 1;
             arguments = log->payload()["value"];
-            if (reader.validate().records != 3)
+            if (reader.validate().records != 2)
                 return 1;
         }
         return arguments && arguments->as<std::uint64_t>() == 42 && retained &&

@@ -215,42 +215,6 @@ void malformed(Cases& cases) {
     cases.add("%s", "{?}", std::vector<int>{1, 2});
 }
 
-void emit(logging::Logger& logger, int instance) {
-    LOG_PRINTF_INFO(logger, "%s: instance=%d address=%#x", "CU", instance, std::uint64_t{0x8000});
-}
-
-void callsites(const std::filesystem::path& directory) {
-    std::optional<vt::Writer> writer;
-    for (const auto mode : {vt::ExecutionMode::inline_, vt::ExecutionMode::threaded}) {
-        const auto path = directory / "callsites.vtr";
-        writer.emplace(path, vt::WriterOptions{.mode = mode});
-        logging::Logger first(*writer, "GPUExec"), second(*writer, "GPUSched");
-        first.set_level(logging::Severity::off);
-        int evaluated = 0;
-        LOG_PRINTF_INFO(first, "disabled=%d", ++evaluated);
-        check(evaluated == 0, "disabled printf arguments evaluated");
-        first.set_level(logging::Severity::info);
-        emit(first, 0);
-        emit(second, 1);
-        LOG_INFO(first, "brace={}", 42);
-        writer->close();
-        writer.reset();
-        vt::Reader reader(path);
-        check(reader.validate().records == 3 && vt::logging::callsites(reader).size() == 2,
-              "printf callsite not shared or disabled callsite declared");
-        unsigned count = 0;
-        reader.records({}, [&](const vt::Record& record) {
-            const auto text = vt::logging::format_log(reader, record);
-            check(text == "CU: instance=0 address=0x8000" ||
-                      text == "CU: instance=1 address=0x8000" || text == "brace=42",
-                  "mixed format styles changed");
-            ++count;
-            return vt::Flow::next;
-        });
-        check(count == 3, "mixed formatting lost messages");
-    }
-}
-
 void reader_limits(const std::filesystem::path& directory) {
     const auto path = directory / "limits.vtr";
     vt::Writer writer(path);
@@ -356,7 +320,6 @@ int main(int argc, char** argv) {
             malformed(cases);
             cases.verify();
         }
-        callsites(directory);
         reader_limits(directory);
         metadata_styles(directory);
         return 0;

@@ -23,7 +23,6 @@ struct Metadata {
     std::string_view format;
     Severity severity;
     std::source_location location;
-    vtr::logging::FormatStyle style = vtr::logging::FormatStyle::brace;
 };
 
 constexpr std::size_t decimal_digits(std::size_t value) {
@@ -169,8 +168,7 @@ class Logger {
              .severity = static_cast<std::uint64_t>(metadata.severity),
              .file = metadata.location.file_name(),
              .line = metadata.location.line(),
-             .function = metadata.location.function_name(),
-             .style = metadata.style},
+             .function = metadata.location.function_name()},
             &site);
         sources_[slot] = std::make_unique<Binding<Payload>>(source);
         return slot;
@@ -203,20 +201,3 @@ class Logger {
     LOG_AT(logger, ::logging::Severity::info, format __VA_OPT__(, ) __VA_ARGS__)
 #define LOG_WARNING(logger, format, ...)                                                           \
     LOG_AT(logger, ::logging::Severity::warning, format __VA_OPT__(, ) __VA_ARGS__)
-
-#define LOG_PRINTF_AT(logger, severity, fmt, ...)                                                  \
-    do {                                                                                           \
-        auto& vtr_log_logger = (logger);                                                           \
-        if (vtr_log_logger.enabled(severity)) {                                                    \
-            using vtr_log_payload = decltype(::logging::arguments(__VA_ARGS__));                   \
-            static constexpr ::logging::Metadata vtr_log_metadata{                                 \
-                fmt, severity, std::source_location::current(),                                    \
-                ::vtr::logging::FormatStyle::printf};                                              \
-            static constinit const ::logging::Callsite<vtr_log_payload> vtr_log_callsite{          \
-                vtr_log_metadata};                                                                 \
-            vtr_log_logger.write(vtr_log_callsite, ::logging::arguments(__VA_ARGS__));             \
-        }                                                                                          \
-    } while (false)
-
-#define LOG_PRINTF_INFO(logger, format, ...)                                                       \
-    LOG_PRINTF_AT(logger, ::logging::Severity::info, format __VA_OPT__(, ) __VA_ARGS__)
