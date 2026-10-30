@@ -5,9 +5,17 @@ use crate::{
     RecordKind, Result, TypeId, Value, Writer,
 };
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FormatStyle {
+    #[default]
+    Brace,
+    Printf,
+}
+
 #[derive(Clone, Debug)]
 pub struct CallsiteOptions {
     pub format: String,
+    pub style: FormatStyle,
     pub severity: u64,
     pub file: Option<String>,
     pub line: Option<u64>,
@@ -17,6 +25,7 @@ impl CallsiteOptions {
     pub fn new(format: impl Into<String>) -> Self {
         Self {
             format: format.into(),
+            style: FormatStyle::Brace,
             severity: 2,
             file: None,
             line: None,
@@ -67,6 +76,12 @@ pub(crate) fn datatype_options(
             },
         },
     ];
+    if options.style == FormatStyle::Printf {
+        attributes.push(Attribute {
+            key: intern("log.format_style")?,
+            value: Value::Text("printf".into()),
+        });
+    }
     for (key, value) in [
         ("log.file", options.file.map(Value::Text)),
         ("log.line", options.line.map(Value::U64)),
@@ -89,6 +104,7 @@ pub(crate) fn datatype_options(
 pub struct LogMetadata {
     pub datatype: TypeId,
     pub format: String,
+    pub style: FormatStyle,
     pub severity: Severity,
     pub file: Option<String>,
     pub line: Option<u64>,
@@ -123,6 +139,16 @@ pub fn metadata(reader: &Reader, datatype: TypeId) -> Result<Option<LogMetadata>
             .get("log.format")
             .ok_or_else(|| Error::invalid("log format is missing"))?,
     )?;
+    let style = match values
+        .get("log.format_style")
+        .map(|v| text(reader, v))
+        .transpose()?
+        .as_deref()
+    {
+        None | Some("brace") => FormatStyle::Brace,
+        Some("printf") => FormatStyle::Printf,
+        _ => return Err(Error::invalid("unknown log format style")),
+    };
     let severity = match values.get("log.severity") {
         Some(Value::Enum { value, .. }) if *value >= 0 => Severity::from_code(*value as u64),
         _ => return Err(Error::invalid("log severity requires a nonnegative enum")),
@@ -143,6 +169,7 @@ pub fn metadata(reader: &Reader, datatype: TypeId) -> Result<Option<LogMetadata>
     Ok(Some(LogMetadata {
         datatype,
         format,
+        style,
         severity,
         file,
         line,
@@ -187,7 +214,11 @@ pub fn format_log_bytes_with_locale(
     }
     let metadata = metadata(reader, record.datatype())?
         .ok_or_else(|| Error::invalid("datatype has no log metadata"))?;
-    reader.format_arguments_bytes(&metadata.format, &record.payload().field("value")?, locale)
+    let arguments = record.payload().field("value")?;
+    match metadata.style {
+        FormatStyle::Brace => reader.format_arguments_bytes(&metadata.format, &arguments, locale),
+        FormatStyle::Printf => reader.format_printf_arguments_bytes(&metadata.format, &arguments),
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]

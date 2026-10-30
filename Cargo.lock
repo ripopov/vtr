@@ -714,6 +714,7 @@ checksum = "4505774fc84de82eb04caa74d859342b0daa376f4c6df45149593245dd62c004"
 name = "vtr"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "crc32fast",
  "getrandom 0.2.17",
  "libc",

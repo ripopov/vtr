@@ -132,6 +132,10 @@ if(BUILD_TESTING)
         add_test(NAME scalar_format_reference COMMAND log_format_oracle --check
             ${CMAKE_CURRENT_SOURCE_DIR}/../vtr-rs/tests/fixtures/log-format.json)
         set_tests_properties(scalar_format_reference PROPERTIES TIMEOUT 30)
+        add_test(NAME rust_printf_interoperability COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/printf_interop.py $<TARGET_FILE:vtr_printf_test>
+            ${CMAKE_CURRENT_BINARY_DIR}/printf-interop)
+        set_tests_properties(rust_printf_interoperability PROPERTIES TIMEOUT 180)
         add_executable(vtr_typed_interop tests/typed_interop.cpp)
         target_link_libraries(vtr_typed_interop PRIVATE vtr)
         add_test(NAME rust_typed_interoperability COMMAND ${Python3_EXECUTABLE}

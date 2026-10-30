@@ -438,7 +438,7 @@ fn decimal_point(body: &mut String) {
     }
 }
 
-fn hexadecimal(value: Float, spec: &Spec) -> String {
+fn hexadecimal(value: Float, spec: &Spec, normalize_subnormal: bool) -> String {
     let bits = value.value().to_bits();
     let raw_exponent = (bits >> 52) as i32;
     let fraction = bits & ((1u64 << 52) - 1);
@@ -451,7 +451,11 @@ fn hexadecimal(value: Float, spec: &Spec) -> String {
         Float::Single(single) if spec.precision.is_some() && single.is_subnormal() => {
             (u64::from(single.to_bits() & ((1 << 23) - 1)) << 29, -126)
         }
-        _ if spec.precision.is_none() && raw_exponent == 0 && fraction != 0 => {
+        _ if normalize_subnormal
+            && spec.precision.is_none()
+            && raw_exponent == 0
+            && fraction != 0 =>
+        {
             let shift = fraction.leading_zeros() - 11;
             (fraction << shift, exponent - shift as i32)
         }
@@ -489,7 +493,7 @@ fn hexadecimal(value: Float, spec: &Spec) -> String {
 
 fn float_body(value: Float, spec: &Spec) -> String {
     let mut body = match spec.ty {
-        b'a' | b'A' => hexadecimal(value, spec),
+        b'a' | b'A' => hexadecimal(value, spec, true),
         b'f' | b'F' => value.fixed(Some(spec.precision.unwrap_or(6))),
         b'e' | b'E' => {
             let scientific = value.scientific(Some(spec.precision.unwrap_or(6)));
@@ -844,4 +848,33 @@ impl Reader {
 }
 fn write_signed(output: &mut RenderBuffer, value: i64, spec: &Spec, locale: &FormatLocale<'_>) {
     write_uint(output, value.unsigned_abs(), value < 0, spec, locale);
+}
+
+pub(super) fn printf_float(value: f64, ty: u8, precision: Option<usize>, alt: bool) -> Vec<u8> {
+    let spec = Spec {
+        fill: ' ',
+        align: 0,
+        sign: None,
+        alt,
+        zero: false,
+        locale: false,
+        width: 0,
+        precision,
+        ty,
+    };
+    if matches!(ty, b'a' | b'A') && value.is_finite() {
+        let mut body = hexadecimal(Float::Double(value.abs()), &spec, false);
+        if ty == b'A' {
+            body.make_ascii_uppercase();
+        }
+        return body.into_bytes();
+    }
+    let mut output = RenderBuffer::default();
+    write_float(
+        &mut output,
+        Float::Double(value.abs()),
+        &spec,
+        &FormatLocale::default(),
+    );
+    output.0
 }

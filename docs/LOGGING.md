@@ -62,7 +62,7 @@ fields in declaration order; unit supplies none.
 | --- | --- | --- |
 | `kind` | text or str | `callsite` |
 | `log.format` | text or str | Required format string |
-| `log.format_style` | text or str | `brace` (default) or `printf`; currently interpreted by the C++ frontend |
+| `log.format_style` | text or str | `brace` (default) or `printf`; interpreted by the C++ and Rust frontends |
 | `log.severity` | enum | Required: trace 0, debug 1, info 2, warn 3, error 4, fatal 5 |
 | `log.file` | text or str | Optional runtime source file |
 | `log.line` | u64 | Optional runtime source line |
@@ -120,14 +120,22 @@ and `scale`. Structured payloads remain inspectable even when a particular
 presentation is unsupported. Formatting is presentation; the exact underlying
 numeric bits remain in the payload.
 
-### C++ printf formats
+### Printf formats
 
 Select `vtr::logging::FormatStyle::printf` in `CallsiteOptions` to retain a
 printf format as datatype metadata and capture its arguments without formatting
 the message. `format_log` dispatches on `log.format_style`;
 `Reader::format_printf_arguments` also renders an argument payload directly.
-The container and payload encodings are unchanged. Rust rendering of this
-format style is not implemented yet.
+The container and payload encodings are unchanged. Rust uses
+`vtr::logging::FormatStyle::Printf` in `CallsiteOptions`; its
+`format_log`, `format_log_bytes`, and `Reader::format_printf_arguments_bytes`
+render the captured arguments. Volna uses this rendering for log messages and
+retains the format style and original arguments alongside the message.
+
+Native Rust readers use the same C library conventions as the C++ reader.
+WebAssembly readers use UTF-8 for wide characters and strings, a dot decimal
+separator without digit grouping, and hexadecimal pointer spelling. Their
+floating presentations use captured f64 precision, including `L`.
 
 ```cpp
 auto logger = writer.logger({.name = "GPUExec"});

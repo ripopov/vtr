@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -59,7 +61,12 @@ class Cases {
         writer_.close();
         vt::Reader reader(path_);
         check(reader.validate().records == expected_.size(), "record count changed");
+        std::ofstream oracle(path_.string() + ".expected");
         for (const auto& expected : expected_) {
+            oracle << expected.id.value << " ";
+            for (unsigned char byte : expected.message)
+                oracle << std::hex << std::setw(2) << std::setfill('0') << unsigned(byte);
+            oracle << std::dec << "\n";
             const auto record = reader.lookup(expected.id);
             check(record.has_value(), "record missing");
             const auto metadata = vt::logging::metadata(reader, record->datatype());
@@ -306,6 +313,23 @@ void metadata_styles(const std::filesystem::path& directory) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--read") {
+            vt::Reader reader(argv[2]);
+            (void)reader.validate();
+            std::ifstream oracle(std::string(argv[2]) + ".expected");
+            check(bool(oracle), "missing expected messages");
+            std::string line;
+            while (std::getline(oracle, line)) {
+                const auto split = line.find(' ');
+                const auto id = std::stoull(line.substr(0, split));
+                std::string expected;
+                for (auto pos = split + 1; pos < line.size(); pos += 2)
+                    expected += static_cast<char>(std::stoul(line.substr(pos, 2), nullptr, 16));
+                check(vt::logging::format_log(reader, *reader.lookup(vt::RecordId{id})) == expected,
+                      "Rust printf trace renders differently in C++");
+            }
+            return 0;
+        }
         check(argc == 2, "usage: printf_test DIRECTORY");
         const std::filesystem::path directory(argv[1]);
         std::filesystem::create_directories(directory);
@@ -319,6 +343,11 @@ int main(int argc, char** argv) {
             text_and_addresses(cases);
             malformed(cases);
             cases.verify();
+            Cases sample(directory / (mode == vt::ExecutionMode::inline_ ? "sample-inline.vtr" : "sample-threaded.vtr"), mode);
+            sample.add("pc=%#018x value=%+.2f label=%.3s", "pc=0xffffffffffffffff value=-1.25 label=abc", UINT64_MAX, -1.25, std::string("abcdef"));
+            sample.add("[%3$*1$.*2$f]", "[    1.250]", 9, 3, 1.25);
+            sample.add("%c", std::string(1, char(255)), 255);
+            sample.verify();
         }
         reader_limits(directory);
         metadata_styles(directory);
