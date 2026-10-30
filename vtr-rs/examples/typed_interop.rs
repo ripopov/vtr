@@ -350,8 +350,33 @@ fn index(command: &str, trace_path: &str, index_path: &str) -> vtr::Result<()> {
         )?;
     } else {
         let loaded = vtr::activity::Index::decode_for(&std::fs::read(index_path)?, &reader)?;
+        let mut ranges = Vec::new();
+        reader.transactions(Default::default(), |record| {
+            ranges.push((record.generator().unwrap(), record.begin(), record.end()));
+            true
+        })?;
+        reader.records(Default::default(), |record| {
+            let end = if record.kind() == vtr::records::RecordKind::Stage
+                && record.end() > record.begin()
+            {
+                record.end() - 1
+            } else {
+                record.end()
+            };
+            ranges.push((record.generator().unwrap(), record.begin(), end));
+            true
+        })?;
         for first in 0..=42 {
             for last in first..=42 {
+                let generators: std::collections::BTreeSet<_> = ranges
+                    .iter()
+                    .filter(|&&(_, begin, end)| begin <= last && end >= first)
+                    .map(|&(id, _, _)| id)
+                    .collect();
+                assert_eq!(
+                    loaded.classify_generators(first, last),
+                    generators.into_iter().collect::<Vec<_>>()
+                );
                 let mut expected = std::collections::BTreeSet::new();
                 reader.changes(
                     None,

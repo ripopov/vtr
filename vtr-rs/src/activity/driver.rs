@@ -20,6 +20,16 @@ pub trait Source: Sync {
 
     fn cost(&self, i: usize) -> Result<u64>;
 
+    /// Visits exact closed activity intervals without retaining record payloads.
+    /// Calls `admit` before allocating page workspace; `visit` may cancel the scan.
+    fn generator_activity(
+        &self,
+        _admit: &mut dyn FnMut(usize) -> Result<()>,
+        _visit: &mut dyn FnMut(u32, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn worker(&self) -> Self::Worker;
 
     fn scan(&self, worker: &mut Self::Worker, i: usize, scan: &mut BlockScan) -> Result<()>;
@@ -141,5 +151,7 @@ pub fn build_from<S: Source>(source: &S, out: impl Write, opts: &BuildOptions) -
     if builder.blocks_added() != n {
         return Err(Error::State("an activity scan worker stopped early"));
     }
-    builder.finish()
+    builder.release_workspace();
+    let generators = super::generators::collect(source, opts, base)?;
+    builder.finish_with_generators(generators, opts.control.as_deref())
 }

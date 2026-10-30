@@ -1,5 +1,6 @@
 #include "engine/activity.h"
 #include "format.h"
+#include <map>
 
 namespace vtr::detail::engine {
 namespace {
@@ -116,6 +117,51 @@ ActivityIndex ActivityIndex::build(const ContainerReader& trace, std::size_t mem
                                  }
                                  return true;
                              });
+    std::map<std::pair<GeneratorId, Timestamp>, Timestamp> ranges;
+    std::size_t workspace = 0;
+    auto check = [&] { budget(used + ranges.size() * 128 + workspace, memory_limit); };
+    auto visit = [&](GeneratorId generator, Timestamp begin, Timestamp end) {
+        auto i = ranges.upper_bound({generator, begin});
+        if (i != ranges.begin()) {
+            auto previous = std::prev(i);
+            if (previous->first.first == generator &&
+                previous->second >= (begin ? begin - 1 : 0)) {
+                if (end <= previous->second) {
+                    return;
+                }
+                begin = previous->first.second;
+                end = std::max(end, previous->second);
+            }
+        }
+        i = ranges.upper_bound({generator, begin});
+        while (i != ranges.end() && i->first.first == generator &&
+               i->first.second <= end + (end != UINT64_MAX)) {
+            end = std::max(end, i->second);
+            i = ranges.erase(i);
+        }
+        budget(used + (ranges.size() + 1) * 128 + workspace, memory_limit);
+        ranges[{generator, begin}] = end;
+    };
+    auto admit = [&](std::size_t bytes) {
+        workspace = bytes * 2;
+        check();
+    };
+    for (const auto& section : trace.sections()) {
+        if (section.kind == 5) {
+            trace.transaction_block(section.block_number)->activity(admit, visit);
+        } else if (section.kind == 9) {
+            trace.record_block(section.block_number)->activity(admit, visit);
+        }
+    }
+    for (const auto& [key, end] : ranges) {
+        if (index.generators_.empty() || index.generators_.back().first != key.first) {
+            used += sizeof(index.generators_[0]) * 2;
+            budget(used + ranges.size() * 128, memory_limit);
+            index.generators_.emplace_back(key.first, std::vector<ActivityStretch>{});
+        }
+        add(index.generators_.back().second, {key.second, end, 0}, used,
+            memory_limit - ranges.size() * 128);
+    }
     return index;
 }
 
@@ -123,7 +169,7 @@ Bytes ActivityIndex::encode(const ContainerReader& trace) const {
     require(identity(trace) == fingerprint_, "activity source identity mismatch");
     auto blocks = waves(trace);
     Bytes file(magic.begin(), magic.end());
-    d::fixed<std::uint16_t>(file, 3);
+    d::fixed<std::uint16_t>(file, 4);
     d::fixed<std::uint16_t>(file, 0);
     file.resize(32);
     std::vector<Section> dir;
@@ -201,6 +247,23 @@ Bytes ActivityIndex::encode(const ContainerReader& trace) const {
     d::fixed<std::uint32_t>(tail, 0);
     d::append(tail, pack(tails));
     section(file, dir, 3, tail);
+    for (const auto& [generator, list] : generators_) {
+        for (std::size_t offset = 0; offset < list.size(); offset += 4096) {
+            std::array<Bytes, 2> columns;
+            Timestamp previous = 0;
+            auto count = std::min<std::size_t>(4096, list.size() - offset);
+            for (std::size_t row = offset; row < offset + count; ++row) {
+                d::put(columns[0], list[row].begin - previous);
+                d::put(columns[1], list[row].end - list[row].begin);
+                previous = list[row].end;
+            }
+            Bytes body;
+            d::fixed(body, generator);
+            d::fixed<std::uint32_t>(body, count);
+            d::append(body, pack(columns));
+            section(file, dir, 4, body);
+        }
+    }
     Bytes directory;
     d::fixed<std::uint64_t>(directory, dir.size());
     for (const auto& s : dir) {
@@ -226,7 +289,7 @@ ActivityIndex ActivityIndex::decode(const ContainerReader& trace, View bytes,
     require(bytes.size() >= 56 && std::equal(magic.begin(), magic.end(), bytes.begin()),
             "invalid activity magic");
     d::Cursor file_header(bytes.subspan(8, 24));
-    require(file_header.fixed<std::uint16_t>() == 3 && file_header.fixed<std::uint16_t>() == 0,
+    require(file_header.fixed<std::uint16_t>() == 4 && file_header.fixed<std::uint16_t>() == 0,
             "unsupported activity version");
     for (auto b : file_header.data) {
         require(b == 0, "invalid activity header flags");
@@ -368,6 +431,39 @@ ActivityIndex ActivityIndex::decode(const ContainerReader& trace, View bytes,
             }
             require(kind == 3 || observed_closed == closed, "activity closure count mismatch");
             used = working - raw.size();
+        } else if (kind == 4) {
+            require(header && tail, "invalid generator activity order");
+            auto generator = b.fixed<GeneratorId>();
+            trace.generators()[generator];
+            auto count = b.fixed<std::uint32_t>();
+            require(count && count <= 4096 &&
+                        (index.generators_.empty() || index.generators_.back().first <= generator),
+                    "invalid generator activity rows");
+            if (index.generators_.empty() || index.generators_.back().first != generator) {
+                used += sizeof(index.generators_[0]) * 2;
+                budget(used, memory_limit);
+                index.generators_.emplace_back(generator, std::vector<ActivityStretch>{});
+            }
+            Bytes raw;
+            auto columns = unpack<2>(b.data, raw, memory_limit - used);
+            auto working = used + raw.size();
+            auto& list = index.generators_.back().second;
+            Timestamp previous = 0;
+            for (std::uint32_t row = 0; row < count; ++row) {
+                auto delta = columns[0].var(), length = columns[1].var();
+                require(delta <= UINT64_MAX - previous, "activity time overflow");
+                auto begin = previous + delta;
+                require(length <= UINT64_MAX - begin, "activity time overflow");
+                auto finish = begin + length;
+                require(list.empty() || (list.back().end != UINT64_MAX && begin > list.back().end + 1),
+                        "unmerged generator activity");
+                add(list, {begin, finish, 0}, working, memory_limit);
+                previous = finish;
+            }
+            for (auto& col : columns) {
+                col.done();
+            }
+            used = working - raw.size();
         } else if (kind == 7) {
             require(header && tail && offset == dir_offset && length == 8 + sections.size() * 40,
                     "invalid activity DIRECTORY");
@@ -406,6 +502,18 @@ std::vector<vtr::detail::wire::Id> ActivityIndex::active(Timestamp begin, Timest
                                   [](const auto& s, auto t) { return s.end < t; });
         if (i != list.end() && i->begin <= end) {
             result.push_back(signal);
+        }
+    }
+    return result;
+}
+std::vector<GeneratorId> ActivityIndex::active_generators(Timestamp begin, Timestamp end) const {
+    require(begin <= end, "invalid activity window");
+    std::vector<GeneratorId> result;
+    for (const auto& [id, list] : generators_) {
+        auto i = std::lower_bound(list.begin(), list.end(), begin,
+                                 [](const auto& interval, auto time) { return interval.end < time; });
+        if (i != list.end() && i->begin <= end) {
+            result.push_back(id);
         }
     }
     return result;

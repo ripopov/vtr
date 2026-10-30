@@ -62,6 +62,12 @@ impl<W: Write> Builder<W> {
         u64::from(signals) * 2 * std::mem::size_of::<Sig>() as u64
     }
 
+    pub(super) fn release_workspace(&mut self) {
+        self.cols = Default::default();
+        self.raw = Vec::new();
+        self.body = Vec::new();
+    }
+
     pub fn blocks_added(&self) -> usize {
         self.blocks as usize
     }
@@ -204,7 +210,15 @@ impl<W: Write> Builder<W> {
         Ok((rows, closed))
     }
 
-    pub fn finish(mut self) -> Result<Summary> {
+    pub fn finish(self) -> Result<Summary> {
+        self.finish_with_generators(Default::default(), None)
+    }
+
+    pub(super) fn finish_with_generators(
+        mut self,
+        generators: super::generators::Ranges,
+        control: Option<&super::BuildControl>,
+    ) -> Result<Summary> {
         for c in &mut self.cols {
             c.clear();
         }
@@ -227,6 +241,34 @@ impl<W: Write> Builder<W> {
         let mut head = [0u8; format::TAIL_HEAD_LEN];
         head[0..4].copy_from_slice(&rows.to_le_bytes());
         self.out.section(KIND_TAIL, &[&head, &self.body], 0, 0)?;
+        let mut ranges = generators.into_iter().peekable();
+        while let Some(&((generator, _), _)) = ranges.peek() {
+            if let Some(control) = control {
+                control.check()?;
+            }
+            for column in &mut self.cols {
+                column.clear();
+            }
+            let mut previous = 0;
+            let mut count = 0u32;
+            while count < 4096 && ranges.peek().is_some_and(|&((id, _), _)| id == generator) {
+                let ((_, begin), end) = ranges.next().unwrap();
+                put_u64(&mut self.cols[0], begin - previous);
+                put_u64(&mut self.cols[1], end - begin);
+                previous = end;
+                count += 1;
+            }
+            format::pack(
+                &self.cols[..2],
+                &mut self.raw,
+                &mut self.compressor,
+                &mut self.body,
+            )?;
+            let mut head = Vec::with_capacity(8);
+            head.extend_from_slice(&generator.to_le_bytes());
+            head.extend_from_slice(&count.to_le_bytes());
+            self.out.section(4, &[&head, &self.body], 0, 0)?;
+        }
         let bytes = self.out.finish()?;
         Ok(Summary {
             blocks: self.blocks,

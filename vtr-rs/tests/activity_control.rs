@@ -282,3 +282,150 @@ fn signal_tables_are_admitted_before_allocating_even_without_waveform_blocks() {
     assert!(error.to_string().contains("signal tables exceed"));
     assert!(output.is_empty());
 }
+
+struct GeneratorTrace {
+    count: u64,
+    dense: bool,
+    cancel: Option<Arc<BuildControl>>,
+}
+impl Source for GeneratorTrace {
+    type Worker = ();
+    fn identity(&self) -> Identity {
+        Trace::new().identity()
+    }
+    fn signal_count(&self) -> u32 {
+        0
+    }
+    fn t_min(&self) -> u64 {
+        0
+    }
+    fn blocks(&self) -> &[Block] {
+        &[]
+    }
+    fn cost(&self, _: usize) -> Result<u64> {
+        unreachable!()
+    }
+    fn worker(&self) {}
+    fn scan(&self, (): &mut (), _: usize, _: &mut BlockScan) -> Result<()> {
+        unreachable!()
+    }
+    fn generator_activity(
+        &self,
+        admit: &mut dyn FnMut(usize) -> Result<()>,
+        visit: &mut dyn FnMut(u32, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        admit(128)?;
+        for i in 0..self.count {
+            if i == 50
+                && let Some(control) = &self.cancel
+            {
+                control.cancel();
+            }
+            visit(7, i * 3, if self.dense { self.count * 3 } else { i * 3 })?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn generator_union_is_bounded_and_sparse_ranges_decode_across_chunks() {
+    let dense = GeneratorTrace {
+        count: 100_000,
+        dense: true,
+        cancel: None,
+    };
+    let mut bytes = Vec::new();
+    activity::build_from(
+        &dense,
+        &mut bytes,
+        &BuildOptions {
+            memory: 4096,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let index = activity::Index::decode(&bytes, &dense.identity()).unwrap();
+    assert!(bytes.len() < 1024);
+    assert_eq!(index.classify_generators(299_999, 300_000), [7]);
+    assert!(index.classify_generators(300_001, u64::MAX).is_empty());
+    let sparse = GeneratorTrace {
+        count: 50_000,
+        dense: false,
+        cancel: None,
+    };
+    bytes.clear();
+    activity::build_from(&sparse, &mut bytes, &Default::default()).unwrap();
+    let index = activity::Index::decode(&bytes, &sparse.identity()).unwrap();
+    assert!(index.memory_bytes() < 2 << 20);
+    for deny_memory in [true, false] {
+        use std::{
+            cell::Cell,
+            future::Future,
+            task::{Context, Poll, Waker},
+        };
+        let checkpoints = Cell::new(0);
+        let identity = sparse.identity();
+        let mut decode = std::pin::pin!(activity::Index::decode_with(
+            &bytes,
+            &identity,
+            |used| if deny_memory && used > bytes.len() as u64 + 4096 {
+                Err(Error::State("generator memory denied"))
+            } else {
+                Ok(())
+            },
+            || {
+                checkpoints.set(checkpoints.get() + 1);
+                std::future::ready(if !deny_memory && checkpoints.get() > 100 {
+                    Err(Error::State("generator decode cancelled"))
+                } else {
+                    Ok(())
+                })
+            },
+        ));
+        assert!(matches!(
+            decode
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Ready(Err(_))
+        ));
+    }
+
+    for time in 0..=sparse.count * 3 {
+        assert_eq!(
+            index.classify_generators(time, time),
+            if time % 3 == 0 && time < sparse.count * 3 {
+                vec![7]
+            } else {
+                vec![]
+            }
+        );
+    }
+    assert!(
+        activity::build_from(
+            &sparse,
+            std::io::sink(),
+            &BuildOptions {
+                memory: 4096,
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+    let control = Arc::new(BuildControl::default());
+    let cancelled = GeneratorTrace {
+        count: 100,
+        dense: true,
+        cancel: Some(control.clone()),
+    };
+    assert!(
+        activity::build_from(
+            &cancelled,
+            std::io::sink(),
+            &BuildOptions {
+                control: Some(control),
+                ..Default::default()
+            }
+        )
+        .is_err()
+    );
+}

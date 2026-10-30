@@ -1,11 +1,11 @@
-//! Activity index: which signals change in a time window, answered for every signal at once
-//! from a sidecar file beside the trace.
+//! Exact signal changes and generator interval activity in a source-bound sidecar.
 
 mod builder;
 mod container;
 mod control;
 mod driver;
 mod format;
+mod generators;
 mod index;
 mod scan;
 mod sidecar;
@@ -25,7 +25,7 @@ use crate::trace::Reader;
 
 pub const MAGIC: [u8; 8] = [0x89, b'V', b'T', b'I', 0x0D, 0x0A, 0x1A, 0x0A];
 
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SourceFormat {

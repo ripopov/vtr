@@ -25,6 +25,7 @@ pub struct Index {
     header: Header,
     blocks: Vec<IndexBlock>,
     signals: Vec<Vec<Stretch>>,
+    generators: Vec<(u32, Vec<(u64, u64)>)>,
 }
 
 impl Index {
@@ -73,6 +74,9 @@ impl Index {
                 return Err(Error::Corrupt("activity block does not match source"));
             }
         }
+        for (generator, _) in &self.generators {
+            reader.declarations().generators.get(*generator)?;
+        }
         Ok(())
     }
     /// Admits memory before allocation and checkpoints while initializing tables and decoding rows.
@@ -89,7 +93,12 @@ impl Index {
             .checked_add((entries.capacity() * std::mem::size_of::<container::Entry>()) as u64)
             .ok_or(Error::Corrupt("activity memory overflow"))?;
         admit(used)?;
-        let [first, rest @ .., tail] = entries.as_slice() else {
+        let generator_start = entries
+            .iter()
+            .position(|entry| entry.kind == 4)
+            .unwrap_or(entries.len());
+        let (wave_entries, generator_entries) = entries.split_at(generator_start);
+        let [first, rest @ .., tail] = wave_entries else {
             return Err(Error::Corrupt("activity sections missing"));
         };
         if first.kind != 1
@@ -122,6 +131,7 @@ impl Index {
             header,
             blocks: Vec::with_capacity(rest.len()),
             signals: Vec::with_capacity(count),
+            generators: Vec::new(),
         };
         let mut starts = Vec::with_capacity(count);
         for _ in 0..count {
@@ -267,6 +277,83 @@ impl Index {
         if starts.iter().any(Option::is_some) {
             return Err(Error::Corrupt("activity tail leaves stretches open"));
         }
+        for entry in generator_entries {
+            checkpoint().await?;
+            if entry.kind != 4 || entry.aux0 != 0 || entry.aux1 != 0 {
+                return Err(Error::Corrupt("invalid generator activity section"));
+            }
+            let mut body = Cursor::new(container::payload(bytes, entry)?);
+            let generator = body.u32()?;
+            let count = body.u32()? as usize;
+            if count == 0
+                || count > 4096
+                || index
+                    .generators
+                    .last()
+                    .is_some_and(|(id, _)| *id > generator)
+            {
+                return Err(Error::Corrupt("invalid generator activity rows"));
+            }
+            let blob = body.take(body.remaining())?;
+            admit_blob(blob, &mut raw, used, &mut admit)?;
+            let columns = format::unpack::<2>(blob, &mut decompressor, &mut raw)?;
+            let mut cols = columns.map(|(a, b)| Cursor::new(&raw[a..b]));
+            if index
+                .generators
+                .last()
+                .is_none_or(|(id, _)| *id != generator)
+            {
+                if index.generators.len() == index.generators.capacity() {
+                    let old = index.generators.capacity();
+                    let capacity = old.saturating_mul(2).max(1);
+                    used = used.saturating_add(
+                        ((capacity - old) * std::mem::size_of::<(u32, Vec<(u64, u64)>)>()) as u64,
+                    );
+                    admit(used.saturating_add(raw.capacity() as u64))?;
+                    index
+                        .generators
+                        .try_reserve_exact(capacity - index.generators.len())
+                        .map_err(|_| Error::Corrupt("activity allocation failed"))?;
+                }
+                index.generators.push((generator, Vec::new()));
+            }
+            let list = &mut index.generators.last_mut().unwrap().1;
+            let old = list.capacity();
+            let needed = list
+                .len()
+                .checked_add(count)
+                .ok_or(Error::Corrupt("activity count overflow"))?;
+            let capacity = if needed > old {
+                needed.max(old.saturating_mul(2))
+            } else {
+                old
+            };
+            used = used.saturating_add((capacity.saturating_sub(old) as u64).saturating_mul(16));
+            admit(used.saturating_add(raw.capacity() as u64))?;
+            list.try_reserve_exact(capacity - list.len())
+                .map_err(|_| Error::Corrupt("activity allocation failed"))?;
+            let mut previous = 0u64;
+            for _ in 0..count {
+                checkpoint().await?;
+                let begin = previous
+                    .checked_add(cols[0].var()?)
+                    .ok_or(Error::Corrupt("activity time overflow"))?;
+                let end = begin
+                    .checked_add(cols[1].var()?)
+                    .ok_or(Error::Corrupt("activity time overflow"))?;
+                if list
+                    .last()
+                    .is_some_and(|&(_, last)| begin <= last.saturating_add(1))
+                {
+                    return Err(Error::Corrupt("unmerged generator activity"));
+                }
+                list.push((begin, end));
+                previous = end;
+            }
+            for col in cols {
+                col.done()?;
+            }
+        }
         Ok(index)
     }
     #[must_use]
@@ -290,8 +377,35 @@ impl Index {
         self.signals.iter().map(|list| list.len() as u64).sum()
     }
     #[must_use]
+    pub fn generator_count(&self) -> usize {
+        self.generators.len()
+    }
+
+    #[must_use]
+    pub fn classify_generators(&self, first: u64, last: u64) -> Vec<u32> {
+        if first > last {
+            return Vec::new();
+        }
+        self.generators
+            .iter()
+            .filter_map(|(id, list)| {
+                let next = list.partition_point(|&(_, end)| end < first);
+                list.get(next)
+                    .is_some_and(|&(begin, _)| begin <= last)
+                    .then_some(*id)
+            })
+            .collect()
+    }
+
+    #[must_use]
     pub fn memory_bytes(&self) -> u64 {
-        (self.signals.capacity() * std::mem::size_of::<Vec<Stretch>>()
+        (self.generators.capacity() * std::mem::size_of::<(u32, Vec<(u64, u64)>)>()
+            + self
+                .generators
+                .iter()
+                .map(|(_, list)| list.capacity() * 16)
+                .sum::<usize>()
+            + self.signals.capacity() * std::mem::size_of::<Vec<Stretch>>()
             + self.blocks.capacity() * std::mem::size_of::<IndexBlock>()
             + self
                 .signals

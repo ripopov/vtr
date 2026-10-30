@@ -69,7 +69,7 @@ The current implementation opens an immutable snapshot:
 - Active owners and stages remain mutable in memory. Owners are submitted to
   transaction encoding when they end; active clock stretches also need explicit
   treatment. Flushing completed records does not publish all active state.
-- Persistent [activity indexes](SPEC.md#9-activity-index-sidecar-vti-30) require a
+- Persistent [activity indexes](SPEC.md#9-activity-index-sidecar-vti-40) require a
   finalized fingerprint.
 
 Prefix recovery is not an incremental session. Recovery stops at the first

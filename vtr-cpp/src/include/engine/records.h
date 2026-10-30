@@ -139,6 +139,8 @@ class RecordBlockView {
     }
 
     void query(RecordQuery query, const std::function<bool(const LocatedRecord&)>& visit) const;
+    void activity(const std::function<void(std::size_t)>& admit,
+                  const std::function<void(GeneratorId, Timestamp, Timestamp)>& visit) const;
     void validate() const;
 
   private:

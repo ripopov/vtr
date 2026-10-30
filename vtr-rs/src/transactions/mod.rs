@@ -670,6 +670,97 @@ impl<'a> TransactionBlockView<'a> {
         Ok(Some(range))
     }
 
+    pub(crate) fn activity(
+        &self,
+        mut admit: impl FnMut(usize) -> Result<()>,
+        mut visit: impl FnMut(GeneratorId, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        for page in &self.pages {
+            admit(page.raw_length as usize)?;
+            let start = page.blob_offset as usize;
+            let raw = wire::decompress(
+                &self.blobs[start..start + page.blob_length as usize],
+                page.raw_length as usize,
+            )?;
+            if raw.first() == Some(&2) {
+                let mut cursor = Cursor::new(&raw);
+                cursor.byte()?;
+                let datatype = cursor.u32()?;
+                let count = cursor.u32()? as usize;
+                let words = self
+                    .types
+                    .get(datatype)?
+                    .unsigned_words()
+                    .ok_or(Error::Corrupt("invalid scalar activity datatype"))?;
+                if count == 0 || count as u64 != page.bounds.transactions || count > raw.len() {
+                    return Err(Error::Corrupt("invalid scalar activity count"));
+                }
+                let mut planes = [&[][..]; 4];
+                for column in 0..6 + words {
+                    let width = cursor.byte()? as usize;
+                    if width > 8 {
+                        return Err(Error::Corrupt("invalid scalar activity width"));
+                    }
+                    let data = cursor.take(
+                        width
+                            .checked_mul(count)
+                            .ok_or(Error::Corrupt("scalar activity size overflow"))?,
+                    )?;
+                    if let Some(plane) = planes.get_mut(column) {
+                        *plane = data;
+                    }
+                }
+                cursor.done()?;
+                let value = |column: usize, row: usize| -> u64 {
+                    planes[column]
+                        .chunks_exact(count)
+                        .enumerate()
+                        .fold(0, |value, (byte, plane)| {
+                            value | (u64::from(plane[row]) << (byte * 8))
+                        })
+                };
+                for row in 0..count {
+                    let generator = *self
+                        .ids
+                        .get(
+                            usize::try_from(value(1, row))
+                                .map_err(|_| Error::Corrupt("invalid activity generator"))?,
+                        )
+                        .ok_or(Error::Corrupt("invalid activity generator"))?;
+                    let begin = value(2, row);
+                    let end = begin
+                        .checked_add(value(3, row))
+                        .ok_or(Error::Corrupt("activity time overflow"))?;
+                    visit(generator, begin, end)?;
+                }
+            } else {
+                let columns = wire::unpack_columns::<33>(&raw)?;
+                let mut generators = Cursor::new(columns[1]);
+                let mut begins = Cursor::new(columns[2]);
+                let mut lengths = Cursor::new(columns[3]);
+                if page.bounds.transactions > columns[2].len() as u64 {
+                    return Err(Error::Corrupt("invalid activity transaction count"));
+                }
+                let mut begin = 0u64;
+                for _ in 0..page.bounds.transactions {
+                    let generator = *self
+                        .ids
+                        .get(generators.id()? as usize)
+                        .ok_or(Error::Corrupt("invalid activity generator"))?;
+                    begin = begin.wrapping_add(crate::varint::unzigzag(begins.var()?) as u64);
+                    let end = begin
+                        .checked_add(lengths.var()?)
+                        .ok_or(Error::Corrupt("activity time overflow"))?;
+                    visit(generator, begin, end)?;
+                }
+                generators.done()?;
+                begins.done()?;
+                lengths.done()?;
+            }
+        }
+        Ok(())
+    }
+
     fn decode_page(
         &self,
         page: &TransactionPage,

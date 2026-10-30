@@ -1100,4 +1100,15 @@ std::vector<SignalId> ActivityIndex::active(TimeWindow time) const {
     });
 }
 
+std::vector<GeneratorId> ActivityIndex::active_generators(TimeWindow time) const {
+    detail::check_window(time);
+    return detail::translate([&] {
+        std::vector<GeneratorId> result;
+        for (auto id : impl_->backend.active_generators(time.first, time.last)) {
+            result.push_back(GeneratorId(id));
+        }
+        return result;
+    });
+}
+
 } // namespace vtr

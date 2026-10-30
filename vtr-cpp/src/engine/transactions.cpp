@@ -853,6 +853,66 @@ std::optional<std::pair<Timestamp, Timestamp>> TransactionBlockView::time_range(
     return range;
 }
 
+void TransactionBlockView::activity(
+    const std::function<void(std::size_t)>& admit,
+    const std::function<void(GeneratorId, Timestamp, Timestamp)>& visit) const {
+    for (const auto& page : pages_) {
+        admit(page.raw_length);
+        auto raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
+        require(raw.size() == page.raw_length, "activity page size mismatch");
+        if (!raw.empty() && raw[0] == 2) {
+            d::Cursor r(raw);
+            r.byte();
+            auto datatype = r.fixed<std::uint32_t>();
+            auto count = r.fixed<std::uint32_t>();
+            require(count && count == page.transactions && count <= raw.size(),
+                    "invalid activity count");
+            const auto& schema = types_[datatype];
+            require(schema.unsigned_words && schema.fixed_size && *schema.fixed_size <= 2048,
+                    "invalid activity scalar type");
+            std::array<View, 4> planes;
+            for (std::size_t col = 0; col < 6 + *types_[datatype].fixed_size / 8; ++col) {
+                auto width = r.byte();
+                require(width <= 8, "invalid activity scalar width");
+                auto data = r.take(std::size_t(width) * count);
+                if (col < 4) {
+                    planes[col] = data;
+                }
+            }
+            r.done();
+            auto value = [&](std::size_t col, std::size_t row) {
+                std::uint64_t result = 0;
+                for (std::size_t byte = 0; byte < planes[col].size() / count; ++byte) {
+                    result |= std::uint64_t(planes[col][byte * count + row]) << (byte * 8);
+                }
+                return result;
+            };
+            for (std::size_t row = 0; row < count; ++row) {
+                auto generator = value(1, row), begin = value(2, row), length = value(3, row);
+                require(generator < generator_ids_.size() && length <= UINT64_MAX - begin,
+                        "invalid activity generator/time");
+                visit(generator_ids_[generator], begin, begin + length);
+            }
+        } else {
+            auto columns = d::unpack_columns<33>(raw);
+            d::Cursor generators(columns[1]), begins(columns[2]), lengths(columns[3]);
+            require(page.transactions <= columns[2].data.size(), "invalid activity count");
+            Timestamp begin = 0;
+            for (std::uint64_t row = 0; row < page.transactions; ++row) {
+                auto generator = generators.var();
+                begin += begins.signed_bits();
+                auto length = lengths.var();
+                require(generator < generator_ids_.size() && length <= UINT64_MAX - begin,
+                        "invalid activity generator/time");
+                visit(generator_ids_[generator], begin, begin + length);
+            }
+            generators.done();
+            begins.done();
+            lengths.done();
+        }
+    }
+}
+
 bool TransactionBlockView::decode_page(
     const TransactionPage& page, const std::function<bool(const Transaction&)>& visit_tx,
     const std::function<bool(const Relation&)>& visit_relation) const {

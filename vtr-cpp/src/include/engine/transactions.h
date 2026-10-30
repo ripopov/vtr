@@ -97,6 +97,8 @@ class TransactionBlockView {
                    const std::function<bool(const Relation&)>& visit) const;
     void scan(const std::function<bool(const Transaction&)>& tx,
               const std::function<bool(const Relation&)>& relation) const;
+    void activity(const std::function<void(std::size_t)>& admit,
+                  const std::function<void(GeneratorId, Timestamp, Timestamp)>& visit) const;
     void validate() const;
     std::optional<std::pair<Timestamp, Timestamp>> time_range() const;
 

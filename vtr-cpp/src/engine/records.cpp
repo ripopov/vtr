@@ -379,6 +379,37 @@ RecordBlockView::RecordBlockView(View encoded, const Types& types, const Generat
             "record header aggregate bounds mismatch");
 }
 
+void RecordBlockView::activity(
+    const std::function<void(std::size_t)>& admit,
+    const std::function<void(GeneratorId, Timestamp, Timestamp)>& visit) const {
+    std::optional<std::uint32_t> cached;
+    Bytes raw;
+    for (const auto& segment : segments_) {
+        if (cached != segment.page) {
+            const auto& page = pages_[segment.page];
+            admit(page.raw_length);
+            raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
+            require(raw.size() == page.raw_length, "activity page size mismatch");
+            cached = segment.page;
+        }
+        auto columns =
+            d::unpack_columns<9>(View(raw).subspan(segment.raw_offset, segment.raw_length));
+        d::Cursor begins(columns[0]), lengths(columns[3]);
+        auto stage = generators_[segment.generator].kind == RecordKind::stage;
+        Timestamp previous = 0;
+        for (std::uint32_t row = 0; row < segment.count; ++row) {
+            auto begin = previous + begins.signed_bits();
+            auto length = stage ? lengths.var() : 0;
+            require(length <= UINT64_MAX - begin, "activity time overflow");
+            auto end = begin + length;
+            visit(segment.generator, begin, stage && length ? end - 1 : end);
+            previous = end;
+        }
+        begins.done();
+        lengths.done();
+    }
+}
+
 void RecordBlockView::query(RecordQuery query,
                             const std::function<bool(const LocatedRecord&)>& visit) const {
     require(query.begin <= query.end, "invalid record query window");

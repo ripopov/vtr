@@ -2,6 +2,7 @@
 #include <bit>
 #include <fstream>
 #include <iostream>
+#include <set>
 
 namespace vt = vtr;
 
@@ -220,9 +221,20 @@ void index(const char* command, const char* trace_path, const char* index_path) 
         auto loaded = vt::ActivityIndex::load(
             reader, {reinterpret_cast<const std::byte*>(raw.data()), raw.size()});
         auto expected = vt::ActivityIndex::build(reader);
-        for (std::uint64_t first = 0; first <= 42; ++first)
-            for (std::uint64_t last = first; last <= 42; ++last)
+        for (std::uint64_t first = 0; first <= 42; ++first) {
+            for (std::uint64_t last = first; last <= 42; ++last) {
                 check(loaded.active({first, last}) == expected.active({first, last}));
+                std::set<vt::GeneratorId> generators;
+                auto visit = [&](const vt::Record& record) {
+                    generators.insert(*record.generator());
+                    return vt::Flow::next;
+                };
+                reader.transactions({.time = {first, last}}, visit);
+                reader.records({.time = {first, last}}, visit);
+                check(loaded.active_generators({first, last}) ==
+                      std::vector<vt::GeneratorId>(generators.begin(), generators.end()));
+            }
+        }
     }
 }
 

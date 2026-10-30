@@ -62,6 +62,14 @@ impl Source for VtrSource<'_> {
         scan_cost(self.reader, i)
     }
 
+    fn generator_activity(
+        &self,
+        admit: &mut dyn FnMut(usize) -> Result<()>,
+        visit: &mut dyn FnMut(u32, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        self.reader.activity_records(admit, visit)
+    }
+
     fn worker(&self) -> Decompressor {
         Decompressor::new()
     }

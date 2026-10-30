@@ -90,7 +90,7 @@ developed separately.
 
 Recordings use VTR 3.4, including scalar-page and shared-text encodings.
 The C++ package is version 6.0;
-activity sidecars have their own VTI 3.0 format. Older trace assets must be
+activity sidecars have their own VTI 4.0 format. Older trace assets must be
 regenerated. Rust and C++ implementations are independent and tested in both
 writer/reader directions.
 

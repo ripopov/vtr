@@ -387,6 +387,7 @@ class ActivityIndex {
     [[nodiscard]] Bytes encode() const;
     [[nodiscard]] vtr::Fingerprint fingerprint() const noexcept;
     [[nodiscard]] std::vector<SignalId> active(TimeWindow time) const;
+    [[nodiscard]] std::vector<GeneratorId> active_generators(TimeWindow time) const;
 
   private:
     struct Impl;

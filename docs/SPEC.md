@@ -3,7 +3,7 @@
 This document and [TRANSACTIONS.md](TRANSACTIONS.md) specify the current VTR
 wire format, **3.4**, including scalar-page and shared-text encodings.
 The C++ package version is independently 6.0. Activity
-sidecars use VTI 3.0. File versions describe bytes, not API or package revisions.
+sidecars use VTI 4.0. File versions describe bytes, not API or package revisions.
 Readers and recovery tools reject other VTR header versions. Regenerate older
 recordings; there is no compatibility reader.
 
@@ -497,7 +497,7 @@ producer and encoding modes, retained schemas, waveform aliases and states,
 recovery, and VTI identity. Exact-byte fixtures cover low-level schema and page
 encodings. These checks complement the full application and benchmark suites.
 
-## 9. Activity index sidecar (VTI 3.0)
+## 9. Activity index sidecar (VTI 4.0)
 
 An activity index records exact signal-change times after the first waveform
 time `t_min`. Multiple values at the same timestamp count once for activity;
@@ -515,7 +515,7 @@ and can be rebuilt.
 
 ### 9.1 Container and header
 
-VTI has magic `89 56 54 49 0d 0a 1a 0a`, major 3, minor 0, and twenty zero bytes
+VTI has magic `89 56 54 49 0d 0a 1a 0a`, major 4, minor 0, and twenty zero bytes
 after the version fields in its 32-byte file header. Its 24-byte section and
 trailer framing follow section 2, but the DIRECTORY payload is `u64 entry_count`
 followed by **40-byte** entries: kind/flags, offset/length, aux0/aux1. It has no
@@ -524,7 +524,8 @@ Every VTI payload and the final directory have a CRC. A sidecar requires its
 complete directory and trailer; prefix recovery is not supported.
 
 Sections are one HEADER (kind 1), one BLOCK (kind 2) per source waveform block
-in order, one TAIL (kind 3), DIRECTORY (kind 7), and trailer. Only BLOCK has
+in order, one TAIL (kind 3), zero or more GENERATOR sections (kind 4),
+DIRECTORY (kind 7), and trailer. Only BLOCK has
 nonzero aux fields, equal to start/end. Header payload is exactly 56 bytes:
 
 | Offset | Bytes | Field |
@@ -563,7 +564,32 @@ three varint-length streams: signal deltas, final stretch lengths, final gaps.
 It closes the remaining stretch for every signal that changed. The tail leaves
 no open stretch. All decoded times must fit the source waveform bounds.
 
-### 9.3 Building, loading, and caching
+### 9.3 Generator intervals
+
+Generator activity is the exact union of its recorded intervals, including clocks,
+located events, stages, and logs. Ordinary transactions and clocks include both
+endpoints. Positive-duration located stages exclude their end; for integer ticks
+these become `[begin,end-1]`. Points include their timestamp, including time zero.
+Embedded children do not expand the owner's activity interval. A declared generator
+without records is quiet. Activity queries use closed windows, as in section 9.2.
+
+Each GENERATOR section has `u32 generator_node_id, u32 interval_count`, followed
+by a compressed blob containing two varint-length streams: start deltas and
+lengths. Counts are between 1 and 4096. The first start is absolute; subsequent
+starts are relative to the previous interval's end. Length is `end-start`.
+All values are canonical unsigned varints; addition must not overflow u64.
+Generator IDs are ascending; consecutive sections may name the same generator.
+Intervals across its sections are sorted and disjoint, with at least one quiet
+integer tick between intervals. Overlapping or adjacent intervals are merged.
+Both streams must be consumed exactly. Section aux fields are zero.
+
+Builders scan only generator and time columns, decompressing one page at a time
+without decoding payloads, attributes, or embedded children. An ordered interval
+union bounds retained work by disjoint intervals rather than record count;
+configured memory admission and cancellation apply during this scan. Readers
+retain merged intervals and use binary search per generator for classification.
+
+### 9.4 Building, loading, and caching
 
 Builders write a temporary file and publish it by rename after finishing the
 container. Cancellation or failure does not publish a partial sidecar. Parallel

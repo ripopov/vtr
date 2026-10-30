@@ -677,6 +677,25 @@ impl Reader {
         )
     }
 
+    pub(crate) fn activity_records(
+        &self,
+        mut admit: impl FnMut(usize) -> Result<()>,
+        mut visit: impl FnMut(GeneratorId, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        for section in self.sections() {
+            match section.kind {
+                5 => self
+                    .transaction_block(section)?
+                    .activity(&mut admit, &mut visit)?,
+                9 => self
+                    .record_block(section)?
+                    .activity(&mut admit, &mut visit)?,
+                _ => (),
+            }
+        }
+        Ok(())
+    }
+
     pub fn transactions(
         &self,
         query: TransactionQuery,

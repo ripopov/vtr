@@ -181,14 +181,14 @@ fn recording_identity_binds_sidecars_even_when_sizes_and_directory_crc_match() {
     unfinished.truncate(unfinished.len() - 24);
     let unfinished = Reader::from_bytes(unfinished).unwrap();
     assert!(Identity::of(&unfinished).is_err());
-    for (major, minor) in [(2u16, 0u16), (3, 1), (4, 0)] {
+    for (major, minor) in [(2u16, 0u16), (3, 0), (4, 1)] {
         let mut wrong_version = bytes.clone();
         wrong_version[8..10].copy_from_slice(&major.to_le_bytes());
         wrong_version[10..12].copy_from_slice(&minor.to_le_bytes());
         let error = Index::decode(&wrong_version, &first).unwrap_err();
         assert_eq!(
             error.to_string(),
-            format!("unsupported VTI version {major}.{minor} (expected 3.0)")
+            format!("unsupported VTI version {major}.{minor} (expected 4.0)")
         );
     }
     let mut wrong_id = first;
@@ -259,4 +259,123 @@ fn decoding_checks_framing_and_honors_memory_admission_and_yield_points() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn generator_windows_match_records_with_gaps_points_and_out_of_order_completion() {
+    use vtr::{
+        Status,
+        records::{RecordKind, RecordQuery},
+        transactions::TransactionQuery,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    for general in [false, true] {
+        let path = dir.path().join("generators.vtr");
+        let mut options = WriterOptions::default();
+        options.encoding.block_records = 13;
+        options.encoding.page_bytes = 128;
+        let mut w = Writer::create_with(&path, options).unwrap();
+        let scope = w.scope("top", None).unwrap();
+        let source = w
+            .transactions::<u64>(SourceOptions::new("tx", Some(scope)), "TX")
+            .unwrap();
+        w.transactions::<()>(SourceOptions::new("empty", Some(scope)), "TX")
+            .unwrap();
+        let events = w
+            .events::<()>(SourceOptions::new("event", Some(scope)))
+            .unwrap();
+        let stages = w
+            .stages::<()>(SourceOptions::new("stage", Some(scope)))
+            .unwrap();
+        let logger = w.logger(SourceOptions::new("log", Some(scope))).unwrap();
+        let callsite =
+            vtr::logging::declare::<()>(&mut w, vtr::logging::CallsiteOptions::new("message"))
+                .unwrap();
+        let key = w.intern("label").unwrap();
+        let owner = w.begin_at(source, 0, &0, None).unwrap();
+        w.end_at(owner, 0, Status::Ok).unwrap();
+        for i in 0..500 {
+            let begin = (i * 117) % 900;
+            let tx = w.begin_at(source, begin, &i, None).unwrap();
+            if general {
+                w.attribute(tx.owner(), key, vtr::Value::U64(i)).unwrap();
+            }
+            let stage = w.begin_stage_at(stages, tx.owner(), begin, &()).unwrap();
+            w.end_stage_at(stage, begin + i % 7).unwrap();
+            w.event_at(events, tx.owner(), begin, &()).unwrap();
+            w.end_at(tx, begin + i % 11, Status::Ok).unwrap();
+        }
+        let long = w.begin_at(source, 1000, &0, None).unwrap();
+        w.advance_time(1050).unwrap();
+        w.log(logger, callsite, &(), None).unwrap();
+        w.end_at(long, 2000, Status::Ok).unwrap();
+        let late = w
+            .transactions::<u64>(SourceOptions::new("late", Some(scope)), "TX")
+            .unwrap();
+        for t in [3000, u64::MAX] {
+            let tx = w.begin_at(late, t, &0, None).unwrap();
+            w.end_at(tx, t, Status::Ok).unwrap();
+        }
+        w.close().unwrap();
+        let r = Reader::open(&path).unwrap();
+        r.validate().unwrap();
+        let mut expected = Vec::new();
+        r.transactions(TransactionQuery::default(), |tx| {
+            expected.push((tx.generator().unwrap(), tx.begin(), tx.end()));
+            true
+        })
+        .unwrap();
+        r.records(RecordQuery::default(), |record| {
+            let end = if record.kind() == RecordKind::Stage && record.end() > record.begin() {
+                record.end() - 1
+            } else {
+                record.end()
+            };
+            expected.push((record.generator().unwrap(), record.begin(), end));
+            true
+        })
+        .unwrap();
+        let mut bytes = Vec::new();
+        activity::build(&r, &mut bytes, &Default::default()).unwrap();
+        let index = Index::decode_for(&bytes, &r).unwrap();
+        for begin in (0u64..3100).chain([u64::MAX]) {
+            for length in [0, 1, 17, 500] {
+                let end = begin.saturating_add(length);
+                let wanted: BTreeSet<_> = expected
+                    .iter()
+                    .filter(|&&(_, a, b)| a <= end && b >= begin)
+                    .map(|&(id, _, _)| id)
+                    .collect();
+                assert_eq!(
+                    index.classify_generators(begin, end),
+                    wanted.into_iter().collect::<Vec<_>>(),
+                    "general={general}, [{begin},{end}]"
+                );
+            }
+        }
+        assert!(index.classify_generators(2, 1).is_empty());
+        assert!(
+            activity::build(
+                &r,
+                std::io::sink(),
+                &BuildOptions {
+                    memory: 128,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
+        // Payload limits must not prevent metadata-only indexing.
+        let limited = Reader::open_with(
+            &path,
+            vtr::trace::ReadOptions {
+                max_payload_bytes: 0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut second = Vec::new();
+        activity::build(&limited, &mut second, &Default::default()).unwrap();
+        assert_eq!(bytes, second);
+    }
 }

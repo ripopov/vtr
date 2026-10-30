@@ -746,6 +746,49 @@ impl<'a> RecordBlockView<'a> {
         &self.pages
     }
 
+    pub(crate) fn activity(
+        &self,
+        mut admit: impl FnMut(usize) -> Result<()>,
+        mut visit: impl FnMut(GeneratorId, u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        let mut cached = None;
+        let mut raw = Vec::new();
+        for segment in &self.segments {
+            if cached != Some(segment.page) {
+                let page = &self.pages[segment.page as usize];
+                admit(page.raw_length as usize)?;
+                let start = page.blob_offset as usize;
+                raw = wire::decompress(
+                    &self.blobs[start..start + page.blob_length as usize],
+                    page.raw_length as usize,
+                )?;
+                cached = Some(segment.page);
+            }
+            let start = segment.raw_offset as usize;
+            let columns =
+                wire::unpack_columns::<9>(&raw[start..start + segment.raw_length as usize])?;
+            let mut begins = Cursor::new(columns[0]);
+            let mut lengths = Cursor::new(columns[3]);
+            let stage = self.generators.get(segment.generator)?.kind == RecordKind::Stage;
+            let mut previous_end = 0u64;
+            for _ in 0..segment.count {
+                let begin = previous_end.wrapping_add(unzigzag(begins.var()?) as u64);
+                let end = begin
+                    .checked_add(if stage { lengths.var()? } else { 0 })
+                    .ok_or(Error::Corrupt("activity time overflow"))?;
+                visit(
+                    segment.generator,
+                    begin,
+                    if stage && end > begin { end - 1 } else { end },
+                )?;
+                previous_end = end;
+            }
+            begins.done()?;
+            lengths.done()?;
+        }
+        Ok(())
+    }
+
     /// Visitors return false to stop; records own their payload after this call.
     pub fn query(
         &self,

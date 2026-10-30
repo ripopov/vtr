@@ -20,7 +20,7 @@ for name in ("identity-0", "windows"):
     trace_length = struct.unpack_from("<Q", trace, trace_directory + 8)[0]
     fingerprint = (len(trace), zlib.crc32(trace[trace_directory + 24:trace_directory + 24 + trace_length]), trace[16:32])
     assert sidecar[:8] == b"\x89VTI\r\n\x1a\n"
-    assert struct.unpack_from("<HH", sidecar, 8) == (3, 0)
+    assert struct.unpack_from("<HH", sidecar, 8) == (4, 0)
     assert sidecar[12:32] == bytes(20)
     offset, sections = 32, []
     starts, stretches, signals, minimum = {}, {}, None, None

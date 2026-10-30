@@ -14,12 +14,15 @@ class ActivityIndex {
     Bytes encode(const ContainerReader& trace) const;
     std::vector<vtr::detail::wire::Id> active(Timestamp begin, Timestamp end) const;
 
+    std::vector<GeneratorId> active_generators(Timestamp begin, Timestamp end) const;
+
     const vtr::detail::wire::TraceFingerprint& fingerprint() const noexcept {
         return fingerprint_;
     }
 
   private:
     vtr::detail::wire::TraceFingerprint fingerprint_{};
+    std::vector<std::pair<GeneratorId, std::vector<ActivityStretch>>> generators_;
     Timestamp minimum_ = 0;
     std::vector<std::vector<ActivityStretch>> signals_;
 };
