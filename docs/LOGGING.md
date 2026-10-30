@@ -27,8 +27,8 @@ sharing their argument schemas.
 C++ provides the corresponding `logger`, `datatype<T>`, `declare_datatype`, `log`,
 `log_at` and `log_raw` operations. The optional `vtr_logging.h` frontend provides
 `vtr::logging::declare<T>`, `declare_raw`, `metadata`, `callsites` and `format_log`.
-The [C++ macro helper](../vtr-cpp/examples/logging.h) checks literal formats at
-compile time and skips argument evaluation when the level is disabled. Immutable
+The [C++ macro helper](../vtr-cpp/examples/logging.h) checks brace-style literal
+formats at compile time and skips argument evaluation when the level is disabled. Immutable
 static descriptors contain no recording-local IDs. Writer-owned registration
 shares their datatype declarations across loggers; producer-local frontend
 bindings retain typed handles and must be serialized by their logical producer.
@@ -62,6 +62,7 @@ fields in declaration order; unit supplies none.
 | --- | --- | --- |
 | `kind` | text or str | `callsite` |
 | `log.format` | text or str | Required format string |
+| `log.format_style` | text or str | `brace` (default) or `printf`; currently interpreted by the C++ frontend |
 | `log.severity` | enum | Required: trace 0, debug 1, info 2, warn 3, error 4, fatal 5 |
 | `log.file` | text or str | Optional runtime source file |
 | `log.line` | u64 | Optional runtime source line |
@@ -86,6 +87,8 @@ their attributes-only representation. These declarations require VTR 3.4; older
 assets must be regenerated.
 
 ## Rendering
+
+### Brace formats
 
 Structures supply arguments in field order. A non-unit scalar supplies one
 argument; a unit supplies none. `{}` selects the next automatic argument and
@@ -116,6 +119,67 @@ logic as state text. Fixed/ufixed render raw and scale as `raw` followed by `e`
 and `scale`. Structured payloads remain inspectable even when a particular
 presentation is unsupported. Formatting is presentation; the exact underlying
 numeric bits remain in the payload.
+
+### C++ printf formats
+
+Select `vtr::logging::FormatStyle::printf` in `CallsiteOptions` to retain a
+printf format as datatype metadata and capture its arguments without formatting
+the message. `format_log` dispatches on `log.format_style`;
+`Reader::format_printf_arguments` also renders an argument payload directly.
+The container and payload encodings are unchanged. Rust rendering of this
+format style is not implemented yet.
+
+```cpp
+auto logger = writer.logger({.name = "GPUExec"});
+auto site = vtr::logging::declare<std::uint64_t>(
+    writer, {.format = "address=%#x", .severity = 1,
+             .style = vtr::logging::FormatStyle::printf});
+writer.log_at(logger, site, tick, std::uint64_t{0x8000});
+// The reader renders "address=0x8000" from the captured value.
+```
+
+The example macro helper provides `LOG_PRINTF_INFO` and `LOG_PRINTF_AT` with
+the same lazy, writer-bound callsite registration as its brace macros. It
+normalizes strings to views before capture. Literal descriptors contain no
+recording-local handles, and disabled calls do not evaluate arguments or
+register callsites. Printf formats are interpreted at read time rather than
+checked with `std::format_string`.
+
+Supported presentations are `d i u o x X`, `f F e E g G a A`, `c s p`, and
+`%%`, plus binary `b B`. Flags are `- + space # 0` and POSIX `'`. Width and
+precision accept decimal constants or `*`; negative width implies left
+alignment and negative dynamic precision is omitted. POSIX positions such as
+`%3$*1$.*2$f` may repeat or reorder arguments; positional and sequential
+indexing cannot be mixed. Integer precision, alternate prefixes, zero padding,
+signed zero, infinities and NaNs follow the reader's C library. Locale-sensitive
+formatting uses its current C locale, not the C++ global locale.
+
+Arguments are typed values, not C varargs. Without a length modifier, integer
+width and signed decimal representation come from the captured type: `%d`
+does not truncate a captured u64 to an int. Unsigned presentations reinterpret
+signed integers at their captured width. The `hh h l ll j z t` modifiers select
+the corresponding integer width on the reader's ABI. Floating `l` and `L`
+are accepted; `L` widens the captured f32/f64 to the reader's long double for
+presentation, without introducing additional captured precision. Custom objects
+must be adapted to a supported payload type before capture.
+
+`%s` accepts captured text or an interned string ID and applies C byte precision
+and NUL termination. `%c` accepts an integer and emits its low byte, including
+NUL. `%lc` accepts a Unicode scalar value, and `%ls` accepts captured text
+already encoded in the reader's multibyte locale; conversion and byte precision
+follow `wcrtomb`/`printf`. `%p` accepts a captured address or integer and uses
+the reader's pointer spelling. It never dereferences the address. A writer
+capturing C string pointers must copy their contents as text, not store the
+pointer for later dereferencing.
+
+Malformed formats, mixed indexing, missing arguments, unsupported conversions
+and incompatible argument types render `{?}`. `%n` also renders `{?}` and
+never writes through a captured address. Unknown format styles are errors rather
+than being rendered with the wrong dialect. The renderer bounds literal widths,
+nonnegative precisions, individual converted fields and parsed format tokens to
+65,536. Negative dynamic precision is ignored even at `INT_MIN`. Format size and
+total output bytes additionally respect `ReaderOptions::max_payload_bytes`;
+exceeding that limit raises `resource_limit`.
 
 ## Run endings and crash rescue
 

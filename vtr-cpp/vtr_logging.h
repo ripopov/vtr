@@ -6,12 +6,15 @@
 
 namespace vtr::logging {
 
+enum class FormatStyle { brace, printf };
+
 struct CallsiteOptions {
     std::string_view format;
     std::uint64_t severity = 2;
     std::optional<std::string_view> file = {};
     std::optional<std::uint64_t> line = {};
     std::optional<std::string_view> function = {};
+    FormatStyle style = FormatStyle::brace;
 };
 
 inline std::string_view severity_name(std::uint64_t severity) {
@@ -40,6 +43,10 @@ inline DatatypeOptions datatype_options(Writer& writer, CallsiteOptions options)
     };
     add("kind", Value(std::string("callsite")));
     add("log.format", Value(std::string(options.format)));
+    if (options.style == FormatStyle::printf)
+        add("log.format_style", Value(std::string("printf")));
+    else if (options.style != FormatStyle::brace)
+        throw Error(ErrorCode::invalid_argument, "Unknown log format style");
     if (options.severity > static_cast<std::uint64_t>(INT64_MAX))
         throw Error(ErrorCode::invalid_argument, "Log severity exceeds i64");
     add("log.severity", Value(EnumValue{static_cast<std::int64_t>(options.severity),
@@ -69,6 +76,7 @@ struct LogMetadata {
     std::uint64_t severity;
     std::optional<std::string> file = {}, function = {};
     std::optional<std::uint64_t> line = {};
+    FormatStyle style = FormatStyle::brace;
 };
 
 inline std::string metadata_text(const Reader& reader, const Value& value) {
@@ -103,6 +111,13 @@ inline std::optional<LogMetadata> metadata(const Reader& reader, TypeId datatype
     if (code < 0)
         throw Error(ErrorCode::invalid_argument, "Log severity requires a nonnegative enum");
     LogMetadata result{datatype, metadata_text(reader, *format), static_cast<std::uint64_t>(code)};
+    if (const auto style = find("log.format_style")) {
+        const auto text = metadata_text(reader, *style);
+        if (text == "printf")
+            result.style = FormatStyle::printf;
+        else if (text != "brace")
+            throw Error(ErrorCode::invalid_argument, "Unknown log format style");
+    }
     if (const auto file = find("log.file"))
         result.file = metadata_text(reader, *file);
     if (const auto function = find("log.func"))
@@ -129,7 +144,10 @@ inline std::string format_log(const Reader& reader, const Record& record) {
     const auto declaration = metadata(reader, record.datatype());
     if (!declaration)
         throw Error(ErrorCode::invalid_argument, "Datatype has no log metadata");
-    return reader.format_arguments(declaration->format, record.payload()["value"]);
+    const auto arguments = record.payload()["value"];
+    return declaration->style == FormatStyle::printf
+               ? reader.format_printf_arguments(declaration->format, arguments)
+               : reader.format_arguments(declaration->format, arguments);
 }
 
 } // namespace vtr::logging

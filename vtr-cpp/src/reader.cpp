@@ -1,5 +1,6 @@
 #include "bridge.h"
 #include "engine/activity.h"
+#include "printf.h"
 #include "vtr_reader.h"
 
 #include <algorithm>
@@ -1045,6 +1046,13 @@ std::string Reader::format_arguments(std::string_view format, const PayloadView&
         }
     }
     return result;
+}
+
+std::string Reader::format_printf_arguments(std::string_view format,
+                                            const PayloadView& payload) const {
+    if (payload.storage_->schema->origin != identity())
+        throw Error(ErrorCode::wrong_recording, "Payload belongs to another recording");
+    return detail::format_printf(*this, format, payload, impl_->schema->allocation_limit);
 }
 
 struct ActivityIndex::Impl {

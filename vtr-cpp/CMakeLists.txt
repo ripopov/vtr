@@ -58,6 +58,11 @@ if(BUILD_TESTING)
     target_link_libraries(vtr_api_test PRIVATE vtr)
     add_test(NAME typed_public_api COMMAND vtr_api_test ${CMAKE_CURRENT_BINARY_DIR}/api-fixtures)
     set_tests_properties(typed_public_api PROPERTIES TIMEOUT 120)
+    add_executable(vtr_printf_test tests/printf_test.cpp)
+    target_link_libraries(vtr_printf_test PRIVATE vtr)
+    add_test(NAME printf_log_formatting COMMAND vtr_printf_test
+        ${CMAKE_CURRENT_BINARY_DIR}/printf-fixtures)
+    set_tests_properties(printf_log_formatting PROPERTIES TIMEOUT 120)
     add_executable(vtr_tracker_test tests/tracker_test.cpp)
     target_link_libraries(vtr_tracker_test PRIVATE vtr)
     add_test(NAME keyed_transaction_lifetimes COMMAND vtr_tracker_test

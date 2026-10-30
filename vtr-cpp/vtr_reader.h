@@ -347,6 +347,8 @@ class Reader {
               const std::function<Flow(const Record&)>& visit) const;
     [[nodiscard]] std::string format_arguments(std::string_view format,
                                                const PayloadView& payload) const;
+    [[nodiscard]] std::string format_printf_arguments(std::string_view format,
+                                                      const PayloadView& payload) const;
     [[nodiscard]] std::optional<std::uint64_t> cycle_at(GeneratorId clock, Timestamp time) const;
 
     void changes(std::optional<SignalId> signal, TimeWindow time,
