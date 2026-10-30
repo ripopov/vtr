@@ -14,6 +14,9 @@
 #include <vector>
 
 namespace {
+static_assert(std::numeric_limits<char>::is_signed,
+              "The scalar reference fixture uses signed char; compile with -fsigned-char");
+
 std::string hex(std::string_view bytes) {
     constexpr std::string_view digits = "0123456789abcdef";
     std::string result;
@@ -22,6 +25,98 @@ std::string hex(std::string_view bytes) {
         result += digits[value & 15];
     }
     return result;
+}
+
+std::string localized_fixed(std::string body, const std::locale& locale) {
+    const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
+    const auto groups = punctuation.grouping();
+    auto end = body.find('.');
+    if (end == body.npos) end = body.size();
+    const auto sign = body.front() == '+' || body.front() == '-';
+    std::size_t group = 0;
+    while (group < groups.size()) {
+        const auto size = groups[group];
+        if (size <= 0 || size == CHAR_MAX || end - sign <= static_cast<unsigned char>(size))
+            break;
+        end -= size;
+        body.insert(end, 1, punctuation.thousands_sep());
+        if (group + 1 < groups.size()) ++group;
+    }
+    if (auto point = body.rfind('.'); point != body.npos)
+        body[point] = punctuation.decimal_point();
+    return body;
+}
+
+template <class T>
+std::string reference_format(T value, std::string spec, const std::locale& locale) {
+    if constexpr (std::same_as<T, std::string>) {
+        // CRLF is one extended grapheme cluster, including when precision truncates it.
+        if (value == "\r\n") {
+            std::string cluster("\n");
+            auto result = std::vformat(locale, "{:" + spec + "}",
+                                      std::make_format_args(cluster));
+            if (auto at = result.find('\n'); at != result.npos)
+                result.insert(at, 1, '\r');
+            return result;
+        }
+    }
+    if constexpr (std::same_as<T, bool>) {
+        const auto localized = spec.find('L');
+        if (localized != spec.npos &&
+            (localized + 1 == spec.size() || spec.substr(localized + 1) == "s")) {
+            const auto& punctuation = std::use_facet<std::numpunct<char>>(locale);
+            auto label = value ? punctuation.truename() : punctuation.falsename();
+            // numpunct<char> labels are byte sequences, independent of string Unicode width.
+            std::string placeholder(label.size(), '\1');
+            spec.erase(localized, 1);
+            auto result = std::vformat(locale, "{:" + spec + "}",
+                                      std::make_format_args(placeholder));
+            if (!placeholder.empty())
+                result.replace(result.find(placeholder), placeholder.size(), label);
+            return result;
+        }
+    } else if constexpr (std::integral<T>) {
+        if (spec.ends_with('c')) {
+            // Numeric flags do not change integer-to-character conversion or its padding.
+            auto flags = spec.find_last_of("<^>");
+            flags = flags == spec.npos ? 0 : flags + 1;
+            auto first = spec.find_first_not_of("+-#0", flags);
+            spec.erase(flags, first - flags);
+        }
+    }
+    if constexpr (std::floating_point<T>) {
+        if (std::isfinite(value) && (spec == "#g" || spec == "#.4g")) {
+            // iostreams preserves all significant trailing zeros in alternate general form.
+            std::ostringstream out;
+            out.imbue(locale);
+            out << std::showpoint << std::setprecision(spec == "#g" ? 6 : 4) << value;
+            return out.str();
+        }
+        if (std::fpclassify(value) == FP_SUBNORMAL && (spec == "a" || spec == "A")) {
+            // to_chars may choose different equivalent exponents for subnormal hex values.
+            int exponent;
+            T normalized = std::frexp(value, &exponent) * 2;
+            auto result = std::vformat(locale, "{:" + spec + "}",
+                                      std::make_format_args(normalized));
+            result.erase(result.find_first_of("pP") + 1);
+            return result + std::to_string(exponent - 1);
+        }
+        const auto groups = std::use_facet<std::numpunct<char>>(locale).grouping();
+        if (std::isfinite(value) && std::abs(value) > std::pow(T(10), CHAR_MAX) &&
+            groups.find(CHAR_MAX) != groups.npos &&
+            (spec == ".2Lf" || spec == "+020.2Lf" || spec == "*^24.2Lf" ||
+             spec == "界>24.2Lf" || spec == ".1Lf")) {
+            // libc++ format treats CHAR_MAX as a repeated group size for very long floats.
+            std::ostringstream out;
+            out.imbue(std::locale::classic());
+            out << std::fixed << std::setprecision(spec == ".1Lf" ? 1 : 2);
+            if (spec.front() == '+') out << std::showpos;
+            if (spec.front() == '#') out << std::showpoint;
+            out << value;
+            return localized_fixed(out.str(), locale);
+        }
+    }
+    return std::vformat(locale, "{:" + spec + "}", std::make_format_args(value));
 }
 
 template <class T>
@@ -46,15 +141,14 @@ void samples(std::ostream& out, std::string_view type, const std::vector<T>& val
                     if (std::isfinite(value) && (spec == "#.0Lf" || spec == "#.0f")) {
                         // Independently round before using a nonzero precision (PR120967).
                         auto rounded = std::nearbyint(value);
-                        expected = std::vformat(locale, spec == "#.0Lf" ? "{:.1Lf}" : "{:.1f}",
-                                                std::make_format_args(rounded));
+                        expected = reference_format(rounded, spec == "#.0Lf" ? ".1Lf" : ".1f",
+                                                    locale);
                         expected.pop_back();
                         fixed_zero = true;
                     }
                 }
                 if (!fixed_zero)
-                    expected =
-                        std::vformat(locale, "{:" + spec + "}", std::make_format_args(value));
+                    expected = reference_format(value, spec, locale);
             } catch (const std::format_error&) {
                 expected = "{?}";
             }

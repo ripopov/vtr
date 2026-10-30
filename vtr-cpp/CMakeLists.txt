@@ -128,6 +128,10 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_BINARY_DIR}/activity-oracle-fixtures)
     add_executable(log_format_oracle tests/log_format_oracle.cpp)
     target_compile_features(log_format_oracle PRIVATE cxx_std_20)
+    # The fixture records signed-char conversion ranges and CHAR_MAX grouping sentinels.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(log_format_oracle PRIVATE -fsigned-char)
+    endif()
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../vtr-rs/Cargo.toml")
         add_test(NAME scalar_format_reference COMMAND log_format_oracle --check
             ${CMAKE_CURRENT_SOURCE_DIR}/../vtr-rs/tests/fixtures/log-format.json)
