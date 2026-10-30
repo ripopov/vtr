@@ -570,11 +570,13 @@ RecordId Writer::embedded_event(OwnerRef owner, Timestamp time, StringId name,
     });
 }
 
-RecordId Writer::embedded_stage(OwnerRef owner, Timestamp begin, StringId name, StringId lane,
+RecordId Writer::embedded_stage(OwnerRef owner, Timestamp begin, StringId name,
+                                std::optional<StringId> lane,
                                 std::optional<Timestamp> end, AttributeView attributes) {
     context_->check_origin(owner.origin_);
     return context_->call([&](auto& out) {
-        return RecordId(out.embedded_stage(owner.id_.value, name.value, lane.value, begin, end,
+        return RecordId(out.embedded_stage(owner.id_.value, name.value,
+                                           lane.value_or(StringId{0}).value, begin, end,
                                            detail::encode_attributes(attributes)));
     });
 }

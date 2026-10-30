@@ -137,15 +137,12 @@ if(BUILD_TESTING)
 endif()
 
 if(VTR_BUILD_EXAMPLES)
-    foreach(example IN ITEMS write_transactions read_transactions waveforms parallel_recording
+    foreach(example IN ITEMS transactions waveforms parallel_recording
                              relationships logging recovery)
         add_executable(vtr_${example} examples/${example}.cpp)
         target_link_libraries(vtr_${example} PRIVATE vtr)
         if(BUILD_TESTING)
-            if(example STREQUAL "read_transactions")
-                add_test(NAME tutorial_${example} COMMAND vtr_${example} tutorial.vtr)
-                set_tests_properties(tutorial_${example} PROPERTIES DEPENDS tutorial_write_transactions)
-            elseif(example STREQUAL "write_transactions")
+            if(example STREQUAL "transactions")
                 add_test(NAME tutorial_${example} COMMAND vtr_${example} tutorial.vtr)
             else()
                 add_test(NAME tutorial_${example} COMMAND vtr_${example})

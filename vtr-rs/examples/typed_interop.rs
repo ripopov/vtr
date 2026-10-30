@@ -47,7 +47,6 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     let logger = writer.logger(SourceOptions::new("diagnostics", None))?;
     let label = writer.intern("vtr.label")?;
     let name = writer.intern("embedded")?;
-    let lane = writer.intern("lane")?;
     let relation = writer.intern("causes")?;
     let core = writer.scope("core", None)?;
     let requests =
@@ -139,7 +138,7 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     let visit = writer.begin_stage_deferred_at(execute, owner.owner(), 11)?;
     writer.payload(visit, &"replaced stage".to_owned())?;
     writer.embedded_event(owner.owner(), 12, name, vec![])?;
-    writer.embedded_stage(owner.owner(), 100, name, lane, None, vec![])?;
+    writer.embedded_stage(owner.owner(), 100, name, 0, None, vec![])?;
     let child = writer.begin_at(requests, 12, &packet(), Some(owner.owner()))?;
     writer.payload(
         child,
@@ -205,6 +204,10 @@ fn read(path: &str) -> vtr::Result<()> {
     assert_eq!(reader.expand(2)?.located.len(), 3);
     assert_eq!(reader.lookup(3)?.unwrap().decode::<String>()?, "execute Δ");
     assert_eq!(reader.lookup(5)?.unwrap().end(), 100);
+    assert_eq!(
+        reader.string(reader.lookup(5)?.unwrap().lane().unwrap())?,
+        ""
+    );
     assert_eq!(reader.lookup(6)?.unwrap().parent(), Some(2));
     assert_eq!(
         reader

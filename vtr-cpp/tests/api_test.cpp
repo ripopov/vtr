@@ -1031,6 +1031,38 @@ void retained_large_payloads(const std::filesystem::path& path) {
           "large retained payload did not survive eviction and reader destruction");
 }
 
+void default_stage_lanes(const std::filesystem::path& path, vt::ExecutionMode mode) {
+    vt::Writer writer(path, {.mode = mode});
+    auto owners = writer.transactions({.name = "instructions"});
+    auto name = writer.intern("phase");
+    auto memory = writer.intern("memory");
+    auto empty = writer.intern("");
+    auto owner = writer.begin_at(owners, 10);
+    auto omitted = writer.embedded_stage(owner, 11, name);
+    writer.end_embedded_stage(owner, omitted, 12);
+    auto absent = writer.embedded_stage(owner, 12, name, {}, 13);
+    auto explicit_empty = writer.embedded_stage(owner, 13, name, empty, 14);
+    auto named = writer.embedded_stage(owner, 14, name, memory, 15);
+    writer.end_at(owner, 16);
+    writer.close();
+
+    vt::Reader reader(path);
+    auto transaction = reader.lookup(owner.id());
+    check(transaction && transaction->stages().size() == 4, "stage lanes lost on round trip");
+    for (auto id : {omitted, absent, explicit_empty}) {
+        auto stage = reader.lookup(id);
+        check(stage && stage->parent() == owner.id() && !stage->generator() && stage->lane() &&
+                  reader.string(*stage->lane()).empty(),
+              "omitted and empty stage lanes must select the default lane");
+        check(stage->end() == stage->begin() + 1, "default lane changed stage timing");
+    }
+    auto stage = reader.lookup(named);
+    check(stage && stage->lane() == memory && reader.string(*stage->lane()) == "memory",
+          "explicit stage lane was replaced");
+    check(reader.expand(owner.id()).located.empty(), "default lane created located activity");
+    check(reader.validate().records == 5, "default lane records did not validate");
+}
+
 void declaration_errors(const std::filesystem::path& directory) {
     const auto expect = [](vt::ErrorCode code, auto&& action) {
         try {
@@ -1099,6 +1131,8 @@ int main(int argc, char** argv) {
             lifecycle(root / ("inline-" + std::to_string(static_cast<int>(codec)) + ".vtr"), 0,
                       codec, vt::ExecutionMode::inline_);
         retained_large_payloads(root / "retained-large.vtr");
+        default_stage_lanes(root / "stage-lanes-inline.vtr", vt::ExecutionMode::inline_);
+        default_stage_lanes(root / "stage-lanes-threaded.vtr", vt::ExecutionMode::threaded);
         declaration_errors(root);
         fixed_arrays(root);
         log_locale_and_limits(root / "log-locale.vtr");

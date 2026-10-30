@@ -493,7 +493,8 @@ void reused_owner_slots(const fs::path& dir, unsigned workers) {
         if (i % 2)
             check(tx.payload.empty(), "unit owner retained a typed payload");
         else {
-            check(tx.payload == capture(Visit{i, "payload"}), "reused owner changed its payload");
+            check(tx.payload == capture(Visit{static_cast<std::uint32_t>(i), "payload"}),
+                  "reused owner changed its payload");
         }
         if (!tx.attributes.empty())
             check(tx.attributes.front().value.payload ==

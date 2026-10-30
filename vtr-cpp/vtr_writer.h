@@ -453,7 +453,9 @@ class Writer final {
     // end stays absent on disk and resolves to max(stage.begin, owner.end).
     RecordId embedded_event(OwnerRef owner, Timestamp time, StringId name,
                             AttributeView attributes = {});
-    RecordId embedded_stage(OwnerRef owner, Timestamp begin, StringId name, StringId lane,
+    // An absent lane selects the default stage lane, stored as the empty string.
+    RecordId embedded_stage(OwnerRef owner, Timestamp begin, StringId name,
+                            std::optional<StringId> lane = {},
                             std::optional<Timestamp> end = {}, AttributeView attributes = {});
     void end_embedded_stage(OwnerRef owner, RecordId stage, Timestamp time);
     void relate(StringId kind, std::optional<RecordId> from, std::optional<RecordId> to,

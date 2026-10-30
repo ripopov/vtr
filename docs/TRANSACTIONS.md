@@ -50,7 +50,9 @@ and stages, and sorted distinct located-child block numbers. Status codes are
 
 Embedded events store global ID, timestamp, name string ID, and attributes.
 Embedded stages store global ID, name/lane string IDs, begin, optional end, and
-attributes. An absent end means open; a present end is at least begin.
+attributes. An empty lane name selects the default stage lane. The C++ API
+accepts an omitted lane or `{}` for this case; the Rust API uses string ID `0`.
+An absent end means open; a present end is at least begin.
 Relations store kind string ID, source/destination global IDs or zero, and
 attributes. Relation endpoint existence is checked at full-file validation;
 forward references are permitted.

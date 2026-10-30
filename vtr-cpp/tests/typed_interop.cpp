@@ -39,7 +39,7 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     options.meta.timescale = -9;
     vt::Writer writer(path, options);
     const auto label = writer.intern("vtr.label"), name = writer.intern("embedded");
-    const auto lane = writer.intern("lane"), relation = writer.intern("causes");
+    const auto relation = writer.intern("causes");
     const auto core = writer.scope("core");
     auto requests = writer.transactions<Packet>({.name = "requests", .parent = core}, "REQUEST");
     auto scalar = writer.transactions<std::array<std::uint64_t, 3>>(
@@ -78,7 +78,7 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     auto visit = writer.begin_at(execute, owner, 11);
     writer.payload(visit, std::string("replaced stage"));
     (void)writer.embedded_event(owner, 12, name);
-    (void)writer.embedded_stage(owner, 100, name, lane);
+    (void)writer.embedded_stage(owner, 100, name);
     auto child = writer.begin_at(requests, 12, packet(), {.parent = owner});
     writer.payload(child, Packet{1, "replaced owner", {}});
     writer.advance_time(12);
@@ -141,6 +141,7 @@ void read(const char* path) {
         check(reader.expand(owner->id()).located.size() == 3);
         check(reader.lookup(vt::RecordId(3))->payload().as<std::string>() == "execute Δ");
         check(reader.lookup(vt::RecordId(5))->end() == 100);
+        check(reader.string(*reader.lookup(vt::RecordId(5))->lane()).empty());
         check(reader.lookup(vt::RecordId(6))->parent() == owner->id());
         check(reader.lookup(vt::RecordId(9))->payload()["value"].as<Packet>() == packet());
         check(vtr::logging::format_log(reader, *reader.lookup(vt::RecordId(9))) == "packet 32768");
