@@ -4,7 +4,10 @@ mod page;
 mod scalar;
 mod time;
 
-use std::collections::{BTreeSet, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeSet, HashSet},
+};
 
 use crate::{
     Error, Result,
@@ -101,6 +104,11 @@ fn extend(minimum: &mut u64, maximum: &mut u64, value: u64, first: bool) {
 }
 
 impl TransactionBounds {
+    fn add_embedded(&mut self, id: RecordId) {
+        let first = self.max_embedded == 0;
+        extend(&mut self.min_embedded, &mut self.max_embedded, id, first);
+    }
+
     fn add_transaction(&mut self, transaction: &Transaction) {
         let first = self.transactions == 0;
         self.transactions += 1;
@@ -313,6 +321,24 @@ impl Default for TransactionQuery {
     }
 }
 
+impl TransactionQuery {
+    fn matches(self, tx: &Transaction) -> bool {
+        self.matches_owner(tx)
+            && self.embedded_id.is_none_or(|id| {
+                tx.events.iter().any(|event| event.id == id)
+                    || tx.stages.iter().any(|stage| stage.id == id)
+            })
+    }
+
+    fn matches_owner(self, tx: &Transaction) -> bool {
+        tx.begin <= self.end
+            && tx.end >= self.begin
+            && self.generator.is_none_or(|id| id == tx.generator)
+            && self.parent.is_none_or(|id| id == tx.parent)
+            && self.id.is_none_or(|id| id == tx.id)
+    }
+}
+
 fn validate_transaction(tx: &Transaction, generator: &Generator, strings: u64) -> Result<()> {
     if tx.id == 0
         || tx.parent >= tx.id
@@ -522,15 +548,36 @@ pub fn encode_transaction_block(
     Ok(out)
 }
 
-pub struct TransactionBlockView<'a> {
-    pub number: u64,
-    pub bounds: TransactionBounds,
+#[derive(Clone)]
+pub(crate) struct TransactionDirectory {
+    number: u64,
+    bounds: TransactionBounds,
+    strings: u64,
     ids: Vec<GeneratorId>,
     pages: Vec<TransactionPage>,
+    blob_offset: usize,
+}
+
+impl TransactionDirectory {
+    pub(crate) fn matches(&self, query: TransactionQuery) -> bool {
+        self.bounds.transactions != 0
+            && query
+                .generator
+                .is_none_or(|id| self.ids.binary_search(&id).is_ok())
+            && query
+                .id
+                .is_none_or(|id| self.bounds.min_id <= id && id <= self.bounds.max_id)
+            && query
+                .embedded_id
+                .is_none_or(|id| self.bounds.min_embedded <= id && id <= self.bounds.max_embedded)
+    }
+}
+
+pub struct TransactionBlockView<'a> {
+    directory: Cow<'a, TransactionDirectory>,
     blobs: &'a [u8],
     types: &'a Types,
     generators: &'a Generators,
-    strings: u64,
     max_payload_bytes: usize,
     shared_text: &'a [String],
 }
@@ -612,17 +659,52 @@ impl<'a> TransactionBlockView<'a> {
         )?;
         cursor.done()?;
         Ok(Self {
-            number,
-            bounds,
-            ids,
-            pages,
+            directory: Cow::Owned(TransactionDirectory {
+                number,
+                bounds,
+                strings,
+                ids,
+                pages,
+                blob_offset: encoded.len() - blobs.len(),
+            }),
             blobs,
             types,
             generators,
-            strings,
             max_payload_bytes,
             shared_text,
         })
+    }
+
+    pub(crate) fn into_directory(self) -> TransactionDirectory {
+        self.directory.into_owned()
+    }
+
+    pub(crate) fn from_directory(
+        encoded: &'a [u8],
+        directory: &'a TransactionDirectory,
+        types: &'a Types,
+        generators: &'a Generators,
+        max_payload_bytes: usize,
+        shared_text: &'a [String],
+    ) -> Self {
+        Self {
+            directory: Cow::Borrowed(directory),
+            blobs: &encoded[directory.blob_offset..],
+            types,
+            generators,
+            max_payload_bytes,
+            shared_text,
+        }
+    }
+
+    #[must_use]
+    pub fn number(&self) -> u64 {
+        self.directory.number
+    }
+
+    #[must_use]
+    pub fn bounds(&self) -> &TransactionBounds {
+        &self.directory.bounds
     }
 
     pub fn with_defaults(
@@ -642,20 +724,20 @@ impl<'a> TransactionBlockView<'a> {
 
     #[must_use]
     pub fn pages(&self) -> &[TransactionPage] {
-        &self.pages
+        &self.directory.pages
     }
 
     #[must_use]
     pub fn generators(&self) -> &[GeneratorId] {
-        &self.ids
+        &self.directory.ids
     }
 
     pub fn time_range(&self) -> Result<Option<(u64, u64)>> {
-        if self.bounds.transactions == 0 {
+        if self.directory.bounds.transactions == 0 {
             return Ok(None);
         }
-        let mut range = (self.bounds.begin, self.bounds.end);
-        for page in &self.pages {
+        let mut range = (self.directory.bounds.begin, self.directory.bounds.end);
+        for page in &self.directory.pages {
             if page.bounds.max_embedded == 0 {
                 continue;
             }
@@ -675,7 +757,7 @@ impl<'a> TransactionBlockView<'a> {
         mut admit: impl FnMut(usize) -> Result<()>,
         mut visit: impl FnMut(GeneratorId, u64, u64) -> Result<()>,
     ) -> Result<()> {
-        for page in &self.pages {
+        for page in &self.directory.pages {
             admit(page.raw_length as usize)?;
             let start = page.blob_offset as usize;
             let raw = wire::decompress(
@@ -721,6 +803,7 @@ impl<'a> TransactionBlockView<'a> {
                 };
                 for row in 0..count {
                     let generator = *self
+                        .directory
                         .ids
                         .get(
                             usize::try_from(value(1, row))
@@ -744,6 +827,7 @@ impl<'a> TransactionBlockView<'a> {
                 let mut begin = 0u64;
                 for _ in 0..page.bounds.transactions {
                     let generator = *self
+                        .directory
                         .ids
                         .get(generators.id()? as usize)
                         .ok_or(Error::Corrupt("invalid activity generator"))?;
@@ -766,6 +850,7 @@ impl<'a> TransactionBlockView<'a> {
         page: &TransactionPage,
         tx: &mut impl FnMut(Transaction) -> bool,
         relation: &mut impl FnMut(Relation) -> bool,
+        query: Option<TransactionQuery>,
     ) -> Result<bool> {
         let start = page.blob_offset as usize;
         let raw = wire::decompress(
@@ -783,7 +868,7 @@ impl<'a> TransactionBlockView<'a> {
                 &raw,
                 self.types,
                 self.generators,
-                &self.ids,
+                &self.directory.ids,
                 page.bounds.transactions,
                 self.max_payload_bytes,
                 |record| {
@@ -793,7 +878,7 @@ impl<'a> TransactionBlockView<'a> {
                     }
                     previous = record.id;
                     bounds.add_transaction(&record);
-                    tx(record)
+                    query.is_some_and(|q| !q.matches(&record)) || tx(record)
                 },
             )?;
             if let Some(error) = error {
@@ -804,7 +889,7 @@ impl<'a> TransactionBlockView<'a> {
             }
             Ok(complete)
         } else {
-            page::decode(&raw, page.bounds, self, tx, relation)
+            page::decode(&raw, page.bounds, self, tx, relation, query)
         }
     }
 
@@ -816,7 +901,10 @@ impl<'a> TransactionBlockView<'a> {
         if query.begin > query.end {
             return Err(Error::invalid("invalid transaction window"));
         }
-        for page in &self.pages {
+        if !self.directory.matches(query) {
+            return Ok(());
+        }
+        for page in &self.directory.pages {
             let bounds = page.bounds;
             if bounds.transactions == 0
                 || bounds.begin > query.end
@@ -833,26 +921,29 @@ impl<'a> TransactionBlockView<'a> {
             {
                 continue;
             }
-            if !self.decode_page(
-                page,
-                &mut |tx| {
-                    if tx.begin <= query.end
-                        && tx.end >= query.begin
-                        && query.generator.is_none_or(|id| id == tx.generator)
-                        && query.parent.is_none_or(|id| id == tx.parent)
-                        && query.id.is_none_or(|id| id == tx.id)
-                        && query.embedded_id.is_none_or(|id| {
-                            tx.events.iter().any(|e| e.id == id)
-                                || tx.stages.iter().any(|s| s.id == id)
-                        })
-                    {
-                        visit(tx)
-                    } else {
-                        true
-                    }
-                },
-                &mut |_| true,
-            )? {
+            if !self.decode_page(page, &mut visit, &mut |_| true, Some(query))? {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    fn decode_relations(
+        &self,
+        page: &TransactionPage,
+        visit: &mut impl FnMut(Relation) -> bool,
+    ) -> Result<bool> {
+        let start = page.blob_offset as usize;
+        let raw = wire::decompress(
+            &self.blobs[start..start + page.blob_length as usize],
+            page.raw_length as usize,
+        )?;
+        page::relations(&raw, page.bounds, self, visit)
+    }
+
+    pub fn scan_relations(&self, mut visit: impl FnMut(Relation) -> bool) -> Result<()> {
+        for page in &self.directory.pages {
+            if page.bounds.relations != 0 && !self.decode_relations(page, &mut visit)? {
                 return Ok(());
             }
         }
@@ -865,7 +956,7 @@ impl<'a> TransactionBlockView<'a> {
         incoming: bool,
         mut visit: impl FnMut(Relation) -> bool,
     ) -> Result<()> {
-        for page in &self.pages {
+        for page in &self.directory.pages {
             let bounds = page.bounds;
             let (min, max) = if incoming {
                 (bounds.min_to, bounds.max_to)
@@ -875,7 +966,7 @@ impl<'a> TransactionBlockView<'a> {
             if bounds.relations == 0 || endpoint < min || endpoint > max {
                 continue;
             }
-            if !self.decode_page(page, &mut |_| true, &mut |relation| {
+            if !self.decode_relations(page, &mut |relation| {
                 if (if incoming {
                     relation.destination
                 } else {
@@ -899,7 +990,7 @@ impl<'a> TransactionBlockView<'a> {
         mut relation: impl FnMut(Relation) -> bool,
     ) -> Result<()> {
         let mut used = HashSet::new();
-        for page in &self.pages {
+        for page in &self.directory.pages {
             if !self.decode_page(
                 page,
                 &mut |record| {
@@ -907,11 +998,12 @@ impl<'a> TransactionBlockView<'a> {
                     tx(record)
                 },
                 &mut relation,
+                None,
             )? {
                 return Ok(());
             }
         }
-        if used.len() != self.ids.len() {
+        if used.len() != self.directory.ids.len() {
             return Err(Error::Corrupt("unused transaction generator table entry"));
         }
         Ok(())
@@ -936,6 +1028,67 @@ impl<'a> TransactionBlockView<'a> {
             Err(Error::Corrupt("duplicate global record identifier"))
         } else {
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    use crate::schema::{Payload, Primitive};
+
+    #[test]
+    fn page_visitors_receive_only_complete_selected_records() {
+        for general in [false, true] {
+            let types = Types::new();
+            let mut generators = Generators::default();
+            for id in [10, 11] {
+                generators
+                    .declare(Generator {
+                        id,
+                        kind: RecordKind::Transaction,
+                        payload_type: Primitive::U64.id(),
+                    })
+                    .unwrap();
+            }
+            let rows: Vec<_> = (1..=3u64)
+                .map(|id| {
+                    let mut payload = Vec::new();
+                    id.encode(&mut payload).unwrap();
+                    Transaction {
+                        id,
+                        generator: if id == 2 { 11 } else { 10 },
+                        begin: id,
+                        end: id,
+                        payload,
+                        child_blocks: if general { vec![7] } else { Vec::new() },
+                        ..Default::default()
+                    }
+                })
+                .collect();
+            let encoded =
+                encode_transaction_block(1, &types, &generators, &rows, &[], Default::default())
+                    .unwrap();
+            let view = TransactionBlockView::with_defaults(&encoded, &types, &generators).unwrap();
+            assert_eq!(view.pages().len(), 1);
+            let mut seen = Vec::new();
+            let complete = view
+                .decode_page(
+                    &view.pages()[0],
+                    &mut |record| {
+                        assert_eq!(record, rows[1]);
+                        seen.push(record.id);
+                        false
+                    },
+                    &mut |_| true,
+                    Some(TransactionQuery {
+                        generator: Some(11),
+                        ..Default::default()
+                    }),
+                )
+                .unwrap();
+            assert!(!complete);
+            assert_eq!(seen, [2]);
         }
     }
 }

@@ -70,13 +70,25 @@ fn reference_cpp_payloads_match_in_both_directions() {
             &global,
         )
         .unwrap();
+        let mut selective = ArgumentReader::new(
+            columns.each_ref().map(Vec::as_slice),
+            u64::MAX,
+            1 << 20,
+            &global,
+        )
+        .unwrap();
         let mut encoder =
             ArgumentColumns::new(u64::MAX, (!global.is_empty()).then_some(&references));
-        for row in fixture["rows"].as_array().unwrap() {
+        for (index, row) in fixture["rows"].as_array().unwrap().iter().enumerate() {
             let datatype = row[0].as_u64().unwrap() as u32;
             let expected = unhex(row[1].as_str().unwrap());
             types.validate(datatype, &expected, u64::MAX).unwrap();
             assert_eq!(reader.read(&types, datatype).unwrap(), expected);
+            if index % 2 == 0 {
+                selective.skip(&types, datatype).unwrap();
+            } else {
+                assert_eq!(selective.read(&types, datatype).unwrap(), expected);
+            }
             encoder.append(&types, datatype, &expected).unwrap();
             for end in 0..expected.len() {
                 assert!(
@@ -87,6 +99,7 @@ fn reference_cpp_payloads_match_in_both_directions() {
             }
         }
         reader.done().unwrap();
+        selective.done().unwrap();
         assert_eq!(encoder.finish(), columns);
     }
 }

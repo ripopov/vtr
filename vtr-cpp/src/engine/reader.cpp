@@ -3,6 +3,8 @@
 #include "format.h"
 #include "transaction_memory.h"
 #include <deque>
+#include <list>
+#include <map>
 
 namespace vtr::detail::engine {
 namespace {
@@ -13,6 +15,65 @@ std::size_t owned_bytes(const Transaction& tx) {
     const auto indexes = detail::memory_add(tx.events.size(), tx.stages.size());
     return detail::memory_add(detail::owned_tx(tx), detail::memory_mul(indexes, 48));
 }
+
+class LocatedPageCache {
+  public:
+    using Key = std::pair<std::uint64_t, std::uint32_t>;
+
+  private:
+    struct Entry {
+        Key key;
+        std::shared_ptr<const Bytes> page;
+    };
+
+    using Queue = std::list<Entry>;
+    const std::size_t limit_;
+    std::size_t bytes_ = 0;
+    Queue order_;
+    std::map<Key, Queue::iterator> entries_;
+
+  public:
+    explicit LocatedPageCache(std::size_t limit) : limit_(limit) {}
+
+    std::shared_ptr<const Bytes> get(Key key) const {
+        const auto found = entries_.find(key);
+        return found == entries_.end() ? nullptr : found->second->page;
+    }
+
+    void insert(Key key, const std::shared_ptr<const Bytes>& page) {
+        const auto bytes = page->capacity();
+        if (!limit_ || bytes > limit_ || entries_.contains(key))
+            return;
+        order_.push_back({key, page});
+        try {
+            entries_.emplace(key, std::prev(order_.end()));
+        } catch (...) {
+            order_.pop_back();
+            throw;
+        }
+        while (bytes > limit_ - bytes_) {
+            const auto& oldest = order_.front();
+            bytes_ -= oldest.page->capacity();
+            entries_.erase(oldest.key);
+            order_.pop_front();
+        }
+        bytes_ += bytes;
+    }
+
+    std::size_t size() const {
+        return entries_.size();
+    }
+
+    std::size_t bytes() const {
+        return bytes_;
+    }
+
+    void clear() {
+        entries_.clear();
+        order_.clear();
+        bytes_ = 0;
+    }
+};
 
 Timestamp period(const Transaction& tx, const vtr::detail::wire::Reader& native) {
     std::optional<Timestamp> value;
@@ -55,47 +116,79 @@ struct Reader::Impl {
     mutable std::deque<RecordId> order;
     mutable std::size_t cache_bytes = 0;
 
+    mutable LocatedPageCache located_pages;
+
+    std::shared_ptr<const Bytes> located_page(std::uint64_t block, std::uint32_t page) const {
+        const LocatedPageCache::Key key{block, page};
+        if (auto found = located_pages.get(key))
+            return found;
+        auto raw = std::make_shared<const Bytes>(file.record_block(block)->read_page(page));
+        located_pages.insert(key, raw);
+        return raw;
+    }
+
     Impl(const std::string& path, ReaderOptions opts)
-        : file(path, opts.verify_checksums, opts.max_payload_bytes), options(opts) {}
+        : file(path, opts.verify_checksums, opts.max_payload_bytes), options(opts),
+          located_pages(opts.located_page_cache_bytes) {}
+
+    void prime_owner(const Transaction& tx) const {
+        if (options.owner_cache_entries && options.owner_cache_bytes && !cached(tx.id) &&
+            owned_bytes(tx) <= options.owner_cache_bytes) {
+            remember(tx);
+        }
+    }
 
     TransactionRef cached(RecordId id) const {
         auto i = cache.find(id);
         return i == cache.end() ? nullptr : i->second;
     }
 
+    void forget_details(const Transaction& tx) const {
+        const auto erase = [&](RecordId id) {
+            auto entry = details.find(id);
+            if (entry != details.end() && entry->second.owner == tx.id)
+                details.erase(entry);
+        };
+        for (const auto& event : tx.events)
+            erase(event.id);
+        for (const auto& stage : tx.stages)
+            erase(stage.id);
+    }
+
     TransactionRef remember(const Transaction& tx) const {
+        if (auto existing = cached(tx.id)) {
+            return existing;
+        }
         auto ref = std::make_shared<const Transaction>(tx);
         auto bytes = owned_bytes(*ref);
         if (!options.owner_cache_entries || bytes > options.owner_cache_bytes) {
             return ref;
         }
-        auto existing = cache.find(tx.id);
-        if (existing != cache.end()) {
-            return existing->second;
+        order.push_back(tx.id);
+        try {
+            cache.emplace(tx.id, ref);
+            for (std::size_t i = 0; i < tx.events.size(); ++i) {
+                details.emplace(tx.events[i].id, Detail{tx.id, i, false});
+            }
+            for (std::size_t i = 0; i < tx.stages.size(); ++i) {
+                details.emplace(tx.stages[i].id, Detail{tx.id, i, true});
+            }
+        } catch (...) {
+            forget_details(tx);
+            cache.erase(tx.id);
+            order.pop_back();
+            throw;
         }
-        while (!cache.empty() && (cache.size() >= options.owner_cache_entries ||
-                                  bytes > options.owner_cache_bytes - cache_bytes)) {
+        while (cache.size() > options.owner_cache_entries ||
+               bytes > options.owner_cache_bytes - cache_bytes) {
             auto id = order.front();
             order.pop_front();
             auto old = cache.find(id);
             cache_bytes -= owned_bytes(*old->second);
-            for (const auto& e : old->second->events) {
-                details.erase(e.id);
-            }
-            for (const auto& s : old->second->stages) {
-                details.erase(s.id);
-            }
+            forget_details(*old->second);
             cache.erase(old);
         }
-        cache.emplace(tx.id, ref);
         cache_bytes += bytes;
-        order.push_back(tx.id);
-        for (std::size_t i = 0; i < tx.events.size(); ++i) {
-            details.emplace(tx.events[i].id, Detail{tx.id, i, false});
-        }
-        for (std::size_t i = 0; i < tx.stages.size(); ++i) {
-            details.emplace(tx.stages[i].id, Detail{tx.id, i, true});
-        }
         return ref;
     }
 };
@@ -177,7 +270,11 @@ std::shared_ptr<const vtr::detail::wire::SignalData> Reader::load_signal(Id sign
 
 void Reader::transactions(TransactionQuery query,
                           const std::function<bool(const Transaction&)>& visit) const {
-    impl_->file.transactions(query, visit);
+    impl_->file.transactions(query, [&](const auto& tx) {
+        if (!tx.child_blocks.empty())
+            impl_->prime_owner(tx);
+        return visit(tx);
+    });
 }
 
 void Reader::records(RecordQuery query,
@@ -309,10 +406,12 @@ Expansion Reader::expand(RecordId id) const {
         impl_->file.section_data(*section);
         auto previous = result.located.size();
         impl_->file.record_block(number)->query(
-            {.generator = {}, .parent = id, .include_logs = false}, [&](const auto& record) {
+            {.generator = {}, .parent = id, .include_logs = false},
+            [&](const auto& record) {
                 result.located.push_back(record);
                 return true;
-            });
+            },
+            [&](std::uint32_t page) { return impl_->located_page(number, page); });
         require(result.located.size() != previous, "located child block has no matching child");
     }
     std::sort(result.located.begin(), result.located.end(),
@@ -567,7 +666,7 @@ ValidationReport Reader::validate() const {
 
 CacheStats Reader::cache_stats() const {
     auto& p = *impl_;
-    return {p.cache.size(), p.cache_bytes};
+    return {p.cache.size(), p.cache_bytes, p.located_pages.size(), p.located_pages.bytes()};
 }
 
 void Reader::clear_cache() const {
@@ -577,6 +676,7 @@ void Reader::clear_cache() const {
         p.details.clear();
         p.order.clear();
         p.cache_bytes = 0;
+        p.located_pages.clear();
     }
     p.file.waveform().clear_cache();
 }

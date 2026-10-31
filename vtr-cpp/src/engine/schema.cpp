@@ -655,7 +655,60 @@ ArgumentReader::ArgumentReader(std::array<View, 5> columns, std::uint64_t string
     columns_[3] = {};
 }
 
+namespace {
+class ArgumentOutput {
+    std::optional<Payload> payload_;
+    std::size_t remaining_;
+
+    void consume(std::size_t bytes) {
+        require(bytes <= remaining_, "typed payload byte limit exceeded",
+                ErrorCode::resource_limit);
+        remaining_ -= bytes;
+    }
+
+  public:
+    ArgumentOutput(bool retain, std::size_t limit)
+        : remaining_(std::min<std::size_t>(limit, UINT32_MAX)) {
+        if (retain)
+            payload_.emplace(64, remaining_);
+    }
+
+    template <class T> void scalar(T value) {
+        consume(sizeof(T));
+        if (payload_)
+            payload_->scalar(value);
+    }
+
+    void raw(View bytes) {
+        consume(bytes.size());
+        if (payload_)
+            payload_->raw(bytes);
+    }
+
+    void length(std::size_t length) {
+        require(length <= UINT32_MAX, "collection exceeds u32");
+        scalar(static_cast<std::uint32_t>(length));
+    }
+
+    std::size_t remaining() const {
+        return remaining_;
+    }
+
+    Bytes take() && {
+        return payload_ ? std::move(*payload_).take() : Bytes{};
+    }
+};
+} // namespace
+
 Bytes ArgumentReader::read(const Types& types, TypeId type) {
+    return decode(types, type, true);
+}
+
+void ArgumentReader::skip(const Types& types, TypeId type) {
+    decode(types, type, false);
+}
+
+Bytes ArgumentReader::decode(const Types& types, TypeId type, bool retain) {
     if (types[type].fixed_size == 0) {
         return {};
     }
@@ -663,7 +716,7 @@ Bytes ArgumentReader::read(const Types& types, TypeId type) {
     for (unsigned i = 0; i < 5; ++i) {
         cursors[i] = Cursor(columns_[i]);
     }
-    Payload row(64, max_payload_bytes_);
+    ArgumentOutput row(retain, max_payload_bytes_);
     auto scalar = [&](Primitive p) {
         auto& numeric = cursors[0];
         auto& floats = cursors[1];
@@ -783,12 +836,16 @@ Bytes ArgumentReader::read(const Types& types, TypeId type) {
             }
         }
     };
-    visit(visit, type);
-    for (unsigned i = 0; i < 5; ++i) {
-        columns_[i] = cursors[i].data;
+    const auto saved_dictionary = next_dictionary_;
+    try {
+        visit(visit, type);
+    } catch (...) {
+        next_dictionary_ = saved_dictionary;
+        throw;
     }
     auto result = std::move(row).take();
-    require(result.size() <= UINT32_MAX, "decoded payload exceeds u32");
+    for (unsigned i = 0; i < 5; ++i)
+        columns_[i] = cursors[i].data;
     return result;
 }
 

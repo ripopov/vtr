@@ -507,11 +507,20 @@ conservative filters. A located positive-duration stage intersects when
 intersection `begin <= b && end >= a`. Embedded record times do not expand owner
 bounds. Locators select children regardless of owner/child temporal containment.
 
-Track queries select generator/datatype segments and matching time/parent/ID bounds
+Located record queries select generator/datatype segments and matching time/parent/ID bounds
 before decompressing pages. A page may contain unrelated segments; decompression
 is page-sized, while decoding can be segment-specific. Full section CRC checking
 still reads the entire compressed section. Independent pages bound decompression,
 not all checksum I/O.
+
+Readers retain validated block directories and reject unrelated transaction
+generators and ID ranges before reading page data. Directory metadata and its
+declaration bounds are immutable; views expose them through read-only accessors.
+Within general transaction pages, nonmatching owners consume and validate
+argument and attribute columns without retaining payloads or embedded detail.
+Only complete selected owners reach transaction visitors. Relation queries read
+endpoint and attribute columns without decoding owner payloads. Full validation
+still checks all columns, including data outside a selective query.
 
 Expanding an owner selects its child block numbers and EVENT/STAGE segments whose
 parent bounds contain the ID, then filters exact parents. LOG segments are
@@ -520,6 +529,19 @@ record count cannot be inferred. ID lookup prunes block/segment/page ID ranges;
 ranges across blocks can overlap. TX pages within a block have disjoint sorted
 ID ranges, but broad ranges may still select unrelated rows. Retained payloads
 own their schema and storage independently of reader caches and reader lifetime.
+
+Transaction visitors make owners with child locators available to nested
+expansion through the bounded owner cache before invoking the callback.
+Expansion also reuses decompressed located-record pages through a separate FIFO
+cache. `located_page_cache_bytes` bounds retained page storage and defaults to 8
+MiB; zero disables it. Owner-cache limits remain independent, and clearing
+either cache preserves its configured limits. Owner byte charges include spare
+vector capacity and recursively owned attribute storage. C++ cache index
+insertion rolls back on allocation failure, preserving usable cache state for
+later queries. Cache statistics expose retained located-page counts and bytes,
+and `clear_cache()` clears both caches without discarding block directories.
+Callbacks do not hold cache locks; retained records remain valid after eviction
+or cache clearing.
 
 Creation IDs, timestamps, completion order, and physical storage order are
 separate. Stable grouping preserves each located generator/datatype group's sequence

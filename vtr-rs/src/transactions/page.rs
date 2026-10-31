@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     EmbeddedEvent, EmbeddedStage, Relation, Transaction, TransactionBlockView, TransactionBounds,
-    validate_transaction,
+    TransactionQuery, validate_transaction,
 };
 use crate::{
     Error, Result,
@@ -198,17 +198,18 @@ pub(super) fn decode(
     view: &TransactionBlockView<'_>,
     visit_tx: &mut impl FnMut(Transaction) -> bool,
     visit_relation: &mut impl FnMut(Relation) -> bool,
+    query: Option<TransactionQuery>,
 ) -> Result<bool> {
     let columns = wire::unpack_columns::<33>(raw)?;
     let mut metadata = columns.map(Cursor::new);
     let mut attributes = AttributeReader::new(
         std::array::from_fn(|i| columns[i + 6]),
-        view.strings,
+        view.directory.strings,
         view.max_payload_bytes,
     );
     let mut arguments = ArgumentReader::new(
         std::array::from_fn(|i| columns[i + 24]),
-        view.strings,
+        view.directory.strings,
         view.max_payload_bytes,
         view.shared_text,
     )?;
@@ -223,13 +224,13 @@ pub(super) fn decode(
     let mut previous_id = 0u64;
     let mut previous_event = 0u64;
     let mut previous_stage = 0u64;
-    let mut previous_from = 0u64;
     let mut previous_begin = 0u64;
     let mut actual = TransactionBounds::default();
     for index in 0..expected.transactions {
         let id = previous_id.wrapping_add(unzigzag(metadata[0].var()?) as u64);
         let local = metadata[1].var()?;
         let generator = *view
+            .directory
             .ids
             .get(
                 usize::try_from(local)
@@ -253,10 +254,19 @@ pub(super) fn decode(
             end,
             status: classification & 15,
             span_kind: classification >> 4,
-            attributes: attributes.read()?,
             ..Transaction::default()
         };
+        let retain = query.is_none_or(|q| q.matches_owner(&tx));
+        let declaration = view.generators.get(generator)?;
+        if retain {
+            tx.attributes = attributes.read()?;
+        } else {
+            attributes.skip()?;
+        }
         let count = metadata[13].var()?;
+        if declaration.kind == crate::RecordKind::Clock && count != 0 {
+            return Err(Error::Corrupt("clock has embedded events"));
+        }
         if count > metadata[15].remaining() as u64 || count > metadata[31].remaining() as u64 {
             return Err(Error::Corrupt("invalid embedded event count"));
         }
@@ -265,14 +275,25 @@ pub(super) fn decode(
             let name = metadata[15].id()?;
             let event_id = previous_event.wrapping_add(unzigzag(metadata[31].var()?) as u64);
             previous_event = event_id;
-            tx.events.push(EmbeddedEvent {
-                id: event_id,
-                time,
-                name,
-                attributes: attributes.read()?,
-            });
+            if event_id <= id || u64::from(name) >= view.directory.strings {
+                return Err(Error::Corrupt("invalid embedded event"));
+            }
+            actual.add_embedded(event_id);
+            if retain {
+                tx.events.push(EmbeddedEvent {
+                    id: event_id,
+                    time,
+                    name,
+                    attributes: attributes.read()?,
+                });
+            } else {
+                attributes.skip()?;
+            }
         }
         let count = metadata[16].var()?;
+        if declaration.kind == crate::RecordKind::Clock && count != 0 {
+            return Err(Error::Corrupt("clock has embedded stages"));
+        }
         if count > metadata[17].remaining() as u64 || count > metadata[32].remaining() as u64 {
             return Err(Error::Corrupt("invalid embedded stage count"));
         }
@@ -283,17 +304,35 @@ pub(super) fn decode(
             let finish = super::time::stage_end(&mut metadata[20], start)?;
             let stage_id = previous_stage.wrapping_add(unzigzag(metadata[32].var()?) as u64);
             previous_stage = stage_id;
-            tx.stages.push(EmbeddedStage {
-                id: stage_id,
-                name,
-                lane,
-                begin: start,
-                end: finish,
-                attributes: attributes.read()?,
-            });
+            if stage_id <= id
+                || u64::from(name) >= view.directory.strings
+                || u64::from(lane) >= view.directory.strings
+            {
+                return Err(Error::Corrupt("invalid embedded stage"));
+            }
+            actual.add_embedded(stage_id);
+            if retain {
+                tx.stages.push(EmbeddedStage {
+                    id: stage_id,
+                    name,
+                    lane,
+                    begin: start,
+                    end: finish,
+                    attributes: attributes.read()?,
+                });
+            } else {
+                attributes.skip()?;
+            }
         }
-        tx.payload = arguments.read(view.types, view.generators.get(generator)?.payload_type)?;
+        if retain {
+            tx.payload = arguments.read(view.types, declaration.payload_type)?;
+        } else {
+            arguments.skip(view.types, declaration.payload_type)?;
+        }
         let count = metadata[29].var()?;
+        if declaration.kind == crate::RecordKind::Clock && count != 0 {
+            return Err(Error::Corrupt("clock has located children"));
+        }
         if count > metadata[30].remaining() as u64 {
             return Err(Error::Corrupt("invalid located block count"));
         }
@@ -306,22 +345,54 @@ pub(super) fn decode(
             block = block
                 .checked_add(delta)
                 .ok_or_else(|| Error::corrupt("located block delta overflow"))?;
-            tx.child_blocks.push(block);
+            if retain {
+                tx.child_blocks.push(block);
+            }
         }
-        validate_transaction(&tx, view.generators.get(generator)?, view.strings)?;
+        validate_transaction(&tx, view.generators.get(generator)?, view.directory.strings)?;
         if index != 0 && previous_id >= id {
             return Err(Error::Corrupt("unordered transaction IDs"));
         }
         previous_id = id;
         previous_begin = begin;
         actual.add_transaction(&tx);
-        if !visit_tx(tx) {
+        if retain && query.is_none_or(|q| q.matches(&tx)) && !visit_tx(tx) {
             return Ok(false);
         }
     }
-    for _ in 0..expected.relations {
+    if !read_relations(
+        &mut metadata,
+        &mut attributes,
+        expected.relations,
+        view.directory.strings,
+        &mut actual,
+        visit_relation,
+    )? {
+        return Ok(false);
+    }
+    for column in metadata {
+        column.done()?;
+    }
+    attributes.done()?;
+    arguments.done()?;
+    if actual != expected {
+        return Err(Error::Corrupt("decoded transaction page bounds disagree"));
+    }
+    Ok(true)
+}
+
+fn read_relations(
+    metadata: &mut [Cursor<'_>; 33],
+    attributes: &mut AttributeReader<'_>,
+    count: u64,
+    strings: u64,
+    actual: &mut TransactionBounds,
+    visit_relation: &mut impl FnMut(Relation) -> bool,
+) -> Result<bool> {
+    let mut previous_from = 0u64;
+    for _ in 0..count {
         let kind = metadata[21].id()?;
-        if u64::from(kind) >= view.strings {
+        if u64::from(kind) >= strings {
             return Err(Error::Corrupt("unknown relation kind"));
         }
         let source = previous_from.wrapping_add(unzigzag(metadata[22].var()?) as u64);
@@ -338,13 +409,64 @@ pub(super) fn decode(
             return Ok(false);
         }
     }
-    for column in metadata {
-        column.done()?;
+    Ok(true)
+}
+
+pub(super) fn relations(
+    raw: &[u8],
+    expected: TransactionBounds,
+    view: &TransactionBlockView<'_>,
+    visit: &mut impl FnMut(Relation) -> bool,
+) -> Result<bool> {
+    let columns = wire::unpack_columns::<33>(raw)?;
+    let mut metadata = columns.map(Cursor::new);
+    let mut attributes = AttributeReader::new(
+        std::array::from_fn(|i| columns[i + 6]),
+        view.directory.strings,
+        view.max_payload_bytes,
+    );
+    if expected.transactions > columns[13].len() as u64
+        || expected.transactions > columns[16].len() as u64
+        || expected.relations > columns[21].len() as u64
+    {
+        return Err(Error::Corrupt("invalid transaction page count"));
+    }
+    for _ in 0..expected.transactions {
+        attributes.skip()?;
+        let events = metadata[13].var()?;
+        let stages = metadata[16].var()?;
+        if events > columns[15].len() as u64 || stages > columns[17].len() as u64 {
+            return Err(Error::Corrupt("invalid embedded count"));
+        }
+        for _ in 0..events {
+            attributes.skip()?;
+        }
+        for _ in 0..stages {
+            attributes.skip()?;
+        }
+    }
+    let mut actual = TransactionBounds::default();
+    if !read_relations(
+        &mut metadata,
+        &mut attributes,
+        expected.relations,
+        view.directory.strings,
+        &mut actual,
+        visit,
+    )? {
+        return Ok(false);
+    }
+    for i in [13, 16, 21, 22, 23] {
+        metadata[i].done()?;
     }
     attributes.done()?;
-    arguments.done()?;
-    if actual != expected {
-        return Err(Error::Corrupt("decoded transaction page bounds disagree"));
+    if actual.relations != expected.relations
+        || actual.min_from != expected.min_from
+        || actual.max_from != expected.max_from
+        || actual.min_to != expected.min_to
+        || actual.max_to != expected.max_to
+    {
+        return Err(Error::Corrupt("decoded relation page bounds disagree"));
     }
     Ok(true)
 }

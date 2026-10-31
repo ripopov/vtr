@@ -1,6 +1,10 @@
 //! Record identities, states, and independently selectable located-record pages.
 
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use crate::{
     Compression, Error, Result,
@@ -576,19 +580,25 @@ pub fn encode_record_block(
     Ok(out)
 }
 
-pub struct RecordBlockView<'a> {
-    pub number: u64,
-    pub count: u64,
-    pub min_id: u64,
-    pub max_id: u64,
-    pub begin: u64,
-    pub end: u64,
+#[derive(Clone)]
+pub(crate) struct RecordDirectory {
+    number: u64,
+    string_count: u64,
+    count: u64,
+    min_id: u64,
+    max_id: u64,
+    begin: u64,
+    end: u64,
     segments: Vec<SegmentHeader>,
     pages: Vec<PageHeader>,
+    blob_offset: usize,
+}
+
+pub struct RecordBlockView<'a> {
+    directory: Cow<'a, RecordDirectory>,
     blobs: &'a [u8],
     types: &'a Types,
     generators: &'a Generators,
-    string_count: u64,
     max_payload_bytes: usize,
 }
 
@@ -713,20 +723,73 @@ impl<'a> RecordBlockView<'a> {
             return Err(Error::Corrupt("record block aggregate bounds mismatch"));
         }
         Ok(Self {
-            number,
-            count,
-            min_id,
-            max_id,
-            begin,
-            end,
-            segments,
-            pages,
+            directory: Cow::Owned(RecordDirectory {
+                number,
+                string_count,
+                count,
+                min_id,
+                max_id,
+                begin,
+                end,
+                segments,
+                pages,
+                blob_offset: encoded.len() - blobs.len(),
+            }),
             blobs,
             types,
             generators,
-            string_count,
             max_payload_bytes,
         })
+    }
+
+    pub(crate) fn into_directory(self) -> RecordDirectory {
+        self.directory.into_owned()
+    }
+
+    pub(crate) fn from_directory(
+        encoded: &'a [u8],
+        directory: &'a RecordDirectory,
+        types: &'a Types,
+        generators: &'a Generators,
+        max_payload_bytes: usize,
+    ) -> Self {
+        Self {
+            directory: Cow::Borrowed(directory),
+            blobs: &encoded[directory.blob_offset..],
+            types,
+            generators,
+            max_payload_bytes,
+        }
+    }
+
+    #[must_use]
+    pub fn number(&self) -> u64 {
+        self.directory.number
+    }
+
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.directory.count
+    }
+
+    #[must_use]
+    pub fn min_id(&self) -> u64 {
+        self.directory.min_id
+    }
+
+    #[must_use]
+    pub fn max_id(&self) -> u64 {
+        self.directory.max_id
+    }
+
+    #[must_use]
+    pub fn begin(&self) -> u64 {
+        self.directory.begin
+    }
+
+    #[must_use]
+    pub fn end(&self) -> u64 {
+        self.directory.end
     }
 
     pub fn with_defaults(
@@ -739,11 +802,11 @@ impl<'a> RecordBlockView<'a> {
 
     #[must_use]
     pub fn segments(&self) -> &[SegmentHeader] {
-        &self.segments
+        &self.directory.segments
     }
     #[must_use]
     pub fn pages(&self) -> &[PageHeader] {
-        &self.pages
+        &self.directory.pages
     }
 
     pub(crate) fn activity(
@@ -753,9 +816,9 @@ impl<'a> RecordBlockView<'a> {
     ) -> Result<()> {
         let mut cached = None;
         let mut raw = Vec::new();
-        for segment in &self.segments {
+        for segment in &self.directory.segments {
             if cached != Some(segment.page) {
-                let page = &self.pages[segment.page as usize];
+                let page = &self.directory.pages[segment.page as usize];
                 admit(page.raw_length as usize)?;
                 let start = page.blob_offset as usize;
                 raw = wire::decompress(
@@ -793,14 +856,32 @@ impl<'a> RecordBlockView<'a> {
     pub fn query(
         &self,
         query: RecordQuery,
+        visit: impl FnMut(LocatedRecord) -> bool,
+    ) -> Result<()> {
+        self.query_with_pages(query, |page| self.read_page(page).map(Arc::new), visit)
+    }
+
+    pub(crate) fn read_page(&self, page: u32) -> Result<Vec<u8>> {
+        let page = &self.directory.pages[page as usize];
+        let start = page.blob_offset as usize;
+        wire::decompress(
+            &self.blobs[start..start + page.blob_length as usize],
+            page.raw_length as usize,
+        )
+    }
+
+    pub(crate) fn query_with_pages(
+        &self,
+        query: RecordQuery,
+        mut load_page: impl FnMut(u32) -> Result<Arc<Vec<u8>>>,
         mut visit: impl FnMut(LocatedRecord) -> bool,
     ) -> Result<()> {
         if query.begin > query.end {
             return Err(Error::invalid("invalid record query window"));
         }
         let mut cached_page = None;
-        let mut raw = Vec::new();
-        for segment in &self.segments {
+        let mut raw = None;
+        for segment in &self.directory.segments {
             let generator = self.generators.get(segment.generator)?;
             let datatype = self
                 .generators
@@ -821,21 +902,21 @@ impl<'a> RecordBlockView<'a> {
                 continue;
             }
             if cached_page != Some(segment.page) {
-                let page = &self.pages[segment.page as usize];
-                let start = page.blob_offset as usize;
-                raw = wire::decompress(
-                    &self.blobs[start..start + page.blob_length as usize],
-                    page.raw_length as usize,
-                )?;
+                let loaded = load_page(segment.page)?;
+                if loaded.len() != self.directory.pages[segment.page as usize].raw_length as usize {
+                    return Err(Error::Corrupt("loaded record page length mismatch"));
+                }
+                raw = Some(loaded);
                 cached_page = Some(segment.page);
             }
+            let raw = raw.as_ref().expect("selected record page");
             let start = segment.raw_offset as usize;
             let columns =
                 wire::unpack_columns::<9>(&raw[start..start + segment.raw_length as usize])?;
             let mut metadata: [Cursor<'_>; 4] = std::array::from_fn(|i| Cursor::new(columns[i]));
             let mut arguments = ArgumentReader::new(
                 std::array::from_fn(|i| columns[i + 4]),
-                self.string_count,
+                self.directory.string_count,
                 self.max_payload_bytes,
                 &[],
             )?;
@@ -863,6 +944,21 @@ impl<'a> RecordBlockView<'a> {
                 let end = begin
                     .checked_add(duration)
                     .ok_or_else(|| Error::corrupt("stage end overflow"))?;
+                let matches_time = begin <= query.end
+                    && if begin == end {
+                        begin >= query.begin
+                    } else {
+                        end > query.begin
+                    };
+                let selected = matches_time
+                    && query.parent.is_none_or(|wanted| wanted == parent)
+                    && query.id.is_none_or(|wanted| wanted == id);
+                let payload = if selected {
+                    arguments.read(self.types, datatype)?
+                } else {
+                    arguments.skip(self.types, datatype)?;
+                    Vec::new()
+                };
                 let record = LocatedRecord {
                     datatype_id: segment.datatype.unwrap_or(u32::MAX),
                     id,
@@ -870,24 +966,14 @@ impl<'a> RecordBlockView<'a> {
                     begin,
                     end,
                     parent,
-                    payload: arguments.read(self.types, datatype)?,
+                    payload,
                 };
                 valid_record(&record, generator)?;
                 bounds.add(&record);
                 previous_id = id;
                 previous_parent = parent;
                 previous_end = end;
-                let matches_time = begin <= query.end
-                    && if begin == end {
-                        begin >= query.begin
-                    } else {
-                        end > query.begin
-                    };
-                if matches_time
-                    && query.parent.is_none_or(|wanted| wanted == parent)
-                    && query.id.is_none_or(|wanted| wanted == id)
-                    && !visit(record)
-                {
+                if selected && !visit(record) {
                     return Ok(());
                 }
             }
@@ -911,7 +997,7 @@ impl<'a> RecordBlockView<'a> {
             duplicate |= !ids.insert(record.id);
             true
         })?;
-        if duplicate || count != self.count {
+        if duplicate || count != self.directory.count {
             return Err(Error::Corrupt(
                 "duplicate record identifier or count mismatch",
             ));

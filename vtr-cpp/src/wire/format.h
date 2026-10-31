@@ -174,7 +174,8 @@ Bytes decompress(View packed);
 std::uint32_t checksum(View data, std::uint32_t seed = 0);
 void encode_payload(Bytes& out, const Value& value);
 void validate_value(const Value& value, std::size_t string_count);
-Value decode_value(Cursor& r, std::optional<Tag> tag = {}, unsigned depth = 0);
+Value decode_value(Cursor& r, std::optional<Tag> tag = {}, unsigned depth = 0, bool retain = true,
+                   std::uint64_t strings = UINT64_MAX);
 void encode_value(Bytes& out, const Value& value);
 void encode_attrs(Bytes& out, std::span<const Attribute> attrs);
 Attributes decode_attrs(Cursor& r);
@@ -191,6 +192,7 @@ using AttributeColumns = std::array<Bytes, 7>;
 void checked_column_attrs(AttributeColumns& columns, std::span<const Attribute> attrs,
                           std::uint64_t strings);
 Attributes read_column_attrs(std::array<Cursor, 7>& columns);
+void skip_column_attrs(std::array<Cursor, 7>& columns, std::uint64_t strings);
 
 template <std::size_t N> Bytes pack_columns(const std::array<Bytes, N>& columns) {
     Bytes raw;

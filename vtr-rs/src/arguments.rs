@@ -157,6 +157,18 @@ impl PayloadVisitor for ArgumentColumns<'_> {
     }
 }
 
+#[derive(Default)]
+struct ArgumentOutput<const RETAIN: bool> {
+    bytes: Vec<u8>,
+    length: usize,
+}
+
+impl<const RETAIN: bool> ArgumentOutput<RETAIN> {
+    fn len(&self) -> usize {
+        self.length
+    }
+}
+
 pub struct ArgumentReader<'a> {
     columns: [Cursor<'a>; 5],
     dictionary: Vec<&'a str>,
@@ -211,15 +223,25 @@ impl<'a> ArgumentReader<'a> {
 
     /// A failed row does not consume columns or dictionary first-use state.
     pub fn read(&mut self, types: &Types, datatype: TypeId) -> Result<Vec<u8>> {
+        self.decode::<true>(types, datatype)
+    }
+
+    /// Validate and consume a row without retaining its canonical payload bytes.
+    /// Failure preserves the columns and dictionary first-use state.
+    pub fn skip(&mut self, types: &Types, datatype: TypeId) -> Result<()> {
+        self.decode::<false>(types, datatype).map(|_| ())
+    }
+
+    fn decode<const RETAIN: bool>(&mut self, types: &Types, datatype: TypeId) -> Result<Vec<u8>> {
         let saved = self.columns;
         let saved_dictionary = self.next_dictionary;
-        let mut out = Vec::new();
+        let mut out = ArgumentOutput::<RETAIN>::default();
         if let Err(error) = self.read_type(types, datatype, &mut out) {
             self.columns = saved;
             self.next_dictionary = saved_dictionary;
             return Err(error);
         }
-        Ok(out)
+        Ok(out.bytes)
     }
 
     pub fn done(&self) -> Result<()> {
@@ -232,20 +254,36 @@ impl<'a> ArgumentReader<'a> {
         Ok(())
     }
 
-    fn append(&self, out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
+    fn append<const RETAIN: bool>(
+        &self,
+        out: &mut ArgumentOutput<RETAIN>,
+        bytes: &[u8],
+    ) -> Result<()> {
         if bytes.len() > self.max_payload_bytes - out.len() {
             return Err(Error::Corrupt("typed payload byte limit exceeded"));
         }
-        out.extend_from_slice(bytes);
+        out.length += bytes.len();
+        if RETAIN {
+            out.bytes.extend_from_slice(bytes);
+        }
         Ok(())
     }
 
-    fn length(&self, out: &mut Vec<u8>, size: usize) -> Result<()> {
+    fn length<const RETAIN: bool>(
+        &self,
+        out: &mut ArgumentOutput<RETAIN>,
+        size: usize,
+    ) -> Result<()> {
         let size = u32::try_from(size).map_err(|_| Error::Corrupt("collection exceeds u32"))?;
         self.append(out, &size.to_le_bytes())
     }
 
-    fn read_type(&mut self, types: &Types, datatype: TypeId, out: &mut Vec<u8>) -> Result<()> {
+    fn read_type<const RETAIN: bool>(
+        &mut self,
+        types: &Types,
+        datatype: TypeId,
+        out: &mut ArgumentOutput<RETAIN>,
+    ) -> Result<()> {
         let datatype = types.get(datatype)?;
         if let Some(program) = &datatype.scalars {
             for primitive in program {
@@ -285,7 +323,11 @@ impl<'a> ArgumentReader<'a> {
         Ok(())
     }
 
-    fn scalar(&mut self, primitive: Primitive, out: &mut Vec<u8>) -> Result<()> {
+    fn scalar<const RETAIN: bool>(
+        &mut self,
+        primitive: Primitive,
+        out: &mut ArgumentOutput<RETAIN>,
+    ) -> Result<()> {
         match primitive {
             Primitive::Unit => (),
             Primitive::Bool => {
@@ -373,5 +415,58 @@ impl<'a> ArgumentReader<'a> {
             _ => return Err(Error::Corrupt("enum requires a declaration")),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{Field, Payload};
+
+    #[test]
+    fn skipping_rows_preserves_dictionary_order_and_validates_limits() {
+        let mut types = Types::new();
+        let datatype = types
+            .structure(
+                "Row",
+                vec![
+                    Field::new("text", Primitive::Text.id()),
+                    Field::new("valid", Primitive::Bool.id()),
+                ],
+            )
+            .unwrap();
+        let mut columns = ArgumentColumns::default();
+        let mut rows = Vec::new();
+        for text in ["first", "second", "first", "last"] {
+            let mut row = Vec::new();
+            text.to_owned().encode(&mut row).unwrap();
+            true.encode(&mut row).unwrap();
+            columns.append(&types, datatype, &row).unwrap();
+            rows.push(row);
+        }
+        let columns = columns.finish();
+        let views = columns.each_ref().map(Vec::as_slice);
+        let mut reader = ArgumentReader::with_defaults(views).unwrap();
+        reader.skip(&types, datatype).unwrap();
+        assert_eq!(reader.read(&types, datatype).unwrap(), rows[1]);
+        reader.skip(&types, datatype).unwrap();
+        assert_eq!(reader.read(&types, datatype).unwrap(), rows[3]);
+        reader.done().unwrap();
+
+        let mut limited = ArgumentReader::new(views, 0, rows[0].len() - 1, &[]).unwrap();
+        assert!(limited.skip(&types, datatype).is_err());
+        assert_eq!(
+            limited.read(&types, Primitive::Text.id()).unwrap(),
+            rows[0][..rows[0].len() - 1]
+        );
+        let mut malformed = columns.clone();
+        malformed[0][0] = 2;
+        let mut reader =
+            ArgumentReader::with_defaults(malformed.each_ref().map(Vec::as_slice)).unwrap();
+        assert!(reader.skip(&types, datatype).is_err());
+        assert_eq!(
+            reader.read(&types, Primitive::Text.id()).unwrap(),
+            rows[0][..rows[0].len() - 1]
+        );
     }
 }

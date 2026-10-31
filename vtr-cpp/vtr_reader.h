@@ -274,11 +274,14 @@ struct ReaderOptions {
     std::size_t max_payload_bytes = 64 << 20;
     std::size_t owner_cache_entries = 4'096;
     std::size_t owner_cache_bytes = 32 << 20;
+    std::size_t located_page_cache_bytes = 8 << 20;
 };
 
 struct CacheStats {
     std::size_t owner_entries = 0;
     std::size_t accounted_bytes = 0;
+    std::size_t located_pages = 0;
+    std::size_t located_page_bytes = 0;
 };
 
 enum class Completion { complete, incomplete, unfinished };

@@ -458,8 +458,9 @@ struct Reader::Impl {
     Provenance ending;
 
     Impl(const std::filesystem::path& path, ReaderOptions options)
-        : backend(path.string(), {options.verify_checksums, options.owner_cache_entries,
-                                  options.owner_cache_bytes, options.max_payload_bytes}),
+        : backend(path.string(),
+                  {options.verify_checksums, options.owner_cache_entries, options.owner_cache_bytes,
+                   options.max_payload_bytes, options.located_page_cache_bytes}),
           schema(std::make_shared<detail::PayloadSchema>(backend.container().retained_types(),
                                                          detail::identity(backend.trace_id()),
                                                          options.max_payload_bytes)),
@@ -813,7 +814,8 @@ ValidationReport Reader::validate() const {
 
 vtr::CacheStats Reader::cache_stats() const noexcept {
     auto stats = impl_->backend.cache_stats();
-    return {stats.owner_entries, stats.accounted_bytes};
+    return {stats.owner_entries, stats.accounted_bytes, stats.located_pages,
+            stats.located_page_bytes};
 }
 
 void Reader::clear_cache() const {

@@ -515,12 +515,72 @@ void write_failure(const fs::path& dir, unsigned workers) {
           "I/O failure did not preserve exactly the committed prefix");
 }
 
+void reader_cache_failures(const fs::path& directory) {
+    auto path = directory / "reader-caches.vtr";
+    Writer writer(path, {.codec = vtr::detail::wire::Codec::stored});
+    auto owners = writer.add_generator(none, "owners", "OWNER");
+    auto stages = writer.add_generator(none, "stages", "STAGE", 13);
+    auto name = writer.intern("event");
+
+    struct Expected {
+        RecordId owner, embedded, stage;
+    };
+
+    std::array<Expected, 3> expected;
+    for (unsigned i = 0; i < expected.size(); ++i) {
+        auto owner = writer.begin(owners, i * 10);
+        auto embedded = writer.embedded_event(owner, i * 10 + 1, name);
+        writer.embedded_event(owner, i * 10 + 2, name);
+        auto stage = writer.begin_stage(stages, owner, i * 10 + 1, capture(std::string("payload")));
+        writer.end_stage(stage, i * 10 + 5);
+        writer.end(owner, i * 10 + 9);
+        writer.flush();
+        expected[i] = {owner, embedded, stage};
+    }
+    writer.close();
+    for (unsigned point = 0; point < 1024; ++point) {
+        Reader reader(
+            path,
+            {.verify_checksums = true, .owner_cache_entries = 1, .located_page_cache_bytes = 256});
+        check(reader.transaction(expected[0].owner) != nullptr, "initial owner missing");
+        bool failed = false;
+        fail_after = point;
+        try {
+            reader.expand(expected[1].owner);
+        } catch (const std::bad_alloc&) {
+            failed = true;
+        }
+        fail_after = -1;
+        for (const auto& row : expected) {
+            auto expanded = reader.expand(row.owner);
+            check(expanded.owner && expanded.located.size() == 1 &&
+                      expanded.located[0].id == row.stage,
+                  "failed cache insertion corrupted subsequent expansion");
+            auto embedded = reader.lookup(row.embedded);
+            check(embedded && embedded->parent() == row.owner,
+                  "failed owner admission left a dangling embedded index");
+            const auto stats = reader.cache_stats();
+            check(stats.owner_entries <= 1 && stats.located_page_bytes <= 256,
+                  "failed cache admission violated memory limits");
+        }
+        reader.clear_cache();
+        check(reader.cache_stats().located_page_bytes == 0, "failed cache state survived clearing");
+        if (!failed) {
+            std::cout << "reader caches: " << point
+                      << " allocation failure points preserved reuse\n";
+            return;
+        }
+    }
+    throw std::runtime_error("reader cache allocation sweep never reached success");
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) {
             throw std::runtime_error("usage: failure_test DIRECTORY");
         }
         fs::create_directories(argv[1]);
+        reader_cache_failures(argv[1]);
         allocation_free_recording(argv[1]);
         allocation_free_large_capture(argv[1]);
         failed_direct_capture(argv[1]);

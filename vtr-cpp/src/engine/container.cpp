@@ -122,8 +122,10 @@ void ContainerReader::transactions(TransactionQuery query,
         if (section.kind != 5 || query.end < section.aux0 || query.begin > section.aux1) {
             continue;
         }
-        native_.section_data(section);
         const auto& view = *transaction_block(section.block_number);
+        if (!view.matches(query))
+            continue;
+        native_.section_data(section);
         view.transactions(query, [&](const auto& tx) {
             keep_going = visit(tx);
             return keep_going;

@@ -1116,6 +1116,71 @@ void declaration_errors(const std::filesystem::path& directory) {
     expect(vt::ErrorCode::io, [&] { vt::Reader reader(directory / "absent.vtr"); });
 }
 
+void nested_expansion_caches(const std::filesystem::path& path) {
+    struct Expected {
+        vt::RecordId owner, stage;
+        std::string payload;
+    };
+
+    std::vector<Expected> expected;
+    vt::WriterOptions options;
+    options.mode = vt::ExecutionMode::inline_;
+    options.encoding.page_bytes = 256;
+    vt::Writer writer(path, options);
+    auto source = writer.transactions<std::uint64_t>({.name = "owners"});
+    auto stages = writer.stages<std::string>({.name = "stages"});
+    for (std::uint64_t i = 0; i < 12; ++i) {
+        auto owner = writer.begin_at(source, i * 10, i);
+        auto payload = "stage " + std::to_string(i) + ": " + std::string(80, 'x');
+        auto stage = writer.begin_at(stages, owner, i * 10 + 1, payload);
+        writer.end_at(stage, i * 10 + 5);
+        writer.end_at(owner, i * 10 + 9);
+        writer.flush();
+        expected.push_back({owner.id(), stage.id(), payload});
+    }
+    writer.close();
+    for (std::size_t owners : {0, 1, 2}) {
+        for (std::size_t pages : {0, 1, 256, 1 << 20}) {
+            std::optional<vt::Record> retained;
+            {
+                vt::Reader reader(
+                    path, {.owner_cache_entries = owners, .located_page_cache_bytes = pages});
+                std::size_t count = 0;
+                reader.transactions({.generator = source.id()}, [&](const vt::Record& owner) {
+                    if (owners)
+                        check(reader.cache_stats().owner_entries > 0,
+                              "owner not retained before callback");
+                    const auto& row = expected.at(count);
+                    check(owner.id() == row.owner, "nested query changed owner order");
+                    auto expansion = reader.expand(owner.id());
+                    check(expansion.complete && expansion.located.size() == 1,
+                          "nested expansion lost children");
+                    const auto& stage = expansion.located.front();
+                    check(stage.id() == row.stage &&
+                              stage.payload().as<std::string>() == row.payload,
+                          "cache eviction changed located payload");
+                    retained = stage;
+                    if (count % 3 == 0)
+                        reader.clear_cache();
+                    const auto stats = reader.cache_stats();
+                    check(stats.owner_entries <= owners && stats.located_page_bytes <= pages,
+                          "cache exceeded limits");
+                    ++count;
+                    return vt::Flow::next;
+                });
+                check(count == expected.size(), "nested query lost owners");
+                const auto stats = reader.cache_stats();
+                check(pages <= 1 ? stats.located_pages == 0 : stats.located_pages > 0,
+                      "disabled or populated page cache differs");
+                reader.clear_cache();
+                check(reader.cache_stats().located_page_bytes == 0, "page cache did not clear");
+            }
+            check(retained->payload().as<std::string>() == expected.back().payload,
+                  "located payload did not survive reader destruction");
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     try {
         auto root = std::filesystem::path(argc > 1 ? argv[1] : "api-fixtures");
@@ -1131,6 +1196,7 @@ int main(int argc, char** argv) {
             lifecycle(root / ("inline-" + std::to_string(static_cast<int>(codec)) + ".vtr"), 0,
                       codec, vt::ExecutionMode::inline_);
         retained_large_payloads(root / "retained-large.vtr");
+        nested_expansion_caches(root / "nested-caches.vtr");
         default_stage_lanes(root / "stage-lanes-inline.vtr", vt::ExecutionMode::inline_);
         default_stage_lanes(root / "stage-lanes-threaded.vtr", vt::ExecutionMode::threaded);
         declaration_errors(root);

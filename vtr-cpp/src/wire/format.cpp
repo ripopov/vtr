@@ -214,7 +214,8 @@ void encode_value(Bytes& out, const Value& value) {
     encode_payload(out, value);
 }
 
-Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
+Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth, bool retain,
+                   std::uint64_t strings) {
     require(depth < 64, "value nesting exceeds limit");
     Value v;
     v.tag = tag ? *tag : static_cast<Tag>(r.byte());
@@ -248,10 +249,12 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
         break;
     case Tag::str:
         v.literal = r.id();
+        require(v.literal < strings, "unknown attribute string");
         break;
     case Tag::enumeration:
         v.number = r.signed_bits();
         v.literal = r.id();
+        require(v.literal < strings, "unknown attribute string");
         break;
     case Tag::fixed:
     case Tag::ufixed: {
@@ -291,9 +294,11 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
         std::unordered_set<Id> keys;
         for (std::uint64_t i = 0; i < n; ++i) {
             if (v.tag == Tag::map) {
-                require(keys.insert(r.id()).second, "duplicate map key");
+                auto key = r.id();
+                require(key < strings, "unknown attribute key");
+                require(keys.insert(key).second, "duplicate map key");
             }
-            decode_value(r, {}, depth + 1);
+            decode_value(r, {}, depth + 1, false, strings);
         }
         break;
     }
@@ -301,7 +306,7 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth) {
         throw Error(ErrorCode::corrupt_data, "unknown value tag");
     }
     scalar_range(v);
-    if (payload_value(v.tag)) {
+    if (retain && payload_value(v.tag)) {
         v.payload.assign(start.begin(), start.begin() + (start.size() - r.data.size()));
     }
     return v;
@@ -436,30 +441,48 @@ void checked_column_attrs(AttributeColumns& c, std::span<const Attribute> attrs,
     }
 }
 
-Attributes read_column_attrs(std::array<Cursor, 7>& c) {
+namespace {
+template <bool Retain> Attributes column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings) {
     auto n = c[0].var();
     require(n <= c[2].data.size(), "invalid transaction attribute count");
     Attributes attrs;
-    attrs.reserve(n);
+    std::unordered_set<Id> keys;
+    if constexpr (Retain)
+        attrs.reserve(n);
     for (std::uint64_t i = 0; i < n; ++i) {
         auto key = c[1].id();
+        require(key < strings, "unknown attribute key");
         auto tag = static_cast<Tag>(c[2].byte());
         Value v;
         if (tag == Tag::enumeration) {
             v.tag = tag;
             v.number = c[3].signed_bits();
             v.literal = c[5].id();
+            require(v.literal < strings, "unknown attribute string");
         } else {
             unsigned col = (tag == Tag::f32 || tag == Tag::f64) ? 4
                            : tag == Tag::str                    ? 5
                            : (payload_value(tag))               ? 6
                                                                 : 3;
-            v = decode_value(c[col], tag);
+            v = decode_value(c[col], tag, 0, Retain, strings);
         }
-        unique_attr(attrs, key);
-        attrs.push_back({key, std::move(v)});
+        if constexpr (Retain) {
+            unique_attr(attrs, key);
+            attrs.push_back({key, std::move(v)});
+        } else {
+            require(keys.insert(key).second, "duplicate attribute key");
+        }
     }
     return attrs;
+}
+} // namespace
+
+Attributes read_column_attrs(std::array<Cursor, 7>& c) {
+    return column_attrs<true>(c, UINT64_MAX);
+}
+
+void skip_column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings) {
+    column_attrs<false>(c, strings);
 }
 
 Bytes transform(View data, std::size_t width, unsigned x, bool inverse) {

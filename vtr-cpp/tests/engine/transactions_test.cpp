@@ -159,9 +159,9 @@ void roundtrips() {
         for (auto page_bytes : {512u, 65536u}) {
             auto encoded = encode_transaction_block(17, types, generators, txs, relations,
                                                     {page_bytes, codec, 1, true}, 64);
-            auto cached = encode_transaction_block(17, types, generators, txs, relations,
-                                                   {page_bytes, codec, 1, true}, 64, {}, nullptr,
-                                                   &workspace);
+            auto cached =
+                encode_transaction_block(17, types, generators, txs, relations,
+                                         {page_bytes, codec, 1, true}, 64, {}, nullptr, &workspace);
             check(cached == encoded, "column workspace changed transaction bytes");
             TransactionBlockView view(encoded, types, generators, 64);
             view.validate();
@@ -198,6 +198,22 @@ void roundtrips() {
                     check(actual == expected, "relation query changed endpoint or attributes");
                 }
             }
+            std::vector<Bytes> scanned;
+            view.scan_relations([&](const auto& relation) {
+                scanned.push_back(canonical(relation));
+                return true;
+            });
+            std::vector<Bytes> expected_relations;
+            for (const auto& relation : relations)
+                expected_relations.push_back(canonical(relation));
+            check(scanned == expected_relations,
+                  "selective relation scan changed order or attributes");
+            unsigned stopped = 0;
+            view.scan_relations([&](const auto&) {
+                ++stopped;
+                return false;
+            });
+            check(stopped == 1, "selective relation scan did not cancel");
             for (const auto& page : view.pages()) {
                 check(page.raw_length <= page_bytes || page.transactions + page.relations == 1,
                       "transaction page target exceeded");
@@ -560,13 +576,13 @@ void workspace_recovery() {
     std::array rows{large};
     auto encode = [&](const auto& input, TransactionWorkspace* reuse) {
         return encode_transaction_block(1, types, generators, input, {},
-                                         {512, vtr::detail::wire::Codec::stored}, 64,
-                                         {}, nullptr, reuse);
+                                        {512, vtr::detail::wire::Codec::stored}, 64, {}, nullptr,
+                                        reuse);
     };
     check(encode(rows, &workspace) == encode(rows, nullptr),
           "oversized workspace row changed encoded bytes");
-    std::size_t retained = (workspace.sorted.capacity() + workspace.slots.capacity()) *
-                           sizeof(const Transaction*);
+    std::size_t retained =
+        (workspace.sorted.capacity() + workspace.slots.capacity()) * sizeof(const Transaction*);
     for (const auto& column : workspace.buffers) {
         check(column.empty(), "workspace retained encoded content");
         retained += column.capacity();
@@ -590,11 +606,10 @@ void unsigned_attribute_rows() {
     Types types;
     Generators generators;
     generators.declare({100, RecordKind::ordinary});
-    const std::array<w::Id, 9> keys{UINT32_MAX - 1, 1, 127, 128, 16383, 16384,
-                                      2097151, 2097152, 268435456};
-    const std::array<std::uint64_t, 9> values{UINT64_MAX, 0, 127, 128, 16383, 16384,
-                                               std::uint64_t(1) << 35,
-                                               std::uint64_t(1) << 63, 42};
+    const std::array<w::Id, 9> keys{UINT32_MAX - 1, 1,       127,     128,      16383,
+                                    16384,          2097151, 2097152, 268435456};
+    const std::array<std::uint64_t, 9> values{
+        UINT64_MAX, 0, 127, 128, 16383, 16384, std::uint64_t(1) << 35, std::uint64_t(1) << 63, 42};
     for (auto count : {1u, 2u, 7u, 8u, 9u}) {
         std::vector<Transaction> expected(2);
         NumericAttributeColumns columns;

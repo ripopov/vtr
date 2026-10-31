@@ -1,5 +1,6 @@
 //! Retained trace records, selective navigation, and independent full-file validation.
 
+mod cache;
 mod format;
 mod hierarchy;
 mod payload;
@@ -25,12 +26,13 @@ use crate::{
     framing::{Completion, Container, Fingerprint, RecordingId, Section},
     hierarchy::{NodeId, SignalId},
     records::{
-        GeneratorId, LocatedRecord, RecordBlockView, RecordId, RecordKind, RecordQuery, SpanKind,
-        Status,
+        GeneratorId, LocatedRecord, RecordBlockView, RecordDirectory, RecordId, RecordKind,
+        RecordQuery, SpanKind, Status,
     },
     schema::{DEFAULT_PAYLOAD_LIMIT, Payload, Types},
     transactions::{
-        EmbeddedEvent, EmbeddedStage, Relation, Transaction, TransactionBlockView, TransactionQuery,
+        EmbeddedEvent, EmbeddedStage, Relation, Transaction, TransactionBlockView,
+        TransactionDirectory, TransactionQuery,
     },
 };
 
@@ -40,6 +42,7 @@ pub struct ReadOptions {
     pub max_payload_bytes: usize,
     pub owner_cache_entries: usize,
     pub owner_cache_bytes: usize,
+    pub located_page_cache_bytes: usize,
 }
 
 impl Default for ReadOptions {
@@ -49,6 +52,7 @@ impl Default for ReadOptions {
             max_payload_bytes: DEFAULT_PAYLOAD_LIMIT,
             owner_cache_entries: 4096,
             owner_cache_bytes: 32 << 20,
+            located_page_cache_bytes: 8 << 20,
         }
     }
 }
@@ -75,6 +79,26 @@ struct RecordData {
     kind: RecordKind,
     types: Arc<RecordTypes>,
     datatype: crate::schema::TypeId,
+}
+
+impl RecordData {
+    fn retained_bytes(&self) -> usize {
+        let tx = &self.raw;
+        std::mem::size_of::<Self>()
+            + tx.payload.capacity()
+            + tx.child_blocks.capacity() * std::mem::size_of::<u64>()
+            + tx.events.capacity() * std::mem::size_of::<EmbeddedEvent>()
+            + tx.stages.capacity() * std::mem::size_of::<EmbeddedStage>()
+            + crate::attributes::memory_charge(&tx.attributes)
+            + tx.events
+                .iter()
+                .map(|e| crate::attributes::memory_charge(&e.attributes))
+                .sum::<usize>()
+            + tx.stages
+                .iter()
+                .map(|s| crate::attributes::memory_charge(&s.attributes))
+                .sum::<usize>()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -271,17 +295,12 @@ struct Availability {
     nodes: usize,
 }
 
-#[derive(Default)]
-struct OwnerCache {
-    entries: BTreeMap<RecordId, (u64, usize, Record)>,
-    tick: u64,
-    bytes: usize,
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct CacheStats {
     pub owner_entries: usize,
     pub owner_bytes: usize,
+    pub located_pages: usize,
+    pub located_page_bytes: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -296,12 +315,14 @@ pub struct Reader {
     metadata: Metadata,
     types: Arc<RecordTypes>,
     blocks: BTreeMap<u64, usize>,
-    availability: HashMap<u64, Availability>,
+    transaction_directories: HashMap<u64, TransactionDirectory>,
+    record_directories: HashMap<u64, RecordDirectory>,
     tree: hierarchy::Tree,
     waves: Vec<waveform::WaveBlock>,
     blackouts: Vec<Blackout>,
     options: ReadOptions,
-    cache: Mutex<OwnerCache>,
+    cache: Mutex<cache::Cache<RecordId, Record>>,
+    located_pages: Mutex<cache::PageCache>,
 }
 
 impl Reader {
@@ -392,25 +413,45 @@ impl Reader {
             cursor.done()?;
         }
         let tree = hierarchy::Tree::new(&declarations.nodes);
-        let reader = Self {
+        let cache = Mutex::new(cache::Cache::new(
+            options.owner_cache_entries,
+            options.owner_cache_bytes,
+        ));
+        let located_pages = Mutex::new(cache::PageCache::new(
+            usize::MAX,
+            options.located_page_cache_bytes,
+        ));
+        let mut reader = Self {
             tree,
             container,
             declarations,
             metadata,
             types,
             blocks,
-            availability,
+            transaction_directories: HashMap::new(),
+            record_directories: HashMap::new(),
             waves,
             blackouts,
             options,
-            cache: Mutex::default(),
+            cache,
+            located_pages,
         };
         for section in reader.container.sections() {
             if section.kind == 5 {
-                reader.transaction_block(section)?;
+                let directory = reader
+                    .parse_transaction_block(section, availability[&section.block_number])?
+                    .into_directory();
+                reader
+                    .transaction_directories
+                    .insert(section.block_number, directory);
             }
             if section.kind == 9 {
-                reader.record_block(section)?;
+                let directory = reader
+                    .parse_record_block(section, availability[&section.block_number])?
+                    .into_directory();
+                reader
+                    .record_directories
+                    .insert(section.block_number, directory);
             }
         }
         Ok(reader)
@@ -579,8 +620,11 @@ impl Reader {
         }
         Ok(())
     }
-    fn transaction_block(&self, section: &Section) -> Result<TransactionBlockView<'_>> {
-        let available = self.availability[&section.block_number];
+    fn parse_transaction_block(
+        &self,
+        section: &Section,
+        available: Availability,
+    ) -> Result<TransactionBlockView<'_>> {
         let view = TransactionBlockView::new(
             self.container.payload(section, false)?,
             &self.types,
@@ -589,9 +633,9 @@ impl Reader {
             self.options.max_payload_bytes,
             &self.declarations.strings,
         )?;
-        if view.number != section.block_number
-            || view.bounds.begin != section.aux0
-            || view.bounds.end != section.aux1
+        if view.number() != section.block_number
+            || view.bounds().begin != section.aux0
+            || view.bounds().end != section.aux1
         {
             return Err(Error::Corrupt("transaction directory bounds disagree"));
         }
@@ -600,8 +644,11 @@ impl Reader {
         }
         Ok(view)
     }
-    fn record_block(&self, section: &Section) -> Result<RecordBlockView<'_>> {
-        let available = self.availability[&section.block_number];
+    fn parse_record_block(
+        &self,
+        section: &Section,
+        available: Availability,
+    ) -> Result<RecordBlockView<'_>> {
         let view = RecordBlockView::new(
             self.container.payload(section, false)?,
             &self.types,
@@ -609,9 +656,9 @@ impl Reader {
             available.strings,
             self.options.max_payload_bytes,
         )?;
-        if view.number != section.block_number
-            || view.begin != section.aux0
-            || view.end != section.aux1
+        if view.number() != section.block_number
+            || view.begin() != section.aux0
+            || view.end() != section.aux1
         {
             return Err(Error::Corrupt("record directory bounds disagree"));
         }
@@ -626,6 +673,27 @@ impl Reader {
             }
         }
         Ok(view)
+    }
+
+    fn transaction_block(&self, section: &Section) -> Result<TransactionBlockView<'_>> {
+        Ok(TransactionBlockView::from_directory(
+            self.container.payload(section, false)?,
+            &self.transaction_directories[&section.block_number],
+            &self.types,
+            &self.declarations.generators,
+            self.options.max_payload_bytes,
+            &self.declarations.strings,
+        ))
+    }
+
+    fn record_block(&self, section: &Section) -> Result<RecordBlockView<'_>> {
+        Ok(RecordBlockView::from_directory(
+            self.container.payload(section, false)?,
+            &self.record_directories[&section.block_number],
+            &self.types,
+            &self.declarations.generators,
+            self.options.max_payload_bytes,
+        ))
     }
 
     #[inline]
@@ -709,6 +777,9 @@ impl Reader {
             if section.aux0 > query.end || section.aux1 < query.begin {
                 continue;
             }
+            if !self.transaction_directories[&section.block_number].matches(query) {
+                continue;
+            }
             self.transaction_block(section)?
                 .transactions(query, |raw| {
                     let NodeData::Generator { kind, .. } =
@@ -721,7 +792,11 @@ impl Reader {
                     } else {
                         RecordKind::Transaction
                     };
-                    running = visit(self.retain(raw, kind));
+                    let record = self.retain(raw, kind);
+                    if !record.child_blocks().is_empty() {
+                        self.cache_owner(record.clone());
+                    }
+                    running = visit(record);
                     running
                 })?;
             if !running {
@@ -807,13 +882,11 @@ impl Reader {
     pub fn scan_relations(&self, mut visit: impl FnMut(Relation) -> bool) -> Result<()> {
         let mut running = true;
         for section in self.sections().iter().filter(|section| section.kind == 5) {
-            self.transaction_block(section)?.scan(
-                |_| true,
-                |relation| {
+            self.transaction_block(section)?
+                .scan_relations(|relation| {
                     running = visit(relation);
                     running
-                },
-            )?;
+                })?;
             if !running {
                 break;
             }
@@ -822,55 +895,17 @@ impl Reader {
     }
 
     fn cache_owner(&self, record: Record) {
-        let bytes = record.data.raw.payload.capacity()
-            + std::mem::size_of::<RecordData>()
-            + record.child_blocks().len() * 8
-            + std::mem::size_of_val(record.events())
-            + std::mem::size_of_val(record.stages())
-            + record
-                .attributes()
-                .iter()
-                .map(|a| attribute_bytes(&a.value))
-                .sum::<usize>()
-            + record
-                .events()
-                .iter()
-                .flat_map(|e| &e.attributes)
-                .chain(record.stages().iter().flat_map(|s| &s.attributes))
-                .map(|a| attribute_bytes(&a.value))
-                .sum::<usize>();
-        if self.options.owner_cache_entries == 0 || bytes > self.options.owner_cache_bytes {
+        if self.options.owner_cache_entries == 0 || self.options.owner_cache_bytes == 0 {
             return;
         }
-        let mut cache = self.cache.lock().unwrap();
-        if cache.entries.contains_key(&record.id()) {
-            return;
-        }
-        while !cache.entries.is_empty()
-            && (cache.entries.len() >= self.options.owner_cache_entries
-                || bytes > self.options.owner_cache_bytes.saturating_sub(cache.bytes))
-        {
-            let id = *cache
-                .entries
-                .iter()
-                .min_by_key(|(_, (tick, _, _))| *tick)
-                .unwrap()
-                .0;
-            let (_, removed, _) = cache.entries.remove(&id).unwrap();
-            cache.bytes -= removed;
-        }
-        cache.tick = cache.tick.wrapping_add(1);
-        let tick = cache.tick;
-        cache.bytes += bytes;
-        cache.entries.insert(record.id(), (tick, bytes, record));
+        let bytes = record.data.retained_bytes();
+        self.cache
+            .lock()
+            .unwrap()
+            .insert(record.id(), record, bytes);
     }
     fn cached(&self, id: RecordId) -> Option<Record> {
-        let mut cache = self.cache.lock().unwrap();
-        cache.tick = cache.tick.wrapping_add(1);
-        let tick = cache.tick;
-        let entry = cache.entries.get_mut(&id)?;
-        entry.0 = tick;
-        Some(entry.2.clone())
+        self.cache.lock().unwrap().get(id)
     }
     pub fn lookup(&self, id: RecordId) -> Result<Option<Record>> {
         if id == 0 {
@@ -951,11 +986,24 @@ impl Reader {
             if section.kind != 9 {
                 return Err(Error::Corrupt("child locator references wrong block kind"));
             }
-            self.record_block(section)?.query(
+            let view = self.record_block(section)?;
+            view.query_with_pages(
                 RecordQuery {
                     parent: Some(id),
                     include_logs: false,
                     ..RecordQuery::default()
+                },
+                |page| {
+                    let key = (*number, page);
+                    if let Some(raw) = self.located_pages.lock().unwrap().get(key) {
+                        return Ok(raw);
+                    }
+                    let raw = Arc::new(view.read_page(page)?);
+                    self.located_pages
+                        .lock()
+                        .unwrap()
+                        .insert(key, raw.clone(), raw.capacity());
+                    Ok(raw)
                 },
                 |raw| {
                     located.push(self.retain_located(raw));
@@ -974,13 +1022,17 @@ impl Reader {
     }
     pub fn cache_stats(&self) -> CacheStats {
         let cache = self.cache.lock().unwrap();
+        let pages = self.located_pages.lock().unwrap();
         CacheStats {
-            owner_entries: cache.entries.len(),
-            owner_bytes: cache.bytes,
+            owner_entries: cache.len(),
+            owner_bytes: cache.bytes(),
+            located_pages: pages.len(),
+            located_page_bytes: pages.bytes(),
         }
     }
     pub fn clear_cache(&self) {
-        *self.cache.lock().unwrap() = OwnerCache::default();
+        self.cache.lock().unwrap().clear();
+        self.located_pages.lock().unwrap().clear();
     }
     pub fn clock_for(&self, generator: GeneratorId) -> Result<Option<GeneratorId>> {
         self.declarations.generators.get(generator)?;
@@ -1069,16 +1121,103 @@ impl Reader {
     }
 }
 
-fn attribute_bytes(value: &Value) -> usize {
-    std::mem::size_of::<Attribute>()
-        + match value {
-            Value::Text(text) => text.len(),
-            Value::Bytes(bytes)
-            | Value::Bits { data: bytes, .. }
-            | Value::Logic { data: bytes, .. }
-            | Value::Logic9 { data: bytes, .. } => bytes.len(),
-            Value::List(values) => values.iter().map(attribute_bytes).sum(),
-            Value::Map(values) => values.iter().map(|a| attribute_bytes(&a.value)).sum(),
-            _ => 0,
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn owner_admission_counts_spare_buffers_and_nested_attribute_storage() {
+        let byte_limit = 1024;
+        let reader = Reader::from_bytes_with(
+            include_bytes!("../../tests/fixtures/typed.vtr").to_vec(),
+            ReadOptions {
+                owner_cache_bytes: byte_limit,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut owner = None;
+        reader
+            .transactions(TransactionQuery::default(), |record| {
+                owner = Some(record);
+                false
+            })
+            .unwrap();
+        let original = owner.unwrap();
+        assert!(original.data.retained_bytes() < byte_limit);
+        let key = reader
+            .declarations()
+            .strings
+            .iter()
+            .enumerate()
+            .find_map(|(id, name)| {
+                (name != "vtr.label"
+                    && original
+                        .attributes()
+                        .iter()
+                        .all(|attr| attr.key != id as u32))
+                .then_some(id as u32)
+            })
+            .expect("unused attribute key");
+        #[derive(Clone, Copy, Debug)]
+        enum Storage {
+            Events,
+            Stages,
+            Locators,
+            Attributes,
+            Text,
+            List,
+            Map,
         }
+        for storage in [
+            Storage::Events,
+            Storage::Stages,
+            Storage::Locators,
+            Storage::Attributes,
+            Storage::Text,
+            Storage::List,
+            Storage::Map,
+        ] {
+            let mut raw = original.data.raw.clone();
+            match storage {
+                Storage::Events => raw.events.reserve(64),
+                Storage::Stages => raw.stages.reserve(64),
+                Storage::Locators => raw.child_blocks.reserve(1024),
+                Storage::Attributes => raw.attributes.reserve(64),
+                Storage::Text => {
+                    let mut text = String::with_capacity(4096);
+                    text.push('x');
+                    raw.attributes.push(Attribute {
+                        key,
+                        value: Value::Text(text),
+                    });
+                }
+                Storage::List => {
+                    let mut values = Vec::with_capacity(256);
+                    values.push(Value::Null);
+                    raw.attributes.push(Attribute {
+                        key,
+                        value: Value::List(values),
+                    });
+                }
+                Storage::Map => {
+                    let mut values = Vec::with_capacity(256);
+                    values.push(Attribute {
+                        key,
+                        value: Value::Null,
+                    });
+                    raw.attributes.push(Attribute {
+                        key,
+                        value: Value::Map(values),
+                    });
+                }
+            }
+            let record = reader.retain(raw, RecordKind::Transaction);
+            assert!(record.data.retained_bytes() > byte_limit, "{storage:?}");
+            reader.clear_cache();
+            reader.cache_owner(record);
+            assert_eq!(reader.cache_stats().owner_entries, 0, "{storage:?}");
+            assert_eq!(reader.cache_stats().owner_bytes, 0, "{storage:?}");
+        }
+    }
 }

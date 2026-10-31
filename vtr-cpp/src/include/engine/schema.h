@@ -209,9 +209,11 @@ class ArgumentReader {
                             std::size_t max_payload_bytes = default_payload_limit,
                             std::span<const std::string> shared_text = {});
     Bytes read(const Types& types, TypeId type);
+    void skip(const Types& types, TypeId type);
     void done() const;
 
   private:
+    Bytes decode(const Types& types, TypeId type, bool retain);
     std::array<View, 5> columns_;
     std::vector<View> dictionary_;
     std::span<const std::string> shared_text_;

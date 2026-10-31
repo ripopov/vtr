@@ -7,6 +7,96 @@ use vtr::{
 };
 
 #[test]
+fn nested_expansion_survives_cache_eviction_clearing_and_disabled_caches() {
+    use vtr::{ExecutionMode, Recorder, SourceOptions, Status, Writer, WriterOptions};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("nested.vtr");
+    let mut options = WriterOptions {
+        mode: ExecutionMode::Inline,
+        ..Default::default()
+    };
+    options.encoding.page_bytes = 256;
+    let mut writer = Writer::create_with(&path, options).unwrap();
+    let source = writer
+        .transactions::<u64>(SourceOptions::new("owners", None), "OWNER")
+        .unwrap();
+    let stages = writer
+        .stages::<String>(SourceOptions::new("stages", None))
+        .unwrap();
+    let mut expected = Vec::new();
+    for i in 0..12u64 {
+        let owner = writer.begin_at(source, i * 10, &i, None).unwrap();
+        let payload = format!("stage {i}: {}", "x".repeat(80));
+        let stage = writer
+            .begin_stage_at(stages, owner.owner(), i * 10 + 1, &payload)
+            .unwrap();
+        writer.end_stage_at(stage, i * 10 + 5).unwrap();
+        writer.end_at(owner, i * 10 + 9, Status::Ok).unwrap();
+        writer.flush().unwrap();
+        expected.push((owner.id(), stage.id(), payload));
+    }
+    writer.close().unwrap();
+    for owner_limit in [0, 1, 2] {
+        for page_limit in [0, 1, 256, 1 << 20] {
+            let reader = Reader::open_with(
+                &path,
+                ReadOptions {
+                    owner_cache_entries: owner_limit,
+                    located_page_cache_bytes: page_limit,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let mut count = 0;
+            let mut retained = None;
+            reader
+                .transactions(
+                    TransactionQuery {
+                        generator: Some(source.id()),
+                        ..Default::default()
+                    },
+                    |owner| {
+                        if owner_limit != 0 {
+                            assert!(reader.cache_stats().owner_entries > 0);
+                        }
+                        let (id, stage, payload) = &expected[count];
+                        assert_eq!(owner.id(), *id);
+                        let expansion = reader.expand(*id).unwrap();
+                        assert!(expansion.complete);
+                        assert_eq!(expansion.located.len(), 1);
+                        assert_eq!(expansion.located[0].id(), *stage);
+                        assert_eq!(expansion.located[0].decode::<String>().unwrap(), *payload);
+                        retained = Some(expansion.located[0].clone());
+                        if count % 3 == 0 {
+                            reader.clear_cache();
+                        }
+                        let stats = reader.cache_stats();
+                        assert!(stats.owner_entries <= owner_limit);
+                        assert!(stats.located_page_bytes <= page_limit);
+                        count += 1;
+                        true
+                    },
+                )
+                .unwrap();
+            assert_eq!(count, expected.len());
+            let stats = reader.cache_stats();
+            if page_limit <= 1 {
+                assert_eq!(stats.located_pages, 0);
+            } else {
+                assert!(stats.located_pages > 0);
+            }
+            reader.clear_cache();
+            assert_eq!(reader.cache_stats().located_page_bytes, 0);
+            drop(reader);
+            assert_eq!(
+                retained.unwrap().decode::<String>().unwrap(),
+                expected.last().unwrap().2
+            );
+        }
+    }
+}
+
+#[test]
 fn relation_scan_preserves_duplicates_outside_endpoints_and_cancellation_across_blocks() {
     use vtr::{ExecutionMode, Recorder, SourceOptions, Status, Writer, WriterOptions};
     for (mode, workers) in [

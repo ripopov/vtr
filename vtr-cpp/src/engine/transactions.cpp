@@ -34,6 +34,25 @@ void extend(RecordId& minimum, RecordId& maximum, RecordId value, bool first) {
     maximum = first ? value : std::max(maximum, value);
 }
 
+void add_embedded(TransactionBounds& bounds, RecordId id) {
+    extend(bounds.min_embedded, bounds.max_embedded, id, bounds.max_embedded == 0);
+}
+
+bool matches_owner(TransactionQuery query, const Transaction& tx) {
+    return tx.begin <= query.end && tx.end >= query.begin &&
+           (!query.generator || *query.generator == tx.generator) &&
+           (!query.parent || *query.parent == tx.parent) && (!query.id || *query.id == tx.id);
+}
+
+bool matches_query(TransactionQuery query, const Transaction& tx) {
+    return matches_owner(query, tx) &&
+           (!query.embedded_id ||
+            std::any_of(tx.events.begin(), tx.events.end(),
+                        [&](const auto& event) { return event.id == *query.embedded_id; }) ||
+            std::any_of(tx.stages.begin(), tx.stages.end(),
+                        [&](const auto& stage) { return stage.id == *query.embedded_id; }));
+}
+
 void add(TransactionBounds& b, const Transaction& tx) {
     bool first = b.transactions++ == 0;
     extend(b.min_id, b.max_id, tx.id, first);
@@ -698,7 +717,8 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
         const auto columns = 6 + *types[scalar_type].fixed_size / 8;
         const auto overhead = 9 + columns;
         const auto per_page = std::max<std::size_t>(
-            1, (policy.page_bytes - std::min<std::uint64_t>(policy.page_bytes, overhead)) / (8 * columns));
+            1, (policy.page_bytes - std::min<std::uint64_t>(policy.page_bytes, overhead)) /
+                   (8 * columns));
         for (std::size_t first = 0; first < sorted.size(); first += per_page) {
             auto rows = std::span<const Transaction* const>(sorted).subspan(
                 first, std::min(per_page, sorted.size() - first));
@@ -913,24 +933,48 @@ void TransactionBlockView::activity(
     }
 }
 
-bool TransactionBlockView::decode_page(
-    const TransactionPage& page, const std::function<bool(const Transaction&)>& visit_tx,
-    const std::function<bool(const Relation&)>& visit_relation) const {
+namespace {
+bool read_relations(std::array<Cursor, 33>& c, std::array<Cursor, 7>& attributes,
+                    std::uint64_t count, std::uint64_t strings, TransactionBounds& actual,
+                    const std::function<bool(const Relation&)>& visit_relation) {
+    RecordId previous_from = 0;
+    for (std::uint64_t i = 0; i < count; ++i) {
+        Relation relation;
+        relation.kind = c[21].id();
+        relation.source = previous_from + c[22].signed_bits();
+        relation.destination = relation.source + c[23].signed_bits();
+        require(relation.kind < strings, "unknown relation kind");
+        previous_from = relation.source;
+        relation.attributes = d::read_column_attrs(attributes);
+        valid_attrs(relation.attributes, strings);
+        add(actual, relation);
+        if (!visit_relation(relation)) {
+            return false;
+        }
+    }
+    return true;
+}
+} // namespace
+
+bool TransactionBlockView::decode_page(const TransactionPage& page,
+                                       const std::function<bool(const Transaction&)>& visit_tx,
+                                       const std::function<bool(const Relation&)>& visit_relation,
+                                       std::optional<TransactionQuery> query) const {
     auto raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
     require(raw.size() == page.raw_length, "transaction page raw length mismatch");
     if (!raw.empty() && raw[0] == 2) {
         require(!page.relations, "scalar page contains relations");
         TransactionBounds actual;
         RecordId previous = 0;
-        bool complete =
-            scalar_page::decode(raw, types_, generators_, generator_ids_, page.transactions,
-                                max_payload_bytes_, [&](const auto& tx) {
-                                    valid(tx, generators_[tx.generator], string_count_);
-                                    require(tx.id > previous, "unordered scalar IDs");
-                                    previous = tx.id;
-                                    add(actual, tx);
-                                    return visit_tx(tx);
-                                });
+        bool complete = scalar_page::decode(
+            raw, types_, generators_, generator_ids_, page.transactions, max_payload_bytes_,
+            [&](const auto& tx) {
+                valid(tx, generators_[tx.generator], string_count_);
+                require(tx.id > previous, "unordered scalar IDs");
+                previous = tx.id;
+                add(actual, tx);
+                return !query || matches_query(*query, tx) ? visit_tx(tx) : true;
+            });
         if (!complete) {
             return false;
         }
@@ -949,7 +993,7 @@ bool TransactionBlockView::decode_page(
         c[i] = Cursor();
     }
     ArgumentReader arguments(argument_columns, string_count_, max_payload_bytes_, shared_text_);
-    RecordId previous_id = 0, previous_event = 0, previous_stage = 0, previous_from = 0;
+    RecordId previous_id = 0, previous_event = 0, previous_stage = 0;
     Timestamp previous_begin = 0;
     TransactionBounds actual;
     require(page.transactions <= c[0].data.size() && page.relations <= c[21].data.size(),
@@ -970,8 +1014,14 @@ bool TransactionBlockView::decode_page(
         auto distance = c[5].var();
         require(!distance || distance < tx.id, "invalid transaction parent distance");
         tx.parent = distance ? tx.id - distance : 0;
-        tx.attributes = d::read_column_attrs(attributes);
+        const bool retain = !query || matches_owner(*query, tx);
+        const auto& generator = generators_[tx.generator];
+        if (retain)
+            tx.attributes = d::read_column_attrs(attributes);
+        else
+            d::skip_column_attrs(attributes, string_count_);
         auto count = c[13].var();
+        require(generator.kind != RecordKind::clock || !count, "clock has embedded events");
         require(count <= c[15].data.size() && count <= c[31].data.size(),
                 "invalid embedded event count");
         for (std::uint64_t j = 0; j < count; ++j) {
@@ -980,10 +1030,16 @@ bool TransactionBlockView::decode_page(
             event.name = c[15].id();
             event.id = previous_event + c[31].signed_bits();
             previous_event = event.id;
-            event.attributes = d::read_column_attrs(attributes);
-            tx.events.push_back(std::move(event));
+            require(event.id > tx.id && event.name < string_count_, "invalid embedded event");
+            add_embedded(actual, event.id);
+            if (retain) {
+                event.attributes = d::read_column_attrs(attributes);
+                tx.events.push_back(std::move(event));
+            } else
+                d::skip_column_attrs(attributes, string_count_);
         }
         count = c[16].var();
+        require(generator.kind != RecordKind::clock || !count, "clock has embedded stages");
         require(count <= c[17].data.size() && count <= c[32].data.size(),
                 "invalid embedded stage count");
         for (std::uint64_t j = 0; j < count; ++j) {
@@ -994,42 +1050,41 @@ bool TransactionBlockView::decode_page(
             stage.end = read_stage_end(c[20], stage.begin);
             stage.id = previous_stage + c[32].signed_bits();
             previous_stage = stage.id;
-            stage.attributes = d::read_column_attrs(attributes);
-            tx.stages.push_back(std::move(stage));
+            require(stage.id > tx.id && stage.name < string_count_ && stage.lane < string_count_,
+                    "invalid embedded stage");
+            add_embedded(actual, stage.id);
+            if (retain) {
+                stage.attributes = d::read_column_attrs(attributes);
+                tx.stages.push_back(std::move(stage));
+            } else
+                d::skip_column_attrs(attributes, string_count_);
         }
-        const auto& generator = generators_[tx.generator];
-        tx.payload = arguments.read(types_, generator.payload_type);
+        if (retain)
+            tx.payload = arguments.read(types_, generator.payload_type);
+        else
+            arguments.skip(types_, generator.payload_type);
         count = c[29].var();
+        require(generator.kind != RecordKind::clock || !count, "clock has located children");
         require(count <= c[30].data.size(), "invalid located block count");
         std::uint64_t block = 0;
         for (std::uint64_t j = 0; j < count; ++j) {
             auto delta = c[30].var();
             require(delta && delta <= UINT64_MAX - block, "invalid located block delta");
             block += delta;
-            tx.child_blocks.push_back(block);
+            if (retain)
+                tx.child_blocks.push_back(block);
         }
         valid(tx, generator, string_count_);
         require(!i || previous_id < tx.id, "unsorted transaction IDs");
         previous_id = tx.id;
         previous_begin = tx.begin;
         add(actual, tx);
-        if (!visit_tx(tx)) {
+        if (retain && (!query || matches_query(*query, tx)) && !visit_tx(tx)) {
             return false;
         }
     }
-    for (std::uint64_t i = 0; i < page.relations; ++i) {
-        Relation relation;
-        relation.kind = c[21].id();
-        relation.source = previous_from + c[22].signed_bits();
-        relation.destination = relation.source + c[23].signed_bits();
-        require(relation.kind < string_count_, "unknown relation kind");
-        previous_from = relation.source;
-        relation.attributes = d::read_column_attrs(attributes);
-        valid_attrs(relation.attributes, string_count_);
-        add(actual, relation);
-        if (!visit_relation(relation)) {
-            return false;
-        }
+    if (!read_relations(c, attributes, page.relations, string_count_, actual, visit_relation)) {
+        return false;
     }
     for (const auto& column : c) {
         column.done();
@@ -1042,9 +1097,62 @@ bool TransactionBlockView::decode_page(
     return true;
 }
 
+bool TransactionBlockView::decode_relations(
+    const TransactionPage& page, const std::function<bool(const Relation&)>& visit) const {
+    auto raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
+    require(raw.size() == page.raw_length, "transaction page raw length mismatch");
+    auto c = d::unpack_columns<33>(raw);
+    std::array<Cursor, 7> attributes;
+    for (unsigned i = 0; i < 7; ++i)
+        attributes[i] = c[i + 6];
+    require(page.transactions <= c[13].data.size() && page.transactions <= c[16].data.size() &&
+                page.relations <= c[21].data.size(),
+            "invalid page record count");
+    for (std::uint64_t i = 0; i < page.transactions; ++i) {
+        d::skip_column_attrs(attributes, string_count_);
+        auto events = c[13].var(), stages = c[16].var();
+        require(events <= c[15].data.size() && stages <= c[17].data.size(),
+                "invalid embedded count");
+        for (std::uint64_t j = 0; j < events; ++j)
+            d::skip_column_attrs(attributes, string_count_);
+        for (std::uint64_t j = 0; j < stages; ++j)
+            d::skip_column_attrs(attributes, string_count_);
+    }
+    TransactionBounds actual;
+    if (!read_relations(c, attributes, page.relations, string_count_, actual, visit))
+        return false;
+    for (auto i : {13, 16, 21, 22, 23})
+        c[i].done();
+    for (const auto& column : attributes)
+        column.done();
+    require(actual.relations == page.relations && actual.min_from == page.min_from &&
+                actual.max_from == page.max_from && actual.min_to == page.min_to &&
+                actual.max_to == page.max_to,
+            "decoded relation page bounds disagree");
+    return true;
+}
+
+void TransactionBlockView::scan_relations(const std::function<bool(const Relation&)>& visit) const {
+    for (const auto& page : pages_) {
+        if (page.relations && !decode_relations(page, visit))
+            return;
+    }
+}
+
+bool TransactionBlockView::matches(TransactionQuery query) const {
+    return bounds_.transactions &&
+           (!query.generator ||
+            std::binary_search(generator_ids_.begin(), generator_ids_.end(), *query.generator)) &&
+           (!query.id || (*query.id >= bounds_.min_id && *query.id <= bounds_.max_id)) &&
+           (!query.embedded_id || (*query.embedded_id >= bounds_.min_embedded &&
+                                   *query.embedded_id <= bounds_.max_embedded));
+}
+
 void TransactionBlockView::transactions(
     TransactionQuery query, const std::function<bool(const Transaction&)>& visit) const {
     require(query.begin <= query.end, "invalid transaction window");
+    if (!matches(query))
+        return;
     for (const auto& page : pages_) {
         if (!page.transactions || page.begin > query.end || page.end < query.begin ||
             (query.parent && *query.parent &&
@@ -1054,24 +1162,7 @@ void TransactionBlockView::transactions(
              (*query.embedded_id < page.min_embedded || *query.embedded_id > page.max_embedded))) {
             continue;
         }
-        bool keep_going = decode_page(
-            page,
-            [&](const auto& tx) {
-                bool embedded =
-                    !query.embedded_id ||
-                    std::any_of(tx.events.begin(), tx.events.end(),
-                                [&](const auto& e) { return e.id == *query.embedded_id; }) ||
-                    std::any_of(tx.stages.begin(), tx.stages.end(),
-                                [&](const auto& e) { return e.id == *query.embedded_id; });
-                if (tx.begin <= query.end && tx.end >= query.begin &&
-                    (!query.generator || *query.generator == tx.generator) &&
-                    (!query.parent || *query.parent == tx.parent) &&
-                    (!query.id || *query.id == tx.id) && embedded) {
-                    return visit(tx);
-                }
-                return true;
-            },
-            [](const auto&) { return true; });
+        bool keep_going = decode_page(page, visit, [](const auto&) { return true; }, query);
         if (!keep_going) {
             return;
         }
@@ -1086,12 +1177,10 @@ void TransactionBlockView::relations(RecordId endpoint, bool incoming,
         if (!page.relations || endpoint < min || endpoint > max) {
             continue;
         }
-        if (!decode_page(
-                page, [](const auto&) { return true; },
-                [&](const auto& relation) {
-                    return (incoming ? relation.destination : relation.source) != endpoint ||
-                           visit(relation);
-                })) {
+        if (!decode_relations(page, [&](const auto& relation) {
+                return (incoming ? relation.destination : relation.source) != endpoint ||
+                       visit(relation);
+            })) {
             return;
         }
     }

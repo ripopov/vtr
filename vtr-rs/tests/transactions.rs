@@ -144,6 +144,20 @@ fn cpp_general_pages_preserve_payloads_embedded_ids_relations_and_queries() {
                 .map(|v| unhex(v.as_str().unwrap()))
                 .collect::<Vec<_>>()
         );
+        let mut scanned = Vec::new();
+        view.scan_relations(|edge| {
+            scanned.push(edge);
+            true
+        })
+        .unwrap();
+        assert_eq!(scanned, relations);
+        let mut stopped = 0;
+        view.scan_relations(|_| {
+            stopped += 1;
+            false
+        })
+        .unwrap();
+        assert_eq!(stopped, usize::from(!relations.is_empty()));
         for begin in [0, 1, 10, 99, 100, 101, u64::MAX] {
             for end in [begin, begin.saturating_add(10)] {
                 for generator in [None, Some(100), Some(101), Some(102)] {
@@ -156,7 +170,7 @@ fn cpp_general_pages_preserve_payloads_embedded_ids_relations_and_queries() {
                             ..TransactionQuery::default()
                         },
                         |tx| {
-                            found.push(tx.id);
+                            found.push(canonical_tx(&tx));
                             true
                         },
                     )
@@ -168,7 +182,7 @@ fn cpp_general_pages_preserve_payloads_embedded_ids_relations_and_queries() {
                             .filter(|tx| tx.begin <= end
                                 && tx.end >= begin
                                 && generator.is_none_or(|id| id == tx.generator))
-                            .map(|tx| tx.id)
+                            .map(canonical_tx)
                             .collect::<Vec<_>>()
                     );
                 }

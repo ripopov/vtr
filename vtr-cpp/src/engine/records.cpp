@@ -410,12 +410,20 @@ void RecordBlockView::activity(
     }
 }
 
+Bytes RecordBlockView::read_page(std::uint32_t index) const {
+    const auto& page = pages_.at(index);
+    auto raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
+    require(raw.size() == page.raw_length, "record page raw length mismatch");
+    return raw;
+}
+
 void RecordBlockView::query(RecordQuery query,
-                            const std::function<bool(const LocatedRecord&)>& visit) const {
+                            const std::function<bool(const LocatedRecord&)>& visit,
+                            const PageLoader& load_page) const {
     require(query.begin <= query.end, "invalid record query window");
     std::size_t segment_index = 0;
     for (std::size_t page_index = 0; page_index < pages_.size(); ++page_index) {
-        Bytes raw;
+        std::shared_ptr<const Bytes> raw;
         while (segment_index < segments_.size() && segments_[segment_index].page == page_index) {
             const auto& segment = segments_[segment_index++];
             const auto& generator = generators_[segment.generator];
@@ -430,13 +438,15 @@ void RecordBlockView::query(RecordQuery query,
                 query.end < segment.begin || query.begin > segment.end) {
                 continue;
             }
-            const auto& page = pages_[page_index];
-            if (raw.empty()) {
-                raw = d::decompress(blobs_.subspan(page.blob_offset, page.blob_length));
-                require(raw.size() == page.raw_length, "record page raw length mismatch");
+            if (!raw) {
+                raw = load_page ? load_page(static_cast<std::uint32_t>(page_index))
+                                : std::make_shared<const Bytes>(
+                                      read_page(static_cast<std::uint32_t>(page_index)));
             }
+            require(raw && raw->size() == pages_[page_index].raw_length,
+                    "loaded record page length mismatch");
             auto columns =
-                d::unpack_columns<9>(View(raw).subspan(segment.raw_offset, segment.raw_length));
+                d::unpack_columns<9>(View(*raw).subspan(segment.raw_offset, segment.raw_length));
             std::array<View, 5> argument_columns;
             for (unsigned i = 0; i < 5; ++i) {
                 argument_columns[i] = columns[i + 4].data;
@@ -461,17 +471,22 @@ void RecordBlockView::query(RecordQuery query,
                 require(duration <= UINT64_MAX - record.begin, "stage end overflow");
                 record.end = record.begin + duration;
                 record.datatype_id = segment.datatype.value_or(UINT32_MAX);
-                record.payload = args.read(types_, datatype);
+                const bool point = record.begin == record.end;
+                const bool match =
+                    record.begin <= query.end &&
+                    (point ? record.begin >= query.begin : record.end > query.begin) &&
+                    (!query.parent || *query.parent == record.parent) &&
+                    (!query.id || *query.id == record.id);
+                if (match)
+                    record.payload = args.read(types_, datatype);
+                else
+                    args.skip(types_, datatype);
                 valid_record(record, generator);
                 bounds.add(record);
                 id = record.id;
                 parent = record.parent;
                 previous_end = record.end;
-                bool point = record.begin == record.end;
-                bool match = record.begin <= query.end &&
-                             (point ? record.begin >= query.begin : record.end > query.begin);
-                if (match && (!query.parent || *query.parent == record.parent) &&
-                    (!query.id || *query.id == record.id) && !visit(record)) {
+                if (match && !visit(record)) {
                     return;
                 }
             }

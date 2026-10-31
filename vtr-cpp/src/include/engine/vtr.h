@@ -212,12 +212,13 @@ struct Expansion {
 
 struct CacheStats {
     std::size_t owner_entries = 0, accounted_bytes = 0;
+    std::size_t located_pages = 0, located_page_bytes = 0;
 };
 
 struct ReaderOptions {
     bool verify_checksums = false;
     std::size_t owner_cache_entries = 4096, owner_cache_bytes = 32 << 20,
-                max_payload_bytes = default_payload_limit;
+                max_payload_bytes = default_payload_limit, located_page_cache_bytes = 8 << 20;
 };
 
 class Reader {

@@ -138,7 +138,10 @@ class RecordBlockView {
         return pages_;
     }
 
-    void query(RecordQuery query, const std::function<bool(const LocatedRecord&)>& visit) const;
+    using PageLoader = std::function<std::shared_ptr<const Bytes>(std::uint32_t)>;
+    Bytes read_page(std::uint32_t page) const;
+    void query(RecordQuery query, const std::function<bool(const LocatedRecord&)>& visit,
+               const PageLoader& load_page = {}) const;
     void activity(const std::function<void(std::size_t)>& admit,
                   const std::function<void(GeneratorId, Timestamp, Timestamp)>& visit) const;
     void validate() const;

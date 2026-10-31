@@ -153,22 +153,22 @@ impl Value {
     pub fn decode(data: &[u8], strings: u64, allocation_budget: usize) -> Result<Self> {
         let mut cursor = Cursor::new(data);
         let mut budget = allocation_budget;
-        let value = Self::read_tagged(&mut cursor, strings, 0, &mut budget)?;
+        let value = Self::read_tagged::<true>(&mut cursor, strings, 0, &mut budget)?;
         cursor.done()?;
         Ok(value)
     }
 
-    fn read_tagged(
+    fn read_tagged<const RETAIN: bool>(
         cursor: &mut Cursor<'_>,
         strings: u64,
         depth: u8,
         budget: &mut usize,
     ) -> Result<Self> {
         let tag = cursor.byte()?;
-        Self::read_payload(tag, cursor, strings, depth, budget)
+        Self::read_payload::<RETAIN>(tag, cursor, strings, depth, budget)
     }
 
-    fn read_payload(
+    fn read_payload<const RETAIN: bool>(
         tag: u8,
         cursor: &mut Cursor<'_>,
         strings: u64,
@@ -221,13 +221,17 @@ impl Value {
                 let bytes = cursor.blob()?;
                 spend(budget, bytes.len())?;
                 if tag == 13 {
-                    Self::Text(
-                        std::str::from_utf8(bytes)
-                            .map_err(|_| Error::Corrupt("invalid UTF-8"))?
-                            .into(),
-                    )
-                } else {
+                    let text =
+                        std::str::from_utf8(bytes).map_err(|_| Error::Corrupt("invalid UTF-8"))?;
+                    if RETAIN {
+                        Self::Text(text.into())
+                    } else {
+                        Self::Null
+                    }
+                } else if RETAIN {
                     Self::Bytes(bytes.to_vec())
+                } else {
+                    Self::Null
                 }
             }
             15..=17 => {
@@ -236,7 +240,7 @@ impl Value {
                 let bytes = cursor.take(primitive.packed_bytes(width)?)?;
                 primitive.validate_packed(bytes, width)?;
                 spend(budget, bytes.len())?;
-                let data = bytes.to_vec();
+                let data = if RETAIN { bytes.to_vec() } else { Vec::new() };
                 match tag {
                     15 => Self::Bits { width, data },
                     16 => Self::Logic { width, data },
@@ -261,13 +265,21 @@ impl Value {
             },
             23 => {
                 let count = bounded_count(cursor, size_of::<Value>(), budget)?;
-                let mut values = Vec::with_capacity(count);
+                let mut values = Vec::with_capacity(if RETAIN { count } else { 0 });
                 for _ in 0..count {
-                    values.push(Self::read_tagged(cursor, strings, depth + 1, budget)?);
+                    let value = Self::read_tagged::<RETAIN>(cursor, strings, depth + 1, budget)?;
+                    if RETAIN {
+                        values.push(value);
+                    }
                 }
                 Self::List(values)
             }
-            24 => Self::Map(read_attributes(cursor, strings, depth + 1, budget)?),
+            24 => Self::Map(decode_attributes::<RETAIN>(
+                cursor,
+                strings,
+                depth + 1,
+                budget,
+            )?),
             _ => return Err(Error::Corrupt("unknown value tag")),
         })
     }
@@ -349,8 +361,17 @@ pub(crate) fn read_attributes(
     depth: u8,
     budget: &mut usize,
 ) -> Result<Attributes> {
+    decode_attributes::<true>(cursor, strings, depth, budget)
+}
+
+fn decode_attributes<const RETAIN: bool>(
+    cursor: &mut Cursor<'_>,
+    strings: u64,
+    depth: u8,
+    budget: &mut usize,
+) -> Result<Attributes> {
     let count = bounded_count(cursor, size_of::<Attribute>(), budget)?;
-    let mut out = Vec::with_capacity(count);
+    let mut out = Vec::with_capacity(if RETAIN { count } else { 0 });
     let mut keys = HashSet::new();
     for _ in 0..count {
         let key = cursor.id()?;
@@ -358,10 +379,10 @@ pub(crate) fn read_attributes(
         if !keys.insert(key) {
             return Err(Error::Corrupt("duplicate attribute key"));
         }
-        out.push(Attribute {
-            key,
-            value: Value::read_tagged(cursor, strings, depth, budget)?,
-        });
+        let value = Value::read_tagged::<RETAIN>(cursor, strings, depth, budget)?;
+        if RETAIN {
+            out.push(Attribute { key, value });
+        }
     }
     Ok(out)
 }
@@ -416,6 +437,14 @@ impl<'a> AttributeReader<'a> {
     }
 
     pub(crate) fn read(&mut self) -> Result<Attributes> {
+        self.decode::<true>()
+    }
+
+    pub(crate) fn skip(&mut self) -> Result<()> {
+        self.decode::<false>().map(|_| ())
+    }
+
+    fn decode<const RETAIN: bool>(&mut self) -> Result<Attributes> {
         let count = self.columns[0].var()?;
         if count > self.columns[2].remaining() as u64 {
             return Err(Error::Corrupt("invalid attribute count"));
@@ -427,7 +456,7 @@ impl<'a> AttributeReader<'a> {
                 .checked_mul(size_of::<Attribute>())
                 .ok_or_else(|| Error::corrupt("attribute allocation exceeds usize"))?,
         )?;
-        let mut out = Vec::with_capacity(count as usize);
+        let mut out = Vec::with_capacity(if RETAIN { count as usize } else { 0 });
         let mut keys = HashSet::new();
         for _ in 0..count {
             let key = self.columns[1].id()?;
@@ -442,7 +471,7 @@ impl<'a> AttributeReader<'a> {
                 string_id(name, self.strings)?;
                 Value::Enum { value, name }
             } else {
-                Value::read_payload(
+                Value::read_payload::<RETAIN>(
                     tag,
                     &mut self.columns[value_column(tag)],
                     self.strings,
@@ -450,7 +479,9 @@ impl<'a> AttributeReader<'a> {
                     &mut budget,
                 )?
             };
-            out.push(Attribute { key, value });
+            if RETAIN {
+                out.push(Attribute { key, value });
+            }
         }
         Ok(out)
     }

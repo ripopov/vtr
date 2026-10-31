@@ -91,10 +91,12 @@ class TransactionBlockView {
         return pages_;
     }
 
+    bool matches(TransactionQuery query) const;
     void transactions(TransactionQuery query,
                       const std::function<bool(const Transaction&)>& visit) const;
     void relations(RecordId endpoint, bool incoming,
                    const std::function<bool(const Relation&)>& visit) const;
+    void scan_relations(const std::function<bool(const Relation&)>& visit) const;
     void scan(const std::function<bool(const Transaction&)>& tx,
               const std::function<bool(const Relation&)>& relation) const;
     void activity(const std::function<void(std::size_t)>& admit,
@@ -103,8 +105,11 @@ class TransactionBlockView {
     std::optional<std::pair<Timestamp, Timestamp>> time_range() const;
 
   private:
+    bool decode_relations(const TransactionPage& page,
+                          const std::function<bool(const Relation&)>& visit) const;
     bool decode_page(const TransactionPage& page, const std::function<bool(const Transaction&)>& tx,
-                     const std::function<bool(const Relation&)>& relation) const;
+                     const std::function<bool(const Relation&)>& relation,
+                     std::optional<TransactionQuery> query = {}) const;
     View blobs_;
     std::span<const std::string> shared_text_;
     const Types& types_;

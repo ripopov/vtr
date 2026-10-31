@@ -140,10 +140,17 @@ void aggregates() {
     }
     columns.finish();
     ArgumentReader reader(views(columns));
+    ArgumentReader selective(views(columns));
+    std::size_t index = 0;
     for (const auto& row : rows) {
         check(reader.read(decoder, id) == row, "aggregate round trip changed bits");
+        if (index++ % 2 == 0)
+            selective.skip(decoder, id);
+        else
+            check(selective.read(decoder, id) == row, "skipping changed aggregate payloads");
     }
     reader.done();
+    selective.done();
     check(columns.dictionary.size() == 2, "text dictionary failed to deduplicate");
     for (std::size_t n = 0; n < rows[0].size(); ++n) {
         rejects([&] { types.validate(id, View(rows[0]).first(n)); });
@@ -673,6 +680,38 @@ void datatype_metadata() {
     rejects([&] { Types{}.read_declarations(flagged_empty); });
 }
 
+void skipped_rows_and_rollback() {
+    Types types;
+    auto type = types.structure("Row", {{"text", 13}, {"valid", 1}});
+    ArgumentColumns columns;
+    std::vector<Bytes> rows;
+    for (const auto* text : {"first", "second", "first", "last"}) {
+        Payload row;
+        row.length(std::strlen(text));
+        row.raw(d::view(text));
+        row.scalar(std::uint8_t(1));
+        rows.push_back(std::move(row).take());
+        columns.append(types, type, rows.back());
+    }
+    columns.finish();
+    ArgumentReader reader(views(columns));
+    reader.skip(types, type);
+    check(reader.read(types, type) == rows[1], "skip lost dictionary first-use state");
+    reader.skip(types, type);
+    check(reader.read(types, type) == rows[3], "skip consumed a selected payload");
+    reader.done();
+    const Bytes first_text(rows[0].begin(), rows[0].end() - 1);
+    ArgumentReader limited(views(columns), UINT64_MAX, first_text.size());
+    rejects([&] { limited.skip(types, type); });
+    check(limited.read(types, 13) == first_text,
+          "failed skip consumed columns or dictionary state");
+    auto malformed = columns;
+    malformed.columns[0][0] = 2;
+    ArgumentReader invalid(views(malformed));
+    rejects([&] { invalid.skip(types, type); });
+    check(invalid.read(types, 13) == first_text, "invalid skipped bool consumed first-use state");
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && (std::string_view(argv[1]) == "--fixture" ||
                       std::string_view(argv[1]) == "--shared-fixture")) {
@@ -683,6 +722,7 @@ int main(int argc, char** argv) {
     try {
         datatype_metadata();
         aggregates();
+        skipped_rows_and_rollback();
         primitives();
         declarations_and_limits();
         dictionary_validation();

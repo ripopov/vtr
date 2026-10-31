@@ -108,6 +108,8 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
 The independent C++20 library builds with CMake from `vtr-cpp/`.
+Reader architecture and measurement results are described in
+[reader performance](docs/READER_PERFORMANCE.md).
 
 The standalone `vtr` crate requires Rust 1.97.1 or newer. See the
 [format specification](docs/SPEC.md) and [design rationale](docs/RATIONALE.md).
