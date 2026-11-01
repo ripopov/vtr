@@ -1,6 +1,6 @@
 //! Progress, cancellation and concurrent publication of activity sidecars.
 
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use vtr::activity::{
     self, Block, BlockScan, BuildControl, BuildOptions, Identity, Sidecar, Source, SourceFormat,
@@ -81,6 +81,14 @@ fn empty_signal_tables_yield_and_cancel_during_initialization() {
 struct Trace {
     blocks: Vec<Block>,
     pause: Option<(mpsc::SyncSender<()>, Mutex<mpsc::Receiver<()>>)>,
+    costs: Vec<u64>,
+    output: Option<Arc<OutputProgress>>,
+}
+
+struct OutputProgress {
+    writing: Mutex<bool>,
+    changed: Condvar,
+    admitted: mpsc::SyncSender<()>,
 }
 
 impl Trace {
@@ -94,6 +102,8 @@ impl Trace {
                 })
                 .collect(),
             pause: None,
+            costs: vec![1024; 6],
+            output: None,
         }
     }
 }
@@ -117,11 +127,26 @@ impl Source for Trace {
     fn blocks(&self) -> &[Block] {
         &self.blocks
     }
-    fn cost(&self, _: usize) -> Result<u64> {
-        Ok(1024)
+    fn cost(&self, i: usize) -> Result<u64> {
+        Ok(self.costs[i])
     }
     fn worker(&self) {}
     fn scan(&self, (): &mut (), i: usize, scan: &mut BlockScan) -> Result<()> {
+        if let Some(output) = &self.output {
+            if matches!(i, 1 | 2) {
+                let (writing, _) = output
+                    .changed
+                    .wait_timeout_while(
+                        output.writing.lock().unwrap(),
+                        Duration::from_secs(5),
+                        |writing| !*writing,
+                    )
+                    .unwrap();
+                assert!(*writing, "the first block must reach the output");
+            } else if i == 3 {
+                output.admitted.send(()).unwrap();
+            }
+        }
         if i == 1
             && let Some((entered, resume)) = &self.pause
         {
@@ -133,10 +158,134 @@ impl Source for Trace {
                 .expect("resume the scan");
         }
         for t in (self.blocks[i].start + 1..self.blocks[i].end).step_by(3) {
-            scan.push(0, t);
+            scan.push(0, t)?;
         }
         Ok(())
     }
+}
+
+#[test]
+fn worker_completion_and_admission_continue_while_output_is_blocked() {
+    struct Output {
+        progress: Arc<OutputProgress>,
+        admitted: mpsc::Receiver<()>,
+        bytes: Vec<u8>,
+        blocked: bool,
+    }
+    impl std::io::Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.blocked && bytes.len() == 24 && bytes.starts_with(&2u32.to_le_bytes()) {
+                self.blocked = true;
+                *self.progress.writing.lock().unwrap() = true;
+                self.progress.changed.notify_all();
+                self.admitted
+                    .recv_timeout(Duration::from_secs(5))
+                    .map_err(std::io::Error::other)?;
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let (admitted, waiting) = mpsc::sync_channel(1);
+    let progress = Arc::new(OutputProgress {
+        writing: Mutex::new(false),
+        changed: Condvar::new(),
+        admitted,
+    });
+    let trace = Trace {
+        output: Some(progress.clone()),
+        ..Trace::new()
+    };
+    let mut output = Output {
+        progress,
+        admitted: waiting,
+        bytes: Vec::new(),
+        blocked: false,
+    };
+    activity::build_from(
+        &trace,
+        &mut output,
+        &BuildOptions {
+            threads: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(output.blocked);
+    let mut expected = Vec::new();
+    activity::build_from(&Trace::new(), &mut expected, &BuildOptions::default()).unwrap();
+    assert_eq!(output.bytes, expected);
+}
+
+#[test]
+fn oversized_estimates_scan_exclusively_between_parallel_blocks() {
+    let trace = Trace::new();
+    let mut expected = Vec::new();
+    activity::build_from(&trace, &mut expected, &BuildOptions::default()).unwrap();
+    for costs in [
+        vec![u64::MAX; 6],
+        vec![1024, u64::MAX, 1024, 1024, u64::MAX, 1024],
+    ] {
+        let trace = Trace {
+            costs,
+            ..Trace::new()
+        };
+        let control = Arc::new(BuildControl::default());
+        let (tx, rx) = mpsc::channel();
+        let progress = control.clone();
+        let worker = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let result = activity::build_from(
+                &trace,
+                &mut bytes,
+                &BuildOptions {
+                    threads: 4,
+                    memory: 32 << 10,
+                    control: Some(control),
+                },
+            );
+            tx.send(result.map(|_| bytes)).unwrap();
+        });
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5))
+                .expect("exclusive scans must make progress")
+                .unwrap(),
+            expected
+        );
+        worker.join().unwrap();
+        assert_eq!(progress.progress().completed, 6);
+    }
+}
+
+#[test]
+fn exclusive_scans_reject_actual_growth_that_exceeds_the_budget() {
+    let trace = Trace {
+        blocks: vec![Block {
+            start: 0,
+            end: 100_000,
+            bytes: 4096,
+        }],
+        costs: vec![u64::MAX],
+        pause: None,
+        output: None,
+    };
+    let control = Arc::new(BuildControl::default());
+    let error = activity::build_from(
+        &trace,
+        std::io::sink(),
+        &BuildOptions {
+            memory: 4096,
+            threads: 4,
+            control: Some(control.clone()),
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("block 0"), "{error}");
+    assert!(error.to_string().contains("memory limit"), "{error}");
+    assert_eq!(control.progress().completed, 0);
 }
 
 #[test]

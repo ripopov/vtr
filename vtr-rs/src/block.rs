@@ -209,18 +209,6 @@ impl<'a> GroupView<'a> {
         })
     }
 
-    #[must_use]
-    pub fn holds(&self, sig: u32) -> bool {
-        sig >= self.first_sig && ((sig - self.first_sig) as usize) < self.n_sigs
-    }
-
-    #[must_use]
-    pub fn run_of(&self, sig: u32) -> usize {
-        let local = sig - self.first_sig;
-        let i = self.runs.partition_point(|r| r.first_local <= local);
-        i - 1
-    }
-
     pub fn decode_run(
         &self,
         ri: usize,
@@ -303,7 +291,11 @@ pub fn untransform_column(
     Ok(())
 }
 
-pub fn for_each_tidx(col: &[u8], kind: SignalKind, mut f: impl FnMut(u32)) -> Result<()> {
+pub fn for_each_tidx(
+    col: &[u8],
+    kind: SignalKind,
+    mut f: impl FnMut(u32) -> Result<()>,
+) -> Result<()> {
     if col.is_empty() {
         return Ok(());
     }
@@ -341,7 +333,7 @@ pub fn for_each_tidx(col: &[u8], kind: SignalKind, mut f: impl FnMut(u32)) -> Re
             x >> shift
         };
         tidx = tidx.wrapping_add(dt as u32);
-        f(tidx);
+        f(tidx)?;
     }
     Ok(())
 }

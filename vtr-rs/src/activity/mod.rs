@@ -7,6 +7,7 @@ mod driver;
 mod format;
 mod generators;
 mod index;
+mod memory;
 mod scan;
 mod sidecar;
 mod vtr_source;
@@ -86,6 +87,7 @@ pub struct Block {
 #[derive(Clone, Debug)]
 pub struct BuildOptions {
     pub threads: usize,
+    /// Activity tables and buffer budget, excluding the reader and codec contexts.
     pub memory: u64,
     pub control: Option<std::sync::Arc<BuildControl>>,
 }

@@ -4,6 +4,7 @@ use super::format::{
     self, BLOCK_COLUMNS, BlockHead, FileWriter, Header, KIND_BLOCK, KIND_HEADER, KIND_TAIL,
     TAIL_COLUMNS,
 };
+use super::memory;
 use super::scan::BlockScan;
 use super::{Identity, Summary};
 use crate::codec::Compressor;
@@ -31,6 +32,8 @@ pub struct Builder<W: Write> {
     raw: Vec<u8>,
     body: Vec<u8>,
     compressor: Compressor,
+    memory: Option<memory::Reservation>,
+    remaining_closes: usize,
 }
 
 impl<W: Write> Builder<W> {
@@ -55,6 +58,8 @@ impl<W: Write> Builder<W> {
             raw: Vec::new(),
             body: Vec::new(),
             compressor: Compressor::new(),
+            memory: None,
+            remaining_closes: 0,
         })
     }
 
@@ -66,6 +71,9 @@ impl<W: Write> Builder<W> {
         self.cols = Default::default();
         self.raw = Vec::new();
         self.body = Vec::new();
+        if let Some(memory) = &mut self.memory {
+            memory.clear();
+        }
     }
 
     pub fn blocks_added(&self) -> usize {
@@ -74,6 +82,101 @@ impl<W: Write> Builder<W> {
 
     pub fn prev_end(&self) -> Option<u64> {
         self.previous_end
+    }
+
+    pub(super) fn set_memory(&mut self, memory: Option<memory::Reservation>) {
+        self.release_workspace();
+        self.memory = memory;
+    }
+
+    #[inline]
+    fn put(&mut self, column: usize, value: u64) -> Result<()> {
+        if self.cols[column].capacity() - self.cols[column].len() < 10 {
+            self.reserve_column(column, value)?;
+        }
+        put_u64(&mut self.cols[column], value);
+        Ok(())
+    }
+
+    fn compact_workspace(&mut self) {
+        for column in &mut self.cols {
+            memory::shrink_buffer(column, self.memory.as_mut());
+        }
+        self.raw.clear();
+        memory::shrink_buffer(&mut self.raw, self.memory.as_mut());
+        self.body.clear();
+        memory::shrink_buffer(&mut self.body, self.memory.as_mut());
+        self.remaining_closes = 0;
+    }
+
+    fn reserve_column(&mut self, column: usize, value: u64) -> Result<()> {
+        let length = self.cols[column].len() + crate::varint::len_u64(value);
+        if !memory::try_reserve_buffer(&mut self.cols[column], length, self.memory.as_mut())? {
+            self.compact_workspace();
+            memory::reserve_exact_buffer(&mut self.cols[column], length, self.memory.as_mut())?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn close(&mut self, duration: u64, next_delta: u64, gap: u64) -> Result<()> {
+        if self.remaining_closes == 0 {
+            self.reserve_close([duration, next_delta, gap])?;
+        }
+        self.remaining_closes = self.remaining_closes.saturating_sub(1);
+        put_u64(&mut self.cols[3], duration);
+        put_u64(&mut self.cols[4], next_delta);
+        put_u64(&mut self.cols[5], gap);
+        Ok(())
+    }
+
+    fn reserve_close(&mut self, values: [u64; 3]) -> Result<()> {
+        for (column, value) in (3..6).zip(values) {
+            let length = self.cols[column].len() + crate::varint::len_u64(value);
+            if !memory::try_reserve_buffer(&mut self.cols[column], length, self.memory.as_mut())? {
+                self.compact_workspace();
+                for (column, value) in (3..6).zip(values) {
+                    let length = self.cols[column].len() + crate::varint::len_u64(value);
+                    memory::reserve_exact_buffer(
+                        &mut self.cols[column],
+                        length,
+                        self.memory.as_mut(),
+                    )?;
+                }
+                break;
+            }
+        }
+        // Ten bytes per varint keep capacity admission off the per-range encoding path.
+        self.remaining_closes = self.cols[3..]
+            .iter()
+            .map(|column| (column.capacity() - column.len()) / 10)
+            .min()
+            .unwrap_or(0);
+        Ok(())
+    }
+
+    fn pack(&mut self, columns: usize) -> Result<()> {
+        let length = self.cols[..columns]
+            .iter()
+            .try_fold(0usize, |sum, column| {
+                sum.checked_add(crate::varint::len_u64(column.len() as u64))
+                    .and_then(|sum| sum.checked_add(column.len()))
+            })
+            .ok_or_else(|| Error::invalid("activity encoding length overflow"))?;
+        let bound = crate::codec::compressed_bound(super::format::COMPRESSION, length)?;
+        if !memory::try_reserve_buffer(&mut self.raw, length, self.memory.as_mut())?
+            || !memory::try_reserve_buffer(&mut self.body, bound, self.memory.as_mut())?
+        {
+            self.compact_workspace();
+            memory::reserve_exact_buffer(&mut self.raw, length, self.memory.as_mut())?;
+            memory::reserve_exact_buffer(&mut self.body, bound, self.memory.as_mut())?;
+        }
+        format::pack(
+            &self.cols[..columns],
+            &mut self.raw,
+            &mut self.compressor,
+            &mut self.body,
+        )
     }
 
     pub fn add(&mut self, mut scan: BlockScan) -> Result<()> {
@@ -115,7 +218,7 @@ impl<W: Write> Builder<W> {
                 return Err(Error::invalid("activity change outside its block"));
             }
         }
-        let mut changes = scan.changes;
+        let mut changes = scan.rows.iter().map(|row| row.changes).sum::<u64>();
         for row in &scan.rows {
             if self.sigs[row.signal as usize].last == scan.stretches[row.first].start {
                 changes -= 1;
@@ -152,6 +255,7 @@ impl<W: Write> Builder<W> {
             column.clear();
         }
         self.next.clear();
+        self.remaining_closes = 0;
         let (mut previous_signal, mut rows, mut closed) = (0, 0, 0u32);
         for row in &scan.rows {
             let stretches = &scan.stretches[row.first..row.first + row.count];
@@ -165,13 +269,11 @@ impl<W: Write> Builder<W> {
                     if stretch.start - state.last == 1 {
                         state.gap = 1;
                     } else {
-                        close(
-                            &mut self.cols,
-                            state.open,
-                            state.last,
-                            stretch.start,
+                        self.close(
+                            state.last - state.open,
+                            stretch.start - state.last,
                             state.gap,
-                        );
+                        )?;
                         count = count
                             .checked_add(1)
                             .ok_or(Error::invalid("too many activity stretches"))?;
@@ -186,14 +288,11 @@ impl<W: Write> Builder<W> {
             }
             self.next.push(state);
             if initial || count != 0 {
-                put_u64(&mut self.cols[0], u64::from(row.signal - previous_signal));
+                self.put(0, u64::from(row.signal - previous_signal))?;
                 previous_signal = row.signal;
-                put_u64(
-                    &mut self.cols[1],
-                    (u64::from(count) << 1) | u64::from(initial),
-                );
+                self.put(1, (u64::from(count) << 1) | u64::from(initial))?;
                 if initial {
-                    put_u64(&mut self.cols[2], stretches[0].start - scan.block.start);
+                    self.put(2, stretches[0].start - scan.block.start)?;
                 }
                 rows += 1;
                 closed = closed
@@ -201,12 +300,7 @@ impl<W: Write> Builder<W> {
                     .ok_or(Error::invalid("too many activity stretches"))?;
             }
         }
-        format::pack(
-            &self.cols,
-            &mut self.raw,
-            &mut self.compressor,
-            &mut self.body,
-        )?;
+        self.pack(BLOCK_COLUMNS)?;
         Ok((rows, closed))
     }
 
@@ -280,10 +374,4 @@ impl<W: Write> Builder<W> {
             source_bytes: self.header.identity.length,
         })
     }
-}
-
-fn close(cols: &mut [Vec<u8>; BLOCK_COLUMNS], open: u64, a: u64, b: u64, gap: u64) {
-    put_u64(&mut cols[3], a - open);
-    put_u64(&mut cols[4], b - a);
-    put_u64(&mut cols[5], gap);
 }

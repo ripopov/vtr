@@ -85,6 +85,192 @@ fn recording(path: &std::path::Path, codec: Codec) -> Reader {
 }
 
 #[test]
+fn dynamic_aliases_share_scanned_ranges_across_groups_under_a_small_budget() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut options = WriterOptions {
+        mode: ExecutionMode::Inline,
+        ..Default::default()
+    };
+    options.metadata.group_size = 8;
+    let path = directory.path().join("aliases.vtr");
+    let mut writer = Writer::create_with(&path, options).unwrap();
+    let signals: Vec<_> = (0..64)
+        .map(|id| {
+            writer
+                .signal(
+                    SourceOptions::new(format!("s{id}"), None),
+                    SignalKind::Bits {
+                        width: 64,
+                        states: 2,
+                    },
+                    VarType::Wire,
+                    Direction::Implicit,
+                )
+                .unwrap()
+        })
+        .collect();
+    for step in 0..4096 {
+        writer.advance_time((step / 2) * 3 + step % 2).unwrap();
+        for &signal in &signals {
+            writer.emit_u64(signal, step).unwrap();
+        }
+    }
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    let mut reference = Vec::new();
+    let expected = activity::build(&reader, &mut reference, &BuildOptions::default()).unwrap();
+    for threads in [1, 4] {
+        let mut bytes = Vec::new();
+        let result = activity::build(
+            &reader,
+            &mut bytes,
+            &BuildOptions {
+                memory: 4 << 20,
+                threads,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.changes, 64 * 4095);
+        assert_eq!(result.changes, expected.changes);
+        assert_eq!(bytes, reference);
+        let index = Index::decode_for(&bytes, &reader).unwrap();
+        assert_eq!(index.classify(3, 3), signals);
+        assert!(index.classify(2, 2).is_empty());
+    }
+    let error = activity::build(
+        &reader,
+        std::io::sink(),
+        &BuildOptions {
+            memory: 512 << 10,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("memory limit"), "{error}");
+}
+
+#[test]
+fn dense_aliases_remain_bounded_across_parallel_blocks() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("parallel-aliases.vtr");
+    let mut options = WriterOptions {
+        mode: ExecutionMode::Inline,
+        ..Default::default()
+    };
+    options.metadata.group_size = 32;
+    options.encoding.waveform_records = 400_000;
+    let mut writer = Writer::create_with(&path, options).unwrap();
+    let signals: Vec<_> = (0..256)
+        .map(|id| {
+            writer
+                .signal(
+                    SourceOptions::new(format!("s{id}"), None),
+                    SignalKind::Bits {
+                        width: 64,
+                        states: 2,
+                    },
+                    VarType::Wire,
+                    Direction::Implicit,
+                )
+                .unwrap()
+        })
+        .collect();
+    for time in 0..30_000 {
+        writer.advance_time(time * 3).unwrap();
+        for &signal in &signals {
+            writer.emit_u64(signal, time).unwrap();
+        }
+    }
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    assert_eq!(reader.block_count(), 20);
+    let mut expected = Vec::new();
+    activity::build(&reader, &mut expected, &BuildOptions::default()).unwrap();
+    for threads in [1, 4, 8] {
+        let mut actual = Vec::new();
+        let control = std::sync::Arc::new(activity::BuildControl::default());
+        let summary = activity::build(
+            &reader,
+            &mut actual,
+            &BuildOptions {
+                memory: 6 << 20,
+                threads,
+                control: Some(control.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(summary.changes, 256 * 29_999);
+        assert_eq!(actual, expected, "{threads} workers");
+        assert_eq!(control.progress().completed, reader.block_count());
+        let index = Index::decode_for(&actual, &reader).unwrap();
+        assert_eq!(index.classify(3, 3), signals);
+        assert!(index.classify(4, 5).is_empty());
+    }
+}
+
+#[test]
+fn wide_values_with_few_changes_fit_despite_an_oversized_scan_estimate() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("wide.vtr");
+    let mut writer = Writer::create_with(
+        &path,
+        WriterOptions {
+            mode: ExecutionMode::Inline,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut value = vec![0u8; 256 << 10];
+    let signal = writer
+        .signal(
+            SourceOptions::new("wide", None),
+            SignalKind::Bits {
+                width: value.len() as u32 * 8,
+                states: 2,
+            },
+            VarType::Wire,
+            Direction::Implicit,
+        )
+        .unwrap();
+    for time in [0, 1, 2, u64::MAX - 1, u64::MAX] {
+        writer.advance_time(time).unwrap();
+        value[0] = value[0].wrapping_add(1);
+        writer.emit_packed(signal, 2, &value).unwrap();
+    }
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    let mut expected = Vec::new();
+    activity::build(&reader, &mut expected, &BuildOptions::default()).unwrap();
+    let mut actual = Vec::new();
+    let summary = activity::build(
+        &reader,
+        &mut actual,
+        &BuildOptions {
+            memory: 4 << 20,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(summary.changes, 4);
+    assert_eq!(actual, expected);
+    let index = Index::decode_for(&actual, &reader).unwrap();
+    assert_eq!(index.classify(1, 2), vec![signal]);
+    assert!(index.classify(3, u64::MAX - 2).is_empty());
+    assert_eq!(index.classify(u64::MAX - 1, u64::MAX), vec![signal]);
+    let error = activity::build(
+        &reader,
+        std::io::sink(),
+        &BuildOptions {
+            memory: 512 << 10,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("memory limit"), "{error}");
+}
+
+#[test]
 fn every_window_matches_waveforms_across_blocks_aliases_and_late_declarations() {
     let directory = tempfile::tempdir().unwrap();
     for codec in [Codec::None, Codec::Lz4, Codec::Zstd] {

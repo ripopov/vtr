@@ -335,6 +335,17 @@ impl Default for Compressor {
     }
 }
 
+pub(crate) fn compressed_bound(compression: Compression, length: usize) -> Result<usize> {
+    let payload = match compression.codec {
+        Codec::None => length,
+        Codec::Lz4 => lz4_bound(length)?,
+        Codec::Zstd => zstd::zstd_safe::compress_bound(length).max(lz4_bound(length)?),
+    };
+    payload
+        .checked_add(1 + crate::varint::len_u64(length as u64))
+        .ok_or_else(|| Error::invalid("compressed workspace length overflow"))
+}
+
 pub fn raw_len(blob: &[u8]) -> Result<usize> {
     let mut r = crate::varint::Reader::new(blob);
     Codec::from_u8(r.u8()?)?;

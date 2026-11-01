@@ -79,6 +79,14 @@ impl Source for VtrSource<'_> {
     }
 }
 
+fn metadata_bytes(signals: u32) -> u64 {
+    let per_signal = std::mem::size_of::<block::Run<'_>>()
+        + 3 * std::mem::size_of::<(u32, u32)>()
+        + std::mem::size_of::<(u32, usize)>()
+        + std::mem::size_of::<usize>();
+    u64::from(signals).saturating_mul(per_signal as u64)
+}
+
 fn scan_cost(reader: &Reader, i: usize) -> Result<u64> {
     let (p, h, kinds) = reader.signal_block(i)?;
     let (mut rows, mut run, mut points) = (0u64, 0u64, 0u64);
@@ -89,8 +97,6 @@ fn scan_cost(reader: &Reader, i: usize) -> Result<u64> {
             kinds,
         )?;
         rows += view.n_sigs as u64;
-        points =
-            points.saturating_add((view.aliases.len() as u64).saturating_mul(u64::from(h.n_times)));
         for r in &view.runs {
             let length = codec::raw_len(r.blob)? as u64;
             points = points.saturating_add(length);
@@ -99,22 +105,40 @@ fn scan_cost(reader: &Reader, i: usize) -> Result<u64> {
     }
     let times =
         u64::from(h.n_times) * 8 + codec::raw_len(&p[block::HEADER_LEN..h.index_off()])? as u64;
-    Ok(BlockScan::estimate(rows, points) + times + run)
+    Ok(BlockScan::estimate(rows, points)
+        .saturating_add(times)
+        .saturating_add(run)
+        .saturating_add(metadata_bytes(h.n_signals)))
 }
 
 fn scan_block(reader: &Reader, i: usize, scan: &mut BlockScan, d: &mut Decompressor) -> Result<()> {
     let (p, h, kinds) = reader.signal_block(i)?;
+    let metadata = metadata_bytes(h.n_signals);
+    let table = u64::from(h.n_times) * 8;
+    scan.workspace(
+        metadata
+            .saturating_add(table)
+            .saturating_add(codec::raw_len(&p[block::HEADER_LEN..h.index_off()])? as u64),
+    )?;
     let times = block::decode_time_table(p, &h, d)?;
+    let workspace = metadata.saturating_add((times.capacity() as u64) * 8);
+    scan.workspace(workspace)?;
     let mut run = Vec::new();
-    let mut aliases = Vec::new();
+    let mut aliases = Vec::with_capacity(h.n_signals as usize);
     for (g, clen, off) in block::dirty_groups(p, &h) {
         let view = GroupView::parse(
             block::group_container(p, &h, clen, off)?,
             reader.group_first(g),
             kinds,
         )?;
-        aliases.extend(view.aliases.iter().map(|&(alias, target)| (target, alias)));
+        aliases.extend_from_slice(&view.aliases);
         for ri in 0..view.runs.len() {
+            let length = codec::raw_len(view.runs[ri].blob)?;
+            scan.workspace(workspace.saturating_add(run.capacity().max(length) as u64))?;
+            let needed = length.saturating_sub(run.len());
+            run.try_reserve_exact(needed).map_err(|error| {
+                Error::invalid(format!("cannot allocate activity run: {error}"))
+            })?;
             let cols = view.decode_run(ri, d, &mut run)?;
             let first = view.first_sig + view.runs[ri].first_local;
             for (k, &(a, b)) in cols.iter().enumerate() {
@@ -130,47 +154,35 @@ fn scan_block(reader: &Reader, i: usize, scan: &mut BlockScan, d: &mut Decompres
         }
     }
     aliases.sort_unstable();
-    let group_size = reader.metadata().group_size.max(1);
-    let (mut decoded, mut cols) = (None, Vec::new());
-    for (target, alias) in aliases {
-        let g = target / group_size;
-        let (clen, off) =
-            block::find_group(p, &h, g).ok_or(Error::Corrupt("alias target group missing"))?;
-        let view = GroupView::parse(
-            block::group_container(p, &h, clen, off)?,
-            reader.group_first(g),
-            kinds,
-        )?;
-        if !view.holds(target) {
-            return Err(Error::Corrupt("alias target not in block"));
+    for &(alias, target) in &aliases {
+        if alias == target
+            || aliases
+                .binary_search_by_key(&target, |&(signal, _)| signal)
+                .is_ok()
+        {
+            return Err(Error::Corrupt("activity alias target is an alias"));
         }
-        let ri = view.run_of(target);
-        if decoded != Some((g, ri)) {
-            cols = view.decode_run(ri, d, &mut run)?;
-            decoded = Some((g, ri));
+        if kinds.get(alias as usize) != kinds.get(target as usize) {
+            return Err(Error::Corrupt("activity alias kind mismatch"));
         }
-        let (a, b) = cols[(target - view.first_sig - view.runs[ri].first_local) as usize];
-        feed(
-            scan,
-            alias,
-            &run[a as usize..b as usize],
-            kinds[target as usize],
-            &times,
-        )?;
+        let group = target / h.group_size.max(1);
+        if block::find_group(p, &h, group).is_none() {
+            return Err(Error::Corrupt("alias target group missing"));
+        }
     }
+    drop(run);
+    drop(times);
+    scan.workspace(metadata)?;
+    scan.aliases(&aliases)?;
+    scan.workspace(0)?;
     Ok(())
 }
 
 fn feed(scan: &mut BlockScan, sig: u32, col: &[u8], kind: SignalKind, times: &[u64]) -> Result<()> {
-    let mut outside = false;
     block::for_each_tidx(col, kind, |ti| match times.get(ti as usize) {
         Some(&t) => scan.push(sig, t),
-        None => outside = true,
-    })?;
-    if outside {
-        return Err(Error::Corrupt(
+        None => Err(Error::Corrupt(
             "column entry outside its block's time table",
-        ));
-    }
-    Ok(())
+        )),
+    })
 }
