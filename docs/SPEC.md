@@ -303,6 +303,26 @@ Keys starting with `vtr.` or `log.` are reserved. `vtr.label`, when present, is
 `str` or `text`. `vtr.clock` is a `u32` generator ID referring to a CLOCK source.
 Logging helpers interpret datatype metadata as described in [LOGGING.md](LOGGING.md).
 
+### 5.4 Description convention
+
+The optional `vtr.description` attribute on a variable, generator, or scope node
+provides a long, human-readable description explaining that signal, generator,
+or scope. Its value is `text` or `str`, with identical meaning: plain UTF-8 text,
+with newlines allowed and no markup interpretation. An absent or empty value
+means no description. Writers should prefer `text` unless interning repeated
+text is useful.
+
+Descriptions belong to the individual hierarchy declaration. They do not change
+signal identity or aliasing, and are not inherited from a parent scope or another
+alias. Writers emit at most one `vtr.description` key by text per node. Readers
+match the key by text and use the first matching attribute; non-string values
+provide no description but remain valid generic attributes.
+
+Descriptions should explain what the observation represents, including relevant
+inclusions, exclusions, and sampling or update behavior. For example, a signal
+named `queue_depth` might have the description “Number of requests waiting for
+dispatch. Excludes requests already executing. Sampled after each clock edge.”
+
 ## 6. SIGNAL_BLOCK (kind 4)
 
 A signal block holds all value changes of a contiguous time range. Blocks
