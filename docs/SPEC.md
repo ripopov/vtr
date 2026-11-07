@@ -618,6 +618,19 @@ estimates; configured memory is not a process-wide allocator cap. Decoders admit
 input, decompression workspace, and retained range storage before allocating,
 and support cooperative yielding/cancellation.
 
+`Index::estimate_memory` checks the container and source identity, then uses
+section counts to estimate retained storage and loading peak without decompressing
+pages or allocating signal tables. Estimates include spare vector capacity,
+encoded input, directory storage, per-signal scratch, and the largest decoded
+page. Codec contexts and allocator overhead are excluded. This is a sizing pass;
+loading still validates decoded rows and admits actual allocations.
+
+`Index::validate_with` uses the same row decoder without materializing the index.
+It retains per-signal starts and the last interval per generator for continuity
+checks. Callers admit validation workspace and can cancel or yield at the same
+checkpoints as full decoding. Cache selection must validate candidate contents;
+a successful sizing pass alone does not establish that a sidecar is valid.
+
 The adjacent name is `<trace>.index`. Cache fallback names contain the source
 format, recording ID, length, and directory CRC. The default cache directory is
 `$XDG_CACHE_HOME/vtr/index`, or `~/.cache/vtr/index`. An identity mismatch causes

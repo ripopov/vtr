@@ -15,7 +15,7 @@ mod vtr_source;
 pub use builder::Builder;
 pub use control::{BuildControl, BuildProgress};
 pub use driver::{Source, build_from};
-pub use index::{Index, IndexBlock, Stretch};
+pub use index::{Index, IndexBlock, MemoryEstimate, Stretch};
 pub use scan::BlockScan;
 pub use sidecar::{Sidecar, default_cache_dir};
 pub use vtr_source::build;

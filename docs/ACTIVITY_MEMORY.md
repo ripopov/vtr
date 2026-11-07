@@ -52,7 +52,7 @@ Regression tests cover dense dynamic aliases across groups, shared coalesced
 ranges, oversized scheduling estimates between ordinary blocks, exclusive-scan
 progress and actual exhaustion, wide values with little activity, and timestamps
 through `u64::MAX`. The existing full Rust suite, all 40 native tests including
-Rust/C++ interoperability, and Volna's 24 activity integration tests pass.
+Rust/C++ interoperability, and Volna's 30 activity integration tests pass.
 
 A dense-alias regression spans 20 blocks, 256 signals, and 7,679,744 logical
 changes. At a 6 MiB workspace budget it produces identical sidecars with one,
@@ -92,23 +92,39 @@ once per 10,000 steps over 100,000 steps. Synthetic waveform blocks flush at
 differences on this host do not establish a general speedup; alias sharing
 removes duplicate decoding and range construction where columns repeat.
 
+## Index loading estimates
+
+`Index::estimate_memory` bounds vector capacities from section row counts before
+allocating signal tables or decoding pages. Retained storage and loading peak
+are reported separately; the peak also includes encoded input, directory storage,
+per-signal scratch, and the largest decoded page. Codec contexts and allocator
+overhead remain outside these estimates. Full decoding still validates rows and
+performs memory admission. `Index::validate_with` shares that decoder while
+omitting retained signal stretches and keeping only the last interval per
+generator. This allows sidecar validation and cache fallback before transporting
+an index whose full decoded representation exceeds the automatic loading limit.
+
+Waveform and generator query tests check retained estimates against decoded
+storage. Admission tests check that the estimated peak covers every allocation
+request. Volna integration tests exercise approval, dismissal, budget growth,
+refused admission and retry, configured object limits, invalid-cache recovery,
+and approval of remote sidecars larger than the original transfer allowance. A native UI test clicks the
+approval button and verifies that the index becomes available.
+
 ## Default benchmark comparison
 
-The complete default suite was rebuilt and run in the existing Linux container,
-pinned to CPU 0, with three repetitions and full workload sizes. It completed
-in 67.24 seconds. All 490 shared metric cells were
-compared with the previously committed [report](../benchmarks/report.md),
-including every backend, workload, producer cost, read/query latency, RSS, and
-size metric. All 164 deterministic size, count, and query-result cells match.
+The complete default suite was rebuilt and run in the Linux container on CPU 0,
+with three repetitions and full workload sizes. It completed in 52.67 seconds.
+All 490 shared metric cells were compared with the previously committed report,
+including producer costs, read/query latency, RSS, and sizes for every backend
+and workload. All 164 deterministic size, count, and query-result cells match.
 
-The default suite benchmarks the unchanged native C++ implementation and does
-not build Rust activity indexes. VTR write-time differences against the previous
-report range from -2.6% to +10.1%, and full-read differences from -7.4% to +24.6%.
-The executable's SHA-256 remains
-`41192afaaf99ae622a5f40cf606e33f4015a047ad1a0952c0bf98f6e73efc632`,
-identical to the earlier validated run and its seven-pair identical-binary
-control. That control's write/read differences range from -4.4% to +0.8%; close
-times vary by up to 33.3%. The full suite's many-generator close median was
-3.14 ms versus the previous report's 0.37 ms; the identical-binary control
-measured 0.34 and 0.36 ms. Default-suite differences with the same executable
-reflect measurement conditions rather than this Rust-only change.
+These benchmarks compile native C++, whose inputs are unchanged by the Rust
+estimation API. They do not measure Rust activity-index loading. The rebuilt
+native executable's SHA-256 is
+`bd05d726a27b0df09c7bf7b1df899eaae279001fdb45e74096d6fbfbd76e5691`;
+it differs from the executable recorded in the previous validation, so timing
+and RSS differences against that report cannot isolate this API change.
+A seven-pair identical-executable control used full workloads on CPU 0: write
+medians varied from -0.6% to +3.0%, read medians from -0.7% to +1.9%, and close
+medians from -3.9% to +2.4%. Every control result matched its source replay.

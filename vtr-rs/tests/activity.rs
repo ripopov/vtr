@@ -9,6 +9,25 @@ use vtr::{
     trace::{Reader, TimeWindow},
 };
 
+fn validate(bytes: &[u8], identity: &Identity, limit: u64) -> vtr::Result<()> {
+    use std::future::Future;
+    let mut validation = std::pin::pin!(Index::validate_with(
+        bytes,
+        identity,
+        |used| if used <= limit {
+            Ok(())
+        } else {
+            Err(vtr::Error::State("validation budget exhausted"))
+        },
+        || std::future::ready(Ok(()))
+    ));
+    let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+    match validation.as_mut().poll(&mut context) {
+        std::task::Poll::Ready(result) => result,
+        std::task::Poll::Pending => panic!("synchronous validation yielded"),
+    }
+}
+
 fn recording(path: &std::path::Path, codec: Codec) -> Reader {
     let mut options = WriterOptions {
         mode: ExecutionMode::Inline,
@@ -297,7 +316,9 @@ fn every_window_matches_waveforms_across_blocks_aliases_and_late_declarations() 
         )
         .unwrap();
         assert_eq!(sidecar, parallel);
+        let estimate = Index::estimate_memory(&sidecar, &Identity::of(&reader).unwrap()).unwrap();
         let index = Index::decode_for(&sidecar, &reader).unwrap();
+        assert!(index.memory_bytes() <= estimate.resident);
         assert_eq!(index.blocks().len(), reader.block_count());
         let minimum = reader.waveform_time_range().unwrap().first;
         let mut histories = vec![BTreeSet::new(); reader.signal_count() as usize];
@@ -392,10 +413,12 @@ fn decoding_checks_framing_and_honors_memory_admission_and_yield_points() {
     activity::build(&reader, &mut bytes, &Default::default()).unwrap();
     for end in [0, 31, bytes.len() - 1, bytes.len() - 24] {
         assert!(Index::decode(&bytes[..end], &identity).is_err());
+        assert!(validate(&bytes[..end], &identity, u64::MAX).is_err());
     }
     for position in [12, 16, 32, 48, bytes.len() - 24, bytes.len() - 1] {
         let mut corrupt = bytes.clone();
         corrupt[position] ^= 1;
+        assert!(validate(&corrupt, &identity, u64::MAX).is_err());
         assert!(
             Index::decode(&corrupt, &identity).is_err(),
             "byte {position}"
@@ -412,6 +435,7 @@ fn decoding_checks_framing_and_honors_memory_admission_and_yield_points() {
         denied.as_mut().poll(&mut context),
         std::task::Poll::Ready(Err(_))
     ));
+    let estimate = Index::estimate_memory(&bytes, &identity).unwrap();
     let mut peak = 0;
     let mut checkpoints = 0;
     {
@@ -433,6 +457,10 @@ fn decoding_checks_framing_and_honors_memory_admission_and_yield_points() {
         ));
     }
     assert!(peak > bytes.len() as u64);
+    assert!(
+        peak <= estimate.peak,
+        "preflight must cover the loading workspace"
+    );
     assert!(checkpoints > 100);
     assert!(
         activity::build(
@@ -523,7 +551,10 @@ fn generator_windows_match_records_with_gaps_points_and_out_of_order_completion(
         .unwrap();
         let mut bytes = Vec::new();
         activity::build(&r, &mut bytes, &Default::default()).unwrap();
+        validate(&bytes, &Identity::of(&r).unwrap(), u64::MAX).unwrap();
+        let estimate = Index::estimate_memory(&bytes, &Identity::of(&r).unwrap()).unwrap();
         let index = Index::decode_for(&bytes, &r).unwrap();
+        assert!(index.memory_bytes() <= estimate.resident);
         for begin in (0u64..3100).chain([u64::MAX]) {
             for length in [0, 1, 17, 500] {
                 let end = begin.saturating_add(length);
@@ -564,4 +595,40 @@ fn generator_windows_match_records_with_gaps_points_and_out_of_order_completion(
         activity::build(&limited, &mut second, &Default::default()).unwrap();
         assert_eq!(bytes, second);
     }
+}
+
+#[test]
+fn sidecars_validate_in_a_small_workspace_without_materializing_activity_ranges() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("busy.vtr");
+    let mut options = WriterOptions::default();
+    options.encoding.waveform_records = 256;
+    let mut writer = Writer::create_with(&path, options).unwrap();
+    let signal = writer
+        .signal(
+            SourceOptions::new("busy", None),
+            SignalKind::Bits {
+                width: 1,
+                states: 2,
+            },
+            VarType::Wire,
+            Direction::Implicit,
+        )
+        .unwrap();
+    for step in 0..50_000 {
+        writer.advance_time(step * 3).unwrap();
+        writer.emit_u64(signal, step & 1).unwrap();
+    }
+    writer.close().unwrap();
+    let reader = Reader::open(path).unwrap();
+    let identity = Identity::of(&reader).unwrap();
+    let mut image = Vec::new();
+    activity::build(&reader, &mut image, &BuildOptions::default()).unwrap();
+    let limit = 256 << 10;
+    validate(&image, &identity, limit).unwrap();
+    assert!(validate(&image, &identity, 1).is_err());
+    let index = Index::decode_for(&image, &reader).unwrap();
+    assert!(index.memory_bytes() > limit);
+    assert_eq!(index.classify(15, 15), vec![signal]);
+    assert!(index.classify(16, 17).is_empty());
 }

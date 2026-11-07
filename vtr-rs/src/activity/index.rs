@@ -28,7 +28,80 @@ pub struct Index {
     generators: Vec<(u32, Vec<(u64, u64)>)>,
 }
 
+/// Conservative estimates for decoded storage and peak loading workspace.
+/// Excludes codec contexts and allocator overhead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemoryEstimate {
+    pub resident: u64,
+    pub peak: u64,
+}
+
 impl Index {
+    /// Reads section counts without allocating signal tables or decompressing pages.
+    pub fn estimate_memory(bytes: &[u8], identity: &Identity) -> Result<MemoryEstimate> {
+        let entries = container::parse(bytes, |_| Ok(()))?;
+        let first = entries
+            .first()
+            .filter(|entry| entry.kind == 1)
+            .ok_or(Error::Corrupt("activity header missing"))?;
+        let header = Header::decode(container::payload(bytes, first)?)?;
+        if header.identity != *identity {
+            return Err(Error::invalid(
+                "activity index belongs to another recording",
+            ));
+        }
+        let mut resident = u64::from(header.signals) * std::mem::size_of::<Vec<Stretch>>() as u64;
+        let mut workspace = 0;
+        for entry in &entries[1..] {
+            let body = container::payload(bytes, entry)?;
+            let (storage, blob) = match entry.kind {
+                2 => {
+                    let head = BlockHead::decode(body)?;
+                    (
+                        std::mem::size_of::<IndexBlock>() as u64
+                            + u64::from(head.closed) * 2 * std::mem::size_of::<Stretch>() as u64,
+                        &body[BLOCK_HEAD_LEN..],
+                    )
+                }
+                3 => (
+                    u64::from(format::tail_rows(body)?) * 2 * std::mem::size_of::<Stretch>() as u64,
+                    &body[TAIL_HEAD_LEN..],
+                ),
+                4 => {
+                    let mut cursor = Cursor::new(body);
+                    cursor.u32()?;
+                    let count = cursor.u32()?;
+                    (
+                        2 * std::mem::size_of::<(u32, Vec<(u64, u64)>)>() as u64
+                            + u64::from(count) * 2 * 16,
+                        cursor.take(cursor.remaining())?,
+                    )
+                }
+                _ => return Err(Error::Corrupt("unknown activity section")),
+            };
+            // Decoded lists double their capacity; twice the row count bounds spare capacity.
+            resident = resident
+                .checked_add(storage)
+                .ok_or(Error::Corrupt("activity memory overflow"))?;
+            let raw = crate::codec::raw_len(blob)?;
+            if raw >= crate::wire::MAX_BLOCK_BYTES {
+                return Err(Error::Corrupt("activity page exceeds format limit"));
+            }
+            workspace = workspace.max(raw as u64);
+        }
+        let peak = resident
+            .checked_add(bytes.len() as u64)
+            .and_then(|n| n.checked_add(workspace))
+            .and_then(|n| {
+                n.checked_add(u64::from(header.signals) * std::mem::size_of::<Option<u64>>() as u64)
+            })
+            .and_then(|n| {
+                n.checked_add((entries.capacity() * std::mem::size_of::<container::Entry>()) as u64)
+            })
+            .ok_or(Error::Corrupt("activity memory overflow"))?;
+        Ok(MemoryEstimate { resident, peak })
+    }
+
     pub fn open(path: impl AsRef<Path>, identity: &Identity) -> Result<Self> {
         Self::decode(&std::fs::read(path)?, identity)
     }
@@ -79,12 +152,34 @@ impl Index {
         }
         Ok(())
     }
+    /// Validates all rows without materializing the activity index.
+    pub async fn validate_with<F: Future<Output = Result<()>>>(
+        bytes: &[u8],
+        identity: &Identity,
+        admit: impl FnMut(u64) -> Result<()>,
+        checkpoint: impl FnMut() -> F,
+    ) -> Result<()> {
+        Self::decode_inner(bytes, identity, admit, checkpoint, false)
+            .await
+            .map(|_| ())
+    }
+
     /// Admits memory before allocation and checkpoints while initializing tables and decoding rows.
     pub async fn decode_with<F: Future<Output = Result<()>>>(
         bytes: &[u8],
         identity: &Identity,
+        admit: impl FnMut(u64) -> Result<()>,
+        checkpoint: impl FnMut() -> F,
+    ) -> Result<Self> {
+        Self::decode_inner(bytes, identity, admit, checkpoint, true).await
+    }
+
+    async fn decode_inner<F: Future<Output = Result<()>>>(
+        bytes: &[u8],
+        identity: &Identity,
         mut admit: impl FnMut(u64) -> Result<()>,
         mut checkpoint: impl FnMut() -> F,
+        retain: bool,
     ) -> Result<Self> {
         let mut used = bytes.len() as u64;
         admit(used)?;
@@ -120,7 +215,11 @@ impl Index {
         let count = header.signals as usize;
         used = used
             .checked_add((count as u64).saturating_mul(
-                (std::mem::size_of::<Vec<Stretch>>() + std::mem::size_of::<Option<u64>>()) as u64,
+                ((if retain {
+                    std::mem::size_of::<Vec<Stretch>>()
+                } else {
+                    0
+                }) + std::mem::size_of::<Option<u64>>()) as u64,
             ))
             .and_then(|value| {
                 value.checked_add((rest.len() * std::mem::size_of::<IndexBlock>()) as u64)
@@ -130,13 +229,15 @@ impl Index {
         let mut index = Self {
             header,
             blocks: Vec::with_capacity(rest.len()),
-            signals: Vec::with_capacity(count),
+            signals: Vec::with_capacity(if retain { count } else { 0 }),
             generators: Vec::new(),
         };
         let mut starts = Vec::with_capacity(count);
         for _ in 0..count {
             checkpoint().await?;
-            index.signals.push(Vec::new());
+            if retain {
+                index.signals.push(Vec::new());
+            }
             starts.push(None);
         }
         let mut decompressor = crate::codec::Decompressor::new();
@@ -239,24 +340,26 @@ impl Index {
                     if end > maximum || gap > 1 || (length == 0) != (gap == 0) {
                         return Err(Error::Corrupt("invalid exact activity stretch"));
                     }
-                    let list = &mut index.signals[signal];
-                    if list.len() == list.capacity() {
-                        let growth = list.capacity().max(1);
-                        used = used
-                            .checked_add(
-                                (growth as u64)
-                                    .saturating_mul(std::mem::size_of::<Stretch>() as u64),
-                            )
-                            .ok_or(Error::Corrupt("activity memory overflow"))?;
-                        admit(used.saturating_add(raw.capacity() as u64))?;
-                        list.try_reserve_exact(growth)
-                            .map_err(|_| Error::Corrupt("activity allocation failed"))?;
+                    if retain {
+                        let list = &mut index.signals[signal];
+                        if list.len() == list.capacity() {
+                            let growth = list.capacity().max(1);
+                            used =
+                                used.checked_add(
+                                    (growth as u64)
+                                        .saturating_mul(std::mem::size_of::<Stretch>() as u64),
+                                )
+                                .ok_or(Error::Corrupt("activity memory overflow"))?;
+                            admit(used.saturating_add(raw.capacity() as u64))?;
+                            list.try_reserve_exact(growth)
+                                .map_err(|_| Error::Corrupt("activity allocation failed"))?;
+                        }
+                        list.push(Stretch {
+                            start: begin,
+                            end,
+                            gap,
+                        });
                     }
-                    list.push(Stretch {
-                        start: begin,
-                        end,
-                        gap,
-                    });
                     starts[signal] = match silence {
                         Some(gap) => Some(
                             end.checked_add(gap)
@@ -321,7 +424,11 @@ impl Index {
             let old = list.capacity();
             let needed = list
                 .len()
-                .checked_add(count)
+                .checked_add(if retain {
+                    count
+                } else {
+                    usize::from(list.is_empty())
+                })
                 .ok_or(Error::Corrupt("activity count overflow"))?;
             let capacity = if needed > old {
                 needed.max(old.saturating_mul(2))
@@ -346,6 +453,9 @@ impl Index {
                     .is_some_and(|&(_, last)| begin <= last.saturating_add(1))
                 {
                     return Err(Error::Corrupt("unmerged generator activity"));
+                }
+                if !retain {
+                    list.clear();
                 }
                 list.push((begin, end));
                 previous = end;
