@@ -28,7 +28,7 @@
 namespace vtr {
 
 inline constexpr unsigned format_major = 3;
-inline constexpr unsigned format_minor = 4;
+inline constexpr unsigned format_minor = 5;
 using Timestamp = std::uint64_t;
 using Bytes = std::vector<std::byte>;
 using ByteView = std::span<const std::byte>;
@@ -39,6 +39,7 @@ struct NodeTag;
 struct SignalTag;
 struct GeneratorTag;
 struct StringTag;
+struct ValueTag;
 struct TypeTag;
 struct RecordTag;
 struct BlockTag;
@@ -59,6 +60,7 @@ using NodeId = Identifier<detail::NodeTag, std::uint32_t>;
 using SignalId = Identifier<detail::SignalTag, std::uint32_t>;
 using GeneratorId = Identifier<detail::GeneratorTag, std::uint32_t>;
 using StringId = Identifier<detail::StringTag, std::uint32_t>;
+using ValueId = Identifier<detail::ValueTag, std::uint32_t>;
 using TypeId = Identifier<detail::TypeTag, std::uint32_t>;
 using RecordId = Identifier<detail::RecordTag, std::uint64_t>;
 using BlockId = Identifier<detail::BlockTag, std::uint64_t>;
@@ -155,7 +157,7 @@ struct Value {
         std::variant<std::monostate, bool, std::int8_t, std::int16_t, std::int32_t, std::int64_t,
                      std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t, float, double,
                      StringId, std::string, Bytes, Bits, Logic, Logic9, TimeValue, EnumValue,
-                     Address, Fixed, UFixed, List, Map>;
+                     Address, Fixed, UFixed, List, Map, ValueId>;
 
     Storage data;
     Value() = default;
@@ -182,11 +184,11 @@ template <class T> struct Schema;
 
 template <class Owner, class Member> struct MemberField {
     std::string_view name;
-    Member Owner::*member;
+    Member Owner::* member;
 };
 
 template <class Owner, class Member>
-[[nodiscard]] constexpr auto field(std::string_view name, Member Owner::*member) noexcept {
+[[nodiscard]] constexpr auto field(std::string_view name, Member Owner::* member) noexcept {
     return MemberField<Owner, Member>{name, member};
 }
 

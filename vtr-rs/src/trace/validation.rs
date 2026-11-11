@@ -63,7 +63,10 @@ impl Reader {
     fn validate_labels(&self, attributes: &[Attribute]) -> Result<()> {
         for attribute in attributes {
             if self.string(attribute.key)? == "vtr.label"
-                && !matches!(attribute.value, Value::Str(_) | Value::Text(_))
+                && !matches!(
+                    self.resolve_value(&attribute.value)?,
+                    Value::Str(_) | Value::Text(_)
+                )
             {
                 return Err(Error::Corrupt("label must be a string or text"));
             }

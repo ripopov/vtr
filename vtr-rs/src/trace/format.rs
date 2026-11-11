@@ -635,6 +635,7 @@ impl Reader {
         spec: &Spec,
         locale: &FormatLocale<'_>,
     ) -> Result<()> {
+        let value = self.resolve_value(value)?;
         let supported = match value {
             Value::I8(_)
             | Value::I16(_)
@@ -765,11 +766,13 @@ impl Reader {
             Value::Fixed { raw, scale } => write_str(output, &format!("{raw}e{scale}"), spec),
             Value::UFixed { raw, scale } => write_str(output, &format!("{raw}e{scale}"), spec),
             Value::List(_) | Value::Map(_) => output.push_str("{?}"),
+            Value::Ref(_) => unreachable!("resolved scalar"),
         }
         Ok(())
     }
     pub fn format_value(&self, value: &Value) -> Result<String> {
         let mut output = RenderBuffer::default();
+        let value = self.resolve_value(value)?;
         match value {
             Value::List(values) => {
                 output.push('[');

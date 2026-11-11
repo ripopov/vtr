@@ -1,6 +1,6 @@
 //! Typed instructions, embedded pipeline stages, and dependency relations.
 
-use vtr::{Reader, Recorder, SourceOptions, Status, TransactionQuery, Writer};
+use vtr::{Attribute, Reader, Recorder, SourceOptions, Status, TransactionQuery, Value, Writer};
 
 fn main() -> vtr::Result<()> {
     let temporary = tempfile::tempdir()?;
@@ -12,6 +12,24 @@ fn main() -> vtr::Result<()> {
     let core = writer.scope("cpu", None)?;
     let instructions = writer
         .transactions::<[u64; 2]>(SourceOptions::new("instructions", Some(core)), "PIPELINE")?;
+    let description_key = writer.intern("instruction")?;
+    let mnemonic = writer.intern("mnemonic")?;
+    let pipe = writer.intern("pipe")?;
+    let arithmetic = writer.intern_value(Value::Map(vec![Attribute {
+        key: pipe,
+        value: Value::Text("INT32".into()),
+    }]))?;
+    let operation_key = writer.intern("operation")?;
+    let description = writer.intern_value(Value::Map(vec![
+        Attribute {
+            key: mnemonic,
+            value: Value::Text("ADDI".into()),
+        },
+        Attribute {
+            key: operation_key,
+            value: Value::Ref(arithmetic),
+        },
+    ]))?;
     let depends_on = writer.intern("depends_on")?;
     let fetch = writer.intern("fetch")?;
     let execute = writer.intern("execute")?;
@@ -20,6 +38,11 @@ fn main() -> vtr::Result<()> {
     for serial in 0..100 {
         writer.advance_time(serial)?;
         let instruction = writer.begin_deferred(instructions, None)?;
+        writer.attribute(
+            instruction.owner(),
+            description_key,
+            Value::Ref(description),
+        )?;
         writer.embedded_stage(
             instruction.owner(),
             serial,

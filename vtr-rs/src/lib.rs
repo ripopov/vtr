@@ -20,7 +20,7 @@ pub mod varint;
 mod wire;
 mod xform;
 
-pub use attributes::{Attribute, Attributes, Value};
+pub use attributes::{Attribute, Attributes, Value, ValueId};
 pub use census::{Census, Contributions, ScopeSizes};
 pub use codec::{Codec, Compression};
 pub use declarations::{Declarations, Metadata, Node, NodeData};

@@ -9,6 +9,10 @@ use crate::{
     wire::Cursor,
 };
 
+/// An immutable attribute value in this recording's value table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ValueId(pub u32);
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
@@ -36,6 +40,7 @@ pub enum Value {
     UFixed { raw: u64, scale: i64 },
     List(Vec<Value>),
     Map(Vec<Attribute>),
+    Ref(ValueId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +80,7 @@ impl Value {
             Self::UFixed { .. } => 22,
             Self::List(_) => 23,
             Self::Map(_) => 24,
+            Self::Ref(_) => 25,
         }
     }
 
@@ -146,6 +152,7 @@ impl Value {
                 }
             }
             Self::Map(attributes) => encode_attributes(out, attributes, strings, depth + 1)?,
+            Self::Ref(id) => put_u64(out, u64::from(id.0)),
         }
         Ok(())
     }
@@ -153,7 +160,7 @@ impl Value {
     pub fn decode(data: &[u8], strings: u64, allocation_budget: usize) -> Result<Self> {
         let mut cursor = Cursor::new(data);
         let mut budget = allocation_budget;
-        let value = Self::read_tagged::<true>(&mut cursor, strings, 0, &mut budget)?;
+        let value = Self::read_tagged::<true>(&mut cursor, strings, usize::MAX, 0, &mut budget)?;
         cursor.done()?;
         Ok(value)
     }
@@ -161,17 +168,19 @@ impl Value {
     fn read_tagged<const RETAIN: bool>(
         cursor: &mut Cursor<'_>,
         strings: u64,
+        values: usize,
         depth: u8,
         budget: &mut usize,
     ) -> Result<Self> {
         let tag = cursor.byte()?;
-        Self::read_payload::<RETAIN>(tag, cursor, strings, depth, budget)
+        Self::read_payload::<RETAIN>(tag, cursor, strings, values, depth, budget)
     }
 
     fn read_payload<const RETAIN: bool>(
         tag: u8,
         cursor: &mut Cursor<'_>,
         strings: u64,
+        values: usize,
         depth: u8,
         budget: &mut usize,
     ) -> Result<Self> {
@@ -265,24 +274,50 @@ impl Value {
             },
             23 => {
                 let count = bounded_count(cursor, size_of::<Value>(), budget)?;
-                let mut values = Vec::with_capacity(if RETAIN { count } else { 0 });
+                let mut items = Vec::with_capacity(if RETAIN { count } else { 0 });
                 for _ in 0..count {
-                    let value = Self::read_tagged::<RETAIN>(cursor, strings, depth + 1, budget)?;
+                    let value =
+                        Self::read_tagged::<RETAIN>(cursor, strings, values, depth + 1, budget)?;
                     if RETAIN {
-                        values.push(value);
+                        items.push(value);
                     }
                 }
-                Self::List(values)
+                Self::List(items)
             }
             24 => Self::Map(decode_attributes::<RETAIN>(
                 cursor,
                 strings,
+                values,
                 depth + 1,
                 budget,
             )?),
+            25 => {
+                let id = cursor.id()?;
+                if id as usize >= values {
+                    return Err(Error::Corrupt("unknown interned value identifier"));
+                }
+                Self::Ref(ValueId(id))
+            }
             _ => return Err(Error::Corrupt("unknown value tag")),
         })
     }
+
+    pub(crate) fn validate_refs(&self, values: usize) -> Result<()> {
+        match self {
+            Self::Ref(id) if id.0 as usize >= values => {
+                Err(Error::Corrupt("unknown interned value identifier"))
+            }
+            Self::List(items) => items.iter().try_for_each(|item| item.validate_refs(values)),
+            Self::Map(items) => validate_attribute_refs(items, values),
+            _ => Ok(()),
+        }
+    }
+}
+
+pub(crate) fn validate_attribute_refs(attributes: &[Attribute], values: usize) -> Result<()> {
+    attributes
+        .iter()
+        .try_for_each(|attribute| attribute.value.validate_refs(values))
 }
 
 fn packed(tag: u8) -> Result<Primitive> {
@@ -361,12 +396,13 @@ pub(crate) fn read_attributes(
     depth: u8,
     budget: &mut usize,
 ) -> Result<Attributes> {
-    decode_attributes::<true>(cursor, strings, depth, budget)
+    decode_attributes::<true>(cursor, strings, usize::MAX, depth, budget)
 }
 
 fn decode_attributes<const RETAIN: bool>(
     cursor: &mut Cursor<'_>,
     strings: u64,
+    values: usize,
     depth: u8,
     budget: &mut usize,
 ) -> Result<Attributes> {
@@ -379,7 +415,7 @@ fn decode_attributes<const RETAIN: bool>(
         if !keys.insert(key) {
             return Err(Error::Corrupt("duplicate attribute key"));
         }
-        let value = Value::read_tagged::<RETAIN>(cursor, strings, depth, budget)?;
+        let value = Value::read_tagged::<RETAIN>(cursor, strings, values, depth, budget)?;
         if RETAIN {
             out.push(Attribute { key, value });
         }
@@ -422,14 +458,16 @@ fn value_column(tag: u8) -> usize {
 }
 
 pub(crate) struct AttributeReader<'a> {
+    values: usize,
     columns: [Cursor<'a>; 7],
     strings: u64,
     budget: usize,
 }
 
 impl<'a> AttributeReader<'a> {
-    pub(crate) fn new(columns: [&'a [u8]; 7], strings: u64, budget: usize) -> Self {
+    pub(crate) fn new(columns: [&'a [u8]; 7], strings: u64, values: usize, budget: usize) -> Self {
         Self {
+            values,
             columns: columns.map(Cursor::new),
             strings,
             budget,
@@ -475,6 +513,7 @@ impl<'a> AttributeReader<'a> {
                     tag,
                     &mut self.columns[value_column(tag)],
                     self.strings,
+                    self.values,
                     0,
                     &mut budget,
                 )?

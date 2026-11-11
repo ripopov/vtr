@@ -292,6 +292,14 @@ impl Capture for Session<'_> {
     }
 }
 impl Recorder for Session<'_> {
+    fn intern_value(&mut self, value: crate::Value) -> Result<crate::ValueId> {
+        self.check()?;
+        let result = match &mut self.sink {
+            Sink::Inline(backend) => backend.intern_value(value),
+            Sink::Threaded(_, shared) => shared.control(move |backend| backend.intern_value(value)),
+        };
+        self.result(result)
+    }
     fn intern(&mut self, name: &str) -> Result<u32> {
         self.check()?;
         let result = match &mut self.sink {

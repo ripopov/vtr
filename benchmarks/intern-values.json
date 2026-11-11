@@ -1,0 +1,278 @@
+{
+  "host": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.43",
+  "cpu": 0,
+  "count": 250000,
+  "repeats": 3,
+  "build": {
+    "dependencies": {
+      "libfst": {
+        "url": "https://github.com/gtkwave/libfst.git",
+        "revision": "17f6a5d27b2f576d65b550114fbde3c035cc74a8"
+      },
+      "lwtr": {
+        "url": "https://github.com/Minres/LWTR4SC.git",
+        "revision": "8dca86925ad64b0ca73825fcefd7308215049627"
+      }
+    },
+    "vtr_revision": "5d0e1c57969c8bccb14a3d6755ee07d2e3c5a1a4",
+    "vtr_dirty": true,
+    "compiler": "c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "vtr_implementation": "native C++20",
+    "vtr_containers": {
+      "name": "unordered_dense",
+      "version": "5.3.2",
+      "revision": "ddd49116e63be7345b448351cad153653a712fdb",
+      "url": "https://github.com/martinus/unordered_dense",
+      "license": "MIT",
+      "files": {
+        "include/ankerl/unordered_dense.h": "ad4e2fb7de67f8c7265028440b4250885c8a57b541565c3cd0ff9dbfaa942237",
+        "include/ankerl/stl.h": "efc0170257b6148ee7655b22a34465f6ce105f1b720e557167ef27a59d6d5241",
+        "LICENSE": "4f5a62734899ec0ba85d3e8264a7ed1fcb4bcb8f0b4359c0afd627b6314ae599"
+      }
+    },
+    "flags": "C++20 -O3 -DNDEBUG; native VTR release; synchronous LZ4 writers",
+    "lz4": "FST and FTR: libfst bundled LZ4; VTR: system liblz4"
+  },
+  "measurements": [
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 0,
+      "seconds": 0.152919,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 7840,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 0,
+      "seconds": 0.124741,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 15144,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 0,
+      "seconds": 0.0308432,
+      "file_bytes": 723516,
+      "peak_rss_kib": 7220,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 0,
+      "seconds": 0.0381044,
+      "file_bytes": 723516,
+      "peak_rss_kib": 5560,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 0,
+      "seconds": 0.196187,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 6940,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 0,
+      "seconds": 0.138925,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 14000,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 0,
+      "seconds": 0.0342531,
+      "file_bytes": 467367,
+      "peak_rss_kib": 7036,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 0,
+      "seconds": 0.0432096,
+      "file_bytes": 467367,
+      "peak_rss_kib": 7684,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 1,
+      "seconds": 0.0252169,
+      "file_bytes": 723516,
+      "peak_rss_kib": 5976,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 1,
+      "seconds": 0.0458225,
+      "file_bytes": 723516,
+      "peak_rss_kib": 5560,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 1,
+      "seconds": 0.195935,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 7212,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 1,
+      "seconds": 0.146659,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 17192,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 1,
+      "seconds": 0.0236128,
+      "file_bytes": 467367,
+      "peak_rss_kib": 6360,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 1,
+      "seconds": 0.0565943,
+      "file_bytes": 467367,
+      "peak_rss_kib": 7160,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 1,
+      "seconds": 0.168428,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 8328,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 1,
+      "seconds": 0.141678,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 15912,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 2,
+      "seconds": 0.16325,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 6808,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 2,
+      "seconds": 0.12313,
+      "file_bytes": 10845473,
+      "peak_rss_kib": 15144,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 2,
+      "seconds": 0.0303235,
+      "file_bytes": 723516,
+      "peak_rss_kib": 6840,
+      "checksum": 0
+    },
+    {
+      "codec": "lz4",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 2,
+      "seconds": 0.0383834,
+      "file_bytes": 723516,
+      "peak_rss_kib": 5548,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "write",
+      "repeat": 2,
+      "seconds": 0.175869,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 7372,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "inline",
+      "operation": "read",
+      "repeat": 2,
+      "seconds": 0.130349,
+      "file_bytes": 9367185,
+      "peak_rss_kib": 14000,
+      "checksum": 31377749744
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "write",
+      "repeat": 2,
+      "seconds": 0.0229966,
+      "file_bytes": 467367,
+      "peak_rss_kib": 6360,
+      "checksum": 0
+    },
+    {
+      "codec": "zstd",
+      "variant": "interned",
+      "operation": "read",
+      "repeat": 2,
+      "seconds": 0.039843,
+      "file_bytes": 467367,
+      "peak_rss_kib": 5760,
+      "checksum": 31377749744
+    }
+  ]
+}

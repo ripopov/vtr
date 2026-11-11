@@ -1,0 +1,324 @@
+{
+  "baseline": {
+    "volna": "e850732",
+    "vtr": "5d0e1c5"
+  },
+  "candidate": "interned values; VTR 3.5",
+  "host": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "repeats": 9,
+  "order_seed": 20261111,
+  "selector": "warp_slot[0].Instruction",
+  "scope": "first matching 10000-instruction GPU track; local load and retained-byte accounting",
+  "account_repeats": 10,
+  "units": {
+    "open": "seconds",
+    "load": "seconds",
+    "account": "seconds per call",
+    "bytes": "accounted retained bytes"
+  },
+  "source": "use std::time::Instant;\nuse volna_trace::session::{LocalSession, Session};\nfn main() {\n    let args: Vec<_> = std::env::args().collect();\n    let start = Instant::now();\n    let session = LocalSession::open(std::path::Path::new(&args[1])).unwrap();\n    let open = start.elapsed().as_secs_f64();\n    let track = session.tracks().iter().find(|track| track.path.join(\".\").contains(&args[2])).unwrap();\n    let start = Instant::now();\n    let loaded = session.load_track(track.id).unwrap();\n    let load = start.elapsed().as_secs_f64();\n    let start = Instant::now();\n    let mut bytes = 0;\n    for _ in 0..10 {\n        bytes = std::hint::black_box(&loaded.generators).iter().map(|generator| generator.resident_bytes()).sum::<u64>();\n        std::hint::black_box(bytes);\n    }\n    let account = start.elapsed().as_secs_f64() / 10.0;\n    let count = loaded.generators.iter().map(|generator| generator.transactions().len()).sum::<usize>();\n    let checksum = loaded.generators.iter().flat_map(|generator| generator.transactions()).fold(0u64, |sum, row| sum.wrapping_add(row.id.0).wrapping_add(row.begin).wrapping_add(row.end));\n    println!(\"{{\\\"open\\\":{open},\\\"load\\\":{load},\\\"account\\\":{account},\\\"bytes\\\":{bytes},\\\"count\\\":{count},\\\"checksum\\\":{checksum}}}\");\n}\n",
+  "runner": "import json, random, statistics, subprocess\nfrom pathlib import Path\nvariants = {\n    'baseline': ('target/release/intern-load-baseline', 'atemp/gpu-original.vtr'),\n    'candidate_inline': ('target/release/intern-load-candidate', 'atemp/gpu-baseline.vtr'),\n    'candidate_interned': ('target/release/intern-load-candidate', 'volna/examples/gpu_transaction_trace.vtr'),\n}\nrows=[]\nrng=random.Random(20261111)\nfor repeat in range(9):\n    order=list(variants);rng.shuffle(order)\n    for variant in order:\n        binary, path=variants[variant]\n        result=json.loads(subprocess.check_output([binary,path,'warp_slot[0].Instruction'],text=True))\n        rows.append(dict(variant=variant,repeat=repeat,**result))\nassert len({(row['count'],row['checksum']) for row in rows})==1\nPath(__import__('sys').argv[1]).write_text(json.dumps(rows,indent=2)+'\\n')\nfor variant in variants:\n    selected=[row for row in rows if row['variant']==variant]\n    print(variant, {key:round(statistics.median(row[key] for row in selected)*1000,3) for key in ['open','load','account']},'bytes',selected[0]['bytes'])\n",
+  "executables": {
+    "baseline": "45cc4c473b1aa42062a7f9405dbf55aca18b392a0fa5b4a0c9d951c0904313bb",
+    "candidate": "db4d0ab56f05de85e6020c1823773611795c123278d0d4f0b1acd8d7e5d711de"
+  },
+  "equivalent_inline_bodies": true,
+  "summary": {
+    "baseline": {
+      "open": 0.004926,
+      "load": 0.086595541,
+      "account": 0.000346075,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    "candidate_inline": {
+      "open": 0.005018042,
+      "load": 0.085200791,
+      "account": 0.0003268584,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    "candidate_interned": {
+      "open": 0.004877708,
+      "load": 0.078478917,
+      "account": 0.00036744999999999996,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    }
+  },
+  "measurements": [
+    {
+      "variant": "baseline",
+      "repeat": 0,
+      "open": 0.012430083,
+      "load": 0.109615417,
+      "account": 0.0004232958,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 0,
+      "open": 0.014281542,
+      "load": 0.099604292,
+      "account": 0.00042735840000000005,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 0,
+      "open": 0.004897292,
+      "load": 0.084242375,
+      "account": 0.0003268584,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 1,
+      "open": 0.004643,
+      "load": 0.079575292,
+      "account": 0.000687075,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 1,
+      "open": 0.008632084,
+      "load": 0.094380417,
+      "account": 0.00036020000000000003,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 1,
+      "open": 0.004941458,
+      "load": 0.085122708,
+      "account": 0.0003181958,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 2,
+      "open": 0.004907834,
+      "load": 0.085617792,
+      "account": 0.0003474458,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 2,
+      "open": 0.004776666,
+      "load": 0.078530834,
+      "account": 0.00032175,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 2,
+      "open": 0.0051195,
+      "load": 0.083789542,
+      "account": 0.00029755419999999996,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 3,
+      "open": 0.005052792,
+      "load": 0.087827,
+      "account": 0.0003826708,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 3,
+      "open": 0.00560725,
+      "load": 0.095315666,
+      "account": 0.00036195,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 3,
+      "open": 0.004867125,
+      "load": 0.0836715,
+      "account": 0.00036818340000000004,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 4,
+      "open": 0.004924292,
+      "load": 0.086942792,
+      "account": 0.0003202042,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 4,
+      "open": 0.005293584,
+      "load": 0.078019375,
+      "account": 0.0003718,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 4,
+      "open": 0.004753041,
+      "load": 0.086048667,
+      "account": 0.0003330833,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 5,
+      "open": 0.004848209,
+      "load": 0.077701625,
+      "account": 0.0003196208,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 5,
+      "open": 0.005093375,
+      "load": 0.084922291,
+      "account": 0.0003186167,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 5,
+      "open": 0.004926,
+      "load": 0.086324125,
+      "account": 0.0003347792,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 6,
+      "open": 0.004725708,
+      "load": 0.085618625,
+      "account": 0.0003178375,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 6,
+      "open": 0.004877708,
+      "load": 0.078478917,
+      "account": 0.000357825,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 6,
+      "open": 0.004833208,
+      "load": 0.085299334,
+      "account": 0.00033077919999999997,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 7,
+      "open": 0.0049355,
+      "load": 0.077811,
+      "account": 0.0003261959,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 7,
+      "open": 0.005018042,
+      "load": 0.085200791,
+      "account": 0.0003277917,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 7,
+      "open": 0.00474375,
+      "load": 0.086595541,
+      "account": 0.0003399542,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_interned",
+      "repeat": 8,
+      "open": 0.004946042,
+      "load": 0.07702425,
+      "account": 0.00036744999999999996,
+      "bytes": 24210588,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "baseline",
+      "repeat": 8,
+      "open": 0.005011541,
+      "load": 0.089801833,
+      "account": 0.000346075,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "variant": "candidate_inline",
+      "repeat": 8,
+      "open": 0.005226084,
+      "load": 0.087095333,
+      "account": 0.00041040829999999996,
+      "bytes": 26131165,
+      "count": 10000,
+      "checksum": 8208305958
+    }
+  ]
+}

@@ -62,7 +62,8 @@ enum class Tag : std::uint8_t {
     fixed,
     ufixed,
     list,
-    map
+    map,
+    ref
 };
 
 // Composite values keep their canonical payload, including nested tags, without
@@ -230,6 +231,9 @@ class Writer {
     Writer& operator=(const Writer&) = delete;
     Meta& metadata();
     Id intern(std::string_view value);
+    Id intern_value(const Value& value);
+    std::size_t value_count() const;
+    Value resolve_value(const Value& value) const;
     std::optional<Id> intern_with_budget(std::string_view value, std::size_t& remaining);
     std::size_t string_count() const noexcept;
     std::string_view string(Id id) const;
@@ -301,6 +305,8 @@ class Reader {
     std::span<const std::uint8_t> section_data(const ContainerSection& section,
                                                bool verify = false) const;
     std::span<const std::string> strings() const;
+    std::span<const Value> values() const;
+    const Value& resolve_value(const Value& value) const;
     std::string_view string(Id id) const;
     std::span<const Node> nodes() const;
     std::span<const SignalKind> signals() const;

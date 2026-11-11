@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::{
     Error, Result,
-    attributes::{Attributes, encode_attributes, read_attributes},
+    attributes::{
+        Attributes, Value, ValueId, encode_attributes, read_attributes, validate_attribute_refs,
+    },
     framing::{Container, Section},
     hierarchy::{NodeId, SignalId, SignalKind},
     records::{Generator, Generators, RecordKind},
@@ -131,6 +133,9 @@ pub struct Declarations {
     pub generators: Generators,
     interned: HashMap<String, u32>,
     indexed_strings: usize,
+    values: Vec<Value>,
+    interned_values: HashMap<Vec<u8>, ValueId>,
+    indexed_values: usize,
 }
 
 impl Declarations {
@@ -168,6 +173,109 @@ impl Declarations {
         self.interned.insert(text.into(), id);
         self.indexed_strings = self.strings.len();
         Ok(id)
+    }
+
+    pub fn value(&self, id: ValueId) -> Result<&Value> {
+        self.values
+            .get(id.0 as usize)
+            .ok_or_else(|| Error::corrupt("unknown interned value identifier"))
+    }
+
+    pub fn resolve_value<'a>(&'a self, mut value: &'a Value) -> Result<&'a Value> {
+        while let Value::Ref(id) = value {
+            value = self.value(*id)?;
+        }
+        Ok(value)
+    }
+
+    #[must_use]
+    pub fn values(&self) -> &[Value] {
+        &self.values
+    }
+
+    /// Owned table entries and their buffers, excluding the writer's deduplication index.
+    #[must_use]
+    pub fn value_table_bytes(&self) -> usize {
+        self.values.capacity() * std::mem::size_of::<Value>()
+            + self
+                .values
+                .iter()
+                .map(crate::attributes::value_charge)
+                .sum::<usize>()
+    }
+
+    /// Deduplicate encoded typed content. Map and list order, float bits, and
+    /// reference IDs participate in identity.
+    pub fn intern_value(&mut self, value: Value) -> Result<ValueId> {
+        let mut encoded = Vec::new();
+        value.encode(&mut encoded, self.strings.len() as u64)?;
+        value.validate_refs(self.values.len())?;
+        for id in self.indexed_values..self.values.len() {
+            let mut key = Vec::new();
+            self.values[id].encode(&mut key, self.strings.len() as u64)?;
+            self.interned_values
+                .entry(key)
+                .or_insert(ValueId(id as u32));
+        }
+        self.indexed_values = self.values.len();
+        if let Some(id) = self.interned_values.get(&encoded) {
+            return Ok(*id);
+        }
+        let id = u32::try_from(self.values.len())
+            .ok()
+            .filter(|id| *id != u32::MAX)
+            .ok_or_else(|| Error::invalid("value identifier exhaustion"))?;
+        let id = ValueId(id);
+        self.values.push(value);
+        self.interned_values.insert(encoded, id);
+        self.indexed_values = self.values.len();
+        Ok(id)
+    }
+
+    pub fn values_chunk(&self, first: ValueId) -> Result<Vec<u8>> {
+        let values = self
+            .values
+            .get(first.0 as usize..)
+            .ok_or_else(|| Error::invalid("invalid value chunk start"))?;
+        let mut out = Vec::new();
+        put_u64(&mut out, u64::from(first.0));
+        put_u64(&mut out, values.len() as u64);
+        for value in values {
+            let mut encoded = Vec::new();
+            value.encode(&mut encoded, self.strings.len() as u64)?;
+            put_blob(&mut out, &encoded);
+        }
+        Ok(out)
+    }
+
+    pub fn read_values(&mut self, payload: &[u8]) -> Result<()> {
+        let mut cursor = Cursor::new(payload);
+        if cursor.id()? as usize != self.values.len() {
+            return Err(Error::Corrupt("noncontiguous value identifiers"));
+        }
+        let count = cursor.id()? as usize;
+        if count > cursor.remaining() / 2
+            || self
+                .values
+                .len()
+                .checked_add(count)
+                .is_none_or(|end| end > u32::MAX as usize)
+        {
+            return Err(Error::Corrupt("invalid value count"));
+        }
+        let mut values = Vec::new();
+        for _ in 0..count {
+            let value = Value::decode(
+                cursor.blob()?,
+                self.strings.len() as u64,
+                DEFAULT_PAYLOAD_LIMIT,
+            )?;
+            value.validate_refs(self.values.len() + values.len())?;
+            values.push(value);
+        }
+        cursor.done()?;
+        self.values.extend(values);
+        Ok(())
     }
 
     #[must_use]
@@ -448,6 +556,7 @@ impl Declarations {
                 let mut budget = DEFAULT_PAYLOAD_LIMIT;
                 let attributes =
                     read_attributes(&mut cursor, self.strings.len() as u64, 0, &mut budget)?;
+                validate_attribute_refs(&attributes, self.values.len())?;
                 self.nodes.push(Node {
                     parent,
                     name,
@@ -479,6 +588,10 @@ impl Declarations {
                         payload,
                         declarations.strings.len() as u64,
                     )?);
+                    validate_attribute_refs(
+                        &metadata.as_ref().unwrap().attributes,
+                        declarations.values.len(),
+                    )?;
                 }
                 2 => {
                     let raw = wire::decompress_any(payload)?;
@@ -502,6 +615,17 @@ impl Declarations {
                         payload,
                         declarations.strings.len() as u64,
                     )?;
+                    for id in section.aux0..section.aux0 + section.aux1 {
+                        validate_attribute_refs(
+                            &declarations.types.get(id as u32)?.attributes,
+                            declarations.values.len(),
+                        )?;
+                    }
+                }
+                11 => {
+                    let raw = wire::decompress_any(payload)?;
+                    check_chunk_bounds(section, &raw)?;
+                    declarations.read_values(&raw)?;
                 }
                 4..=6 | 9 => {
                     if metadata.is_none() {

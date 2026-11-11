@@ -29,14 +29,20 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
     auto nodes = native_.nodes();
     std::size_t section_index = 0;
     std::uint64_t string_count = 0;
+    std::size_t value_count = 0;
     for (const auto& section : native_.sections()) {
         if (section.kind == 2) {
             auto raw = d::decompress(native_.section_data(section));
             d::Cursor r(raw);
             auto first = r.var(), count = r.var();
             string_count = first + count;
+        } else if (section.kind == 11) {
+            value_count = section.aux0 + section.aux1;
         } else if (section.kind == 10) {
             types_->read_declarations(native_.section_data(section), string_count);
+            for (auto id = section.aux0; id < section.aux0 + section.aux1; ++id)
+                for (const auto& attr : types_->attributes(id))
+                    d::validate_value(attr.value, string_count, value_count);
         } else if (section.kind == 3) {
             auto raw = d::decompress(native_.section_data(section));
             d::Cursor r(raw);
@@ -55,7 +61,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
         } else if (section.kind == 5 || section.kind == 9) {
             d::require(blocks_.emplace(section.block_number, section_index).second,
                        "duplicate block number");
-            block_strings_[section.block_number] = string_count;
+            block_declarations_[section.block_number] = {string_count, value_count};
             if (section.kind == 9) {
                 auto parsed =
                     std::make_unique<RecordBlockView>(native_.section_data(section), *types_,
@@ -69,6 +75,7 @@ ContainerReader::ContainerReader(const std::string& path, bool verify_checksums,
                 auto parsed = std::make_unique<TransactionBlockView>(
                     native_.section_data(section), *types_, generators_, string_count,
                     max_payload_bytes, native_.strings());
+                parsed->value_count(value_count);
                 const auto& view = *parsed;
                 d::require(view.number() == section.block_number &&
                                view.bounds().begin == section.aux0 &&
@@ -161,8 +168,9 @@ void ContainerReader::validate_transaction_blocks() const {
             continue;
         }
         TransactionBlockView view(native_.section_data(section, true), *types_, generators_,
-                                  block_strings_.at(section.block_number), default_payload_limit,
-                                  native_.strings());
+                                  block_declarations_.at(section.block_number).strings,
+                                  default_payload_limit, native_.strings());
+        view.value_count(block_declarations_.at(section.block_number).values);
         view.validate();
     }
 }
@@ -174,7 +182,7 @@ void ContainerReader::validate_record_blocks() const {
             continue;
         }
         RecordBlockView view(native_.section_data(section, true), *types_, generators_,
-                             block_strings_.at(section.block_number));
+                             block_declarations_.at(section.block_number).strings);
         view.validate();
         view.query({}, [&](const auto& record) {
             d::require(ids.insert(record.id).second, "duplicate global record identifier");
@@ -259,7 +267,7 @@ void recover_container(const std::string& input, const std::string& output) {
             } else if (section.kind == 10) {
                 section.aux0 = bounds.var();
                 section.aux1 = bounds.var();
-            } else if (section.kind == 2 || section.kind == 3) {
+            } else if (section.kind == 2 || section.kind == 3 || section.kind == 11) {
                 in.clear();
                 in.seekg(prefix + 24);
                 Bytes encoded(section.length);

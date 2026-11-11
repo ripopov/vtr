@@ -328,6 +328,8 @@ class Reader {
     [[nodiscard]] std::span<const DataType> types() const noexcept;
     [[nodiscard]] std::span<const SignalKind> signals() const noexcept;
     [[nodiscard]] std::string_view string(StringId id) const;
+    [[nodiscard]] const Value& value(ValueId id) const;
+    [[nodiscard]] const Value& resolve_value(const Value& value) const;
     [[nodiscard]] std::optional<NodeId> find(std::string_view path) const;
     [[nodiscard]] std::optional<SignalId> find_signal(std::string_view path) const;
     [[nodiscard]] std::optional<GeneratorId> find_generator(std::string_view path) const;

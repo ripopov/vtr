@@ -79,8 +79,9 @@ Timestamp period(const Transaction& tx, const vtr::detail::wire::Reader& native)
     std::optional<Timestamp> value;
     for (const auto& attr : tx.attributes) {
         if (native.string(attr.key) == "vtr.period") {
-            require(attr.value.tag == Tag::time && attr.value.number, "invalid clock period");
-            value = attr.value.number;
+            const auto& resolved = native.resolve_value(attr.value);
+            require(resolved.tag == Tag::time && resolved.number, "invalid clock period");
+            value = resolved.number;
         }
     }
     if (tx.begin == tx.end) {
@@ -95,8 +96,8 @@ void label_attrs(std::span<const vtr::detail::wire::Attribute> attrs,
                  const vtr::detail::wire::Reader& native) {
     for (const auto& a : attrs) {
         if (native.string(a.key) == "vtr.label") {
-            require(a.value.tag == Tag::str || a.value.tag == Tag::text,
-                    "invalid label attribute type");
+            const auto tag = native.resolve_value(a.value).tag;
+            require(tag == Tag::str || tag == Tag::text, "invalid label attribute type");
         }
     }
 }
@@ -477,8 +478,9 @@ std::optional<GeneratorId> Reader::clock_for(GeneratorId source) const {
     impl_->file.generators()[source];
     for (const auto& attr : nodes()[source].attrs) {
         if (string(attr.key) == "vtr.clock") {
-            require(attr.value.tag == Tag::u32, "clock association must be a u32 generator ID");
-            auto id = attr.value.number;
+            const auto& value = impl_->file.waveform().resolve_value(attr.value);
+            require(value.tag == Tag::u32, "clock association must be a u32 generator ID");
+            auto id = value.number;
             if (id >= nodes().size()) {
                 require(incomplete(), "missing associated clock generator");
                 return {};
@@ -537,8 +539,9 @@ ValidationReport Reader::validate() const {
         for (const auto& attr : node.attrs) {
             auto key = string(attr.key);
             if (key == "vtr.clock") {
-                require(attr.value.tag == Tag::u32, "clock association must be u32");
-                auto target = attr.value.number;
+                const auto& value = native.resolve_value(attr.value);
+                require(value.tag == Tag::u32, "clock association must be u32");
+                auto target = value.number;
                 if (target >= nodes().size()) {
                     require(report.incomplete_file, "missing associated clock generator");
                     report.missing.push_back(

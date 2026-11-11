@@ -198,6 +198,11 @@ Timestamp Writer::time() {
     return context_->current_time;
 }
 
+ValueId Writer::intern_value(const Value& value) {
+    auto encoded = detail::encode_value(value);
+    return context_->control([&](auto& out) { return ValueId(out.intern_value(encoded)); });
+}
+
 StringId Writer::intern(std::string_view text) {
     return context_->control([&](auto& out) { return StringId(out.intern(text)); });
 }
@@ -571,8 +576,8 @@ RecordId Writer::embedded_event(OwnerRef owner, Timestamp time, StringId name,
 }
 
 RecordId Writer::embedded_stage(OwnerRef owner, Timestamp begin, StringId name,
-                                std::optional<StringId> lane,
-                                std::optional<Timestamp> end, AttributeView attributes) {
+                                std::optional<StringId> lane, std::optional<Timestamp> end,
+                                AttributeView attributes) {
     context_->check_origin(owner.origin_);
     return context_->call([&](auto& out) {
         return RecordId(out.embedded_stage(owner.id_.value, name.value,

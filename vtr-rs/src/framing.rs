@@ -10,7 +10,7 @@ use crate::{Error, Result, wire::Cursor};
 
 pub const MAGIC: [u8; 8] = [0x89, b'V', b'T', b'R', 13, 10, 26, 10];
 pub const TRAILER_MAGIC: [u8; 8] = *b"VTR_END\0";
-pub const VERSION: (u16, u16) = (3, 4);
+pub const VERSION: (u16, u16) = (3, 5);
 pub const HEADER_BYTES: usize = 32;
 pub const SECTION_BYTES: usize = 24;
 
@@ -394,7 +394,7 @@ impl Container {
                         section.aux0 = bounds.var()?;
                         section.aux1 = bounds.var()?;
                     }
-                    2 | 3 => {
+                    2 | 3 | 11 => {
                         let mut compressed = Cursor::new(payload);
                         compressed.byte()?;
                         let length = usize::try_from(compressed.var()?)

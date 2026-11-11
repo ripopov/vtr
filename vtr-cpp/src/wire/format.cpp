@@ -130,8 +130,11 @@ void scalar_range(const Value& value) {
     }
 }
 
-void validate_value(const Value& v, std::size_t string_count) {
-    require(v.tag <= Tag::map, "unknown value tag", ErrorCode::corrupt_data);
+void validate_value(const Value& v, std::size_t string_count, std::size_t value_count) {
+    if (v.tag == Tag::ref)
+        require(v.number < value_count && v.number <= UINT32_MAX,
+                "unknown interned value identifier");
+    require(v.tag <= Tag::ref, "unknown value tag", ErrorCode::corrupt_data);
     if (v.tag == Tag::str || v.tag == Tag::enumeration) {
         require(v.literal < string_count, "unknown value string identifier",
                 ErrorCode::corrupt_data);
@@ -152,7 +155,7 @@ void validate_value(const Value& v, std::size_t string_count) {
                     require(children.id() < string_count, "unknown map key",
                             ErrorCode::corrupt_data);
                 }
-                validate_value(decode_value(children), string_count);
+                validate_value(decode_value(children), string_count, value_count);
             }
         }
     }
@@ -179,6 +182,7 @@ void encode_payload(Bytes& out, const Value& v) {
     case Tag::u64:
     case Tag::time:
     case Tag::pointer:
+    case Tag::ref:
         put(out, v.number);
         break;
     case Tag::str:
@@ -203,7 +207,7 @@ void encode_payload(Bytes& out, const Value& v) {
         sint(out, static_cast<std::uint64_t>(v.scale));
         break;
     default:
-        require(v.tag <= Tag::map, "unknown value tag", ErrorCode::invalid_argument);
+        require(v.tag <= Tag::ref, "unknown value tag", ErrorCode::invalid_argument);
         append(out, v.payload);
         break;
     }
@@ -215,7 +219,7 @@ void encode_value(Bytes& out, const Value& value) {
 }
 
 Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth, bool retain,
-                   std::uint64_t strings) {
+                   std::uint64_t strings, std::size_t values) {
     require(depth < 64, "value nesting exceeds limit");
     Value v;
     v.tag = tag ? *tag : static_cast<Tag>(r.byte());
@@ -240,6 +244,10 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth, bool retai
     case Tag::time:
     case Tag::pointer:
         v.number = r.var();
+        break;
+    case Tag::ref:
+        v.number = r.id();
+        require(v.number < values, "unknown interned value identifier");
         break;
     case Tag::f32:
         v.number = r.fixed<std::uint32_t>();
@@ -298,7 +306,7 @@ Value decode_value(Cursor& r, std::optional<Tag> tag, unsigned depth, bool retai
                 require(key < strings, "unknown attribute key");
                 require(keys.insert(key).second, "duplicate map key");
             }
-            decode_value(r, {}, depth + 1, false, strings);
+            decode_value(r, {}, depth + 1, false, strings, values);
         }
         break;
     }
@@ -442,7 +450,8 @@ void checked_column_attrs(AttributeColumns& c, std::span<const Attribute> attrs,
 }
 
 namespace {
-template <bool Retain> Attributes column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings) {
+template <bool Retain>
+Attributes column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings, std::size_t values) {
     auto n = c[0].var();
     require(n <= c[2].data.size(), "invalid transaction attribute count");
     Attributes attrs;
@@ -464,7 +473,7 @@ template <bool Retain> Attributes column_attrs(std::array<Cursor, 7>& c, std::ui
                            : tag == Tag::str                    ? 5
                            : (payload_value(tag))               ? 6
                                                                 : 3;
-            v = decode_value(c[col], tag, 0, Retain, strings);
+            v = decode_value(c[col], tag, 0, Retain, strings, values);
         }
         if constexpr (Retain) {
             unique_attr(attrs, key);
@@ -477,12 +486,12 @@ template <bool Retain> Attributes column_attrs(std::array<Cursor, 7>& c, std::ui
 }
 } // namespace
 
-Attributes read_column_attrs(std::array<Cursor, 7>& c) {
-    return column_attrs<true>(c, UINT64_MAX);
+Attributes read_column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings, std::size_t values) {
+    return column_attrs<true>(c, strings, values);
 }
 
-void skip_column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings) {
-    column_attrs<false>(c, strings);
+void skip_column_attrs(std::array<Cursor, 7>& c, std::uint64_t strings, std::size_t values) {
+    column_attrs<false>(c, strings, values);
 }
 
 Bytes transform(View data, std::size_t width, unsigned x, bool inverse) {

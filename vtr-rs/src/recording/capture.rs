@@ -332,6 +332,7 @@ pub trait Capture {
 pub trait Recorder: Capture {
     /// Intern a string in the recording's shared dictionary.
     fn intern(&mut self, name: &str) -> Result<u32>;
+    fn intern_value(&mut self, value: crate::Value) -> Result<crate::ValueId>;
 
     fn current_time(&self) -> u64 {
         self.time()

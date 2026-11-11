@@ -24,6 +24,8 @@ wire::Value encode_value(const Value& value, unsigned depth) {
                 result.number = std::bit_cast<std::uint32_t>(item);
             } else if constexpr (std::same_as<T, double>) {
                 result.number = std::bit_cast<std::uint64_t>(item);
+            } else if constexpr (std::same_as<T, ValueId>) {
+                result.number = item.value;
             } else if constexpr (std::same_as<T, StringId>) {
                 result.literal = item.value;
             } else if constexpr (std::same_as<T, std::string>) {
@@ -89,6 +91,8 @@ Value decode_value(const wire::Value& value, unsigned depth) {
         return Value(std::bit_cast<double>(value.number));
     case wire::Tag::str:
         return Value(StringId(value.literal));
+    case wire::Tag::ref:
+        return Value(ValueId(static_cast<std::uint32_t>(value.number)));
     case wire::Tag::time:
         return Value(TimeValue{value.number});
     case wire::Tag::pointer:

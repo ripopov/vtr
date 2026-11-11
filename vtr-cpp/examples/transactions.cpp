@@ -10,8 +10,8 @@ namespace vt = vtr;
 void write_transactions(const char* path) {
     vt::Writer trace(path);
     auto core = trace.scope("core0");
-    auto instructions = trace.transactions<Instruction>(
-        {.name = "instructions", .parent = core}, "INSTRUCTION");
+    auto instructions =
+        trace.transactions<Instruction>({.name = "instructions", .parent = core}, "INSTRUCTION");
     auto fetch = trace.stages({.name = "fetch", .parent = core});
     auto execute = trace.stages({.name = "execute", .parent = core});
     auto issued = trace.events({.name = "issued", .parent = core});
@@ -19,8 +19,16 @@ void write_transactions(const char* path) {
     auto decode = trace.intern("decode");
     auto decoded = trace.intern("decoded");
     auto result_ready = trace.intern("result_ready");
+    auto description_key = trace.intern("instruction");
+    auto mnemonic = trace.intern("mnemonic");
+    auto pipe = trace.intern("pipe");
+    auto description = trace.intern_value(vt::Value::Map{
+        {mnemonic, vt::Value(std::string("ADDI"))},
+        {pipe, vt::Value(std::string("INT32"))},
+    });
 
     auto tx = trace.begin_at(instructions, 10, Instruction{0x8000, 0x13});
+    trace.attribute(tx, description_key, description);
     auto fetch_visit = trace.begin_at(fetch, tx, 10);
     trace.end_at(fetch_visit, 11);
     auto decode_visit = trace.embedded_stage(tx, 11, decode);
@@ -54,8 +62,8 @@ int read_transactions(const char* path) {
         return 0;
     }
     auto instruction = selected->payload().as<Instruction>();
-    std::cout << "Instruction " << selected->id().value << " pc=" << instruction.pc
-              << " from " << selected->begin() << " to " << selected->end() << '\n';
+    std::cout << "Instruction " << selected->id().value << " pc=" << instruction.pc << " from "
+              << selected->begin() << " to " << selected->end() << '\n';
     std::cout << "  child_blocks: [";
     auto separator = "";
     for (auto block : selected->child_blocks()) {
@@ -77,8 +85,8 @@ int read_transactions(const char* path) {
         auto end = stage.end.value_or(std::max(stage.begin, selected->end()));
         auto lane = input.string(stage.lane);
         std::cout << "  Unlocated stage " << input.string(stage.name) << " in lane "
-                  << (lane.empty() ? "(default)" : lane) << " from " << stage.begin << " to "
-                  << end << '\n';
+                  << (lane.empty() ? "(default)" : lane) << " from " << stage.begin << " to " << end
+                  << '\n';
     }
     for (const auto& event : selected->events()) {
         std::cout << "  Unlocated event " << input.string(event.name) << " at " << event.time

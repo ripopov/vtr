@@ -935,7 +935,8 @@ void TransactionBlockView::activity(
 
 namespace {
 bool read_relations(std::array<Cursor, 33>& c, std::array<Cursor, 7>& attributes,
-                    std::uint64_t count, std::uint64_t strings, TransactionBounds& actual,
+                    std::uint64_t count, std::uint64_t strings, std::size_t values,
+                    TransactionBounds& actual,
                     const std::function<bool(const Relation&)>& visit_relation) {
     RecordId previous_from = 0;
     for (std::uint64_t i = 0; i < count; ++i) {
@@ -945,7 +946,7 @@ bool read_relations(std::array<Cursor, 33>& c, std::array<Cursor, 7>& attributes
         relation.destination = relation.source + c[23].signed_bits();
         require(relation.kind < strings, "unknown relation kind");
         previous_from = relation.source;
-        relation.attributes = d::read_column_attrs(attributes);
+        relation.attributes = d::read_column_attrs(attributes, strings, values);
         valid_attrs(relation.attributes, strings);
         add(actual, relation);
         if (!visit_relation(relation)) {
@@ -1017,9 +1018,9 @@ bool TransactionBlockView::decode_page(const TransactionPage& page,
         const bool retain = !query || matches_owner(*query, tx);
         const auto& generator = generators_[tx.generator];
         if (retain)
-            tx.attributes = d::read_column_attrs(attributes);
+            tx.attributes = d::read_column_attrs(attributes, string_count_, value_count_);
         else
-            d::skip_column_attrs(attributes, string_count_);
+            d::skip_column_attrs(attributes, string_count_, value_count_);
         auto count = c[13].var();
         require(generator.kind != RecordKind::clock || !count, "clock has embedded events");
         require(count <= c[15].data.size() && count <= c[31].data.size(),
@@ -1033,10 +1034,10 @@ bool TransactionBlockView::decode_page(const TransactionPage& page,
             require(event.id > tx.id && event.name < string_count_, "invalid embedded event");
             add_embedded(actual, event.id);
             if (retain) {
-                event.attributes = d::read_column_attrs(attributes);
+                event.attributes = d::read_column_attrs(attributes, string_count_, value_count_);
                 tx.events.push_back(std::move(event));
             } else
-                d::skip_column_attrs(attributes, string_count_);
+                d::skip_column_attrs(attributes, string_count_, value_count_);
         }
         count = c[16].var();
         require(generator.kind != RecordKind::clock || !count, "clock has embedded stages");
@@ -1054,10 +1055,10 @@ bool TransactionBlockView::decode_page(const TransactionPage& page,
                     "invalid embedded stage");
             add_embedded(actual, stage.id);
             if (retain) {
-                stage.attributes = d::read_column_attrs(attributes);
+                stage.attributes = d::read_column_attrs(attributes, string_count_, value_count_);
                 tx.stages.push_back(std::move(stage));
             } else
-                d::skip_column_attrs(attributes, string_count_);
+                d::skip_column_attrs(attributes, string_count_, value_count_);
         }
         if (retain)
             tx.payload = arguments.read(types_, generator.payload_type);
@@ -1083,7 +1084,8 @@ bool TransactionBlockView::decode_page(const TransactionPage& page,
             return false;
         }
     }
-    if (!read_relations(c, attributes, page.relations, string_count_, actual, visit_relation)) {
+    if (!read_relations(c, attributes, page.relations, string_count_, value_count_, actual,
+                        visit_relation)) {
         return false;
     }
     for (const auto& column : c) {
@@ -1109,17 +1111,17 @@ bool TransactionBlockView::decode_relations(
                 page.relations <= c[21].data.size(),
             "invalid page record count");
     for (std::uint64_t i = 0; i < page.transactions; ++i) {
-        d::skip_column_attrs(attributes, string_count_);
+        d::skip_column_attrs(attributes, string_count_, value_count_);
         auto events = c[13].var(), stages = c[16].var();
         require(events <= c[15].data.size() && stages <= c[17].data.size(),
                 "invalid embedded count");
         for (std::uint64_t j = 0; j < events; ++j)
-            d::skip_column_attrs(attributes, string_count_);
+            d::skip_column_attrs(attributes, string_count_, value_count_);
         for (std::uint64_t j = 0; j < stages; ++j)
-            d::skip_column_attrs(attributes, string_count_);
+            d::skip_column_attrs(attributes, string_count_, value_count_);
     }
     TransactionBounds actual;
-    if (!read_relations(c, attributes, page.relations, string_count_, actual, visit))
+    if (!read_relations(c, attributes, page.relations, string_count_, value_count_, actual, visit))
         return false;
     for (auto i : {13, 16, 21, 22, 23})
         c[i].done();

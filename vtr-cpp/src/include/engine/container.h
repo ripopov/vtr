@@ -53,7 +53,13 @@ class ContainerReader {
     std::shared_ptr<Types> types_ = std::make_shared<Types>();
     Generators generators_;
     std::unordered_map<std::uint64_t, std::size_t> blocks_;
-    std::unordered_map<std::uint64_t, std::uint64_t> block_strings_;
+
+    struct DeclarationCounts {
+        std::uint64_t strings;
+        std::size_t values;
+    };
+
+    std::unordered_map<std::uint64_t, DeclarationCounts> block_declarations_;
     std::unordered_map<std::uint64_t, std::unique_ptr<RecordBlockView>> record_views_;
     std::unordered_map<std::uint64_t, std::unique_ptr<TransactionBlockView>> transaction_views_;
 };

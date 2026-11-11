@@ -1,7 +1,7 @@
 # VTR file format specification
 
 This document and [TRANSACTIONS.md](TRANSACTIONS.md) specify the current VTR
-wire format, **3.4**, including scalar-page and shared-text encodings.
+wire format, **3.5**, including interned attribute values, scalar pages, and shared text.
 The C++ package version is independently 6.0. Activity
 sidecars use VTI 4.0. File versions describe bytes, not API or package revisions.
 Readers and recovery tools reject other VTR header versions. Regenerate older
@@ -27,7 +27,7 @@ identifies design structure. Record parentage identifies runtime ownership.
 They are separate relationships. Names connect recorded objects to external
 VDB design information; VTR does not prescribe viewer layouts or remote APIs.
 
-Node, signal, string, and datatype IDs are separate zero-based `u32` namespaces.
+Node, signal, string, interned value, and datatype IDs are separate zero-based `u32` namespaces.
 Record IDs are nonzero file-wide `u64` values, including embedded children.
 Transaction and located-record blocks share a separate nonzero `u64` block-number
 namespace. IDs never wrap or get reused. A recording has its own nonzero
@@ -50,7 +50,7 @@ and trailer are absent while a file is being written or after an interruption.
 | ---: | ---: | --- |
 | 0 | 8 | Magic `89 56 54 52 0d 0a 1a 0a` |
 | 8 | 2 | Major version = 3 |
-| 10 | 2 | Minor version = 4 |
+| 10 | 2 | Minor version = 5 |
 | 12 | 4 | Flags = 0 |
 | 16 | 16 | Nonzero recording identity, opaque bytes |
 
@@ -79,6 +79,7 @@ an incomplete recording. Other reserved flags are zero.
 | 7 | DIRECTORY | Not indexed in itself |
 | 9 | RECORD_BLOCK | Minimum begin / maximum end |
 | 10 | DATATYPES | First datatype ID / count |
+| 11 | VALUES | First value ID / count |
 
 TX_BLOCK and RECORD_BLOCK entries carry their block number. Every other kind
 has block number zero. A block's directory bounds and number must agree with
@@ -117,9 +118,9 @@ two different recordings of equal length and directory CRC from sharing caches.
 
 ### 2.4 Publication and recovery
 
-There is exactly one META. Strings used by metadata must precede it. HIERARCHY,
+There is exactly one META. Strings and interned values used by metadata must precede it. HIERARCHY,
 DATATYPES, and recording sections follow META. Incremental declaration chunks
-may appear later, but every string, datatype, node, and signal must be declared
+may appear later, but every string, interned value, datatype, node, and signal must be declared
 before the section that uses it. Later declarations cannot repair a forward
 reference in an earlier record block. Runtime record references may point to
 records or blocks written later.
@@ -291,19 +292,45 @@ validated without narrowing or wrapping.
 | 22 | ufixed | Unsigned varint raw, signed varint scale |
 | 23 | list | Varint count, then tagged values |
 | 24 | map | Varint count, then string-ID keys and tagged values |
+| 25 | ref | Varint interned value ID |
 
 
 A length-prefixed byte sequence in this table is a `blob`. Packed widths are
 `u64`, with the same state codes and zero-padding rules as signals. A map uses
 attribute-list framing; a list stores tagged values. Nesting is limited to 64.
 Floating values preserve their exact IEEE bits, including signed zero and NaNs.
-Every referenced string must already exist.
+Every referenced string and interned value must already exist.
 
-Keys starting with `vtr.` or `log.` are reserved. `vtr.label`, when present, is
-`str` or `text`. `vtr.clock` is a `u32` generator ID referring to a CLOCK source.
+Keys starting with `vtr.` or `log.` are reserved. `vtr.label`, when present, resolves
+to `str` or `text`. `vtr.clock` resolves to a `u32` generator ID referring to a CLOCK source.
 Logging helpers interpret datatype metadata as described in [LOGGING.md](LOGGING.md).
 
-### 5.4 Description convention
+### 5.4 Interned values
+
+VALUES sections use the compression envelope from section 3.1. Their decompressed
+payload is `varint first_id`, `varint count`, then `count` blobs, each containing
+one complete tagged value. IDs are contiguous zero-based `u32` indices in a
+recording-local table, independent of string, datatype, and runtime record IDs.
+The directory range must agree with the chunk header. Entries are immutable;
+changing a description creates a new entry.
+
+Tag 25 is allowed anywhere a tagged value is accepted: recording and hierarchy
+metadata, datatype metadata, transaction attributes, embedded details, relations,
+lists, and maps. It does not extend canonical schema payload primitives.
+Each entry may refer only to earlier entries, including earlier entries in the
+same chunk. Strings must precede the VALUES section that uses them. Declarations
+must precede every dependent section, including after a flush or in a recovered
+prefix. Readers validate references even when skipping unselected attributes.
+
+`intern_value` explicitly deduplicates the complete encoded typed content.
+Integer widths, signedness, IEEE bits, inline versus interned strings, map/list
+order, and referenced IDs participate in identity. Distinct NaN bit patterns and
+signed zero remain distinct. Writers need not automatically intern inline values;
+applications choose what to share and can retain IDs to avoid repeated lookups.
+Readers retain references and provide borrowed access to table entries rather
+than expanding them into every transaction.
+
+### 5.5 Description convention
 
 The optional `vtr.description` attribute on a variable, generator, or scope node
 provides a long, human-readable description explaining that signal, generator,

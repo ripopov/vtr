@@ -416,6 +416,7 @@ class Writer final {
 
     // Declarations are immutable and become visible before a referencing call returns.
     [[nodiscard]] StringId intern(std::string_view text);
+    [[nodiscard]] ValueId intern_value(const Value& value);
     // Set metadata after interning its keys, before binding types or creating sources.
     void metadata(vtr::Metadata data);
     [[nodiscard]] ScopeId scope(std::string_view name, std::optional<ScopeId> parent = {},
@@ -455,8 +456,8 @@ class Writer final {
                             AttributeView attributes = {});
     // An absent lane selects the default stage lane, stored as the empty string.
     RecordId embedded_stage(OwnerRef owner, Timestamp begin, StringId name,
-                            std::optional<StringId> lane = {},
-                            std::optional<Timestamp> end = {}, AttributeView attributes = {});
+                            std::optional<StringId> lane = {}, std::optional<Timestamp> end = {},
+                            AttributeView attributes = {});
     void end_embedded_stage(OwnerRef owner, RecordId stage, Timestamp time);
     void relate(StringId kind, std::optional<RecordId> from, std::optional<RecordId> to,
                 AttributeView attributes);

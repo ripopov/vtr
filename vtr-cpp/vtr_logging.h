@@ -94,7 +94,7 @@ inline std::optional<LogMetadata> metadata(const Reader& reader, TypeId datatype
     auto find = [&](std::string_view key) -> const Value* {
         for (const auto& attribute : attributes)
             if (reader.string(attribute.key) == key)
-                return &attribute.data;
+                return &reader.resolve_value(attribute.data);
         return nullptr;
     };
     const auto kind = find("kind");

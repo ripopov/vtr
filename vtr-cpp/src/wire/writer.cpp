@@ -378,6 +378,9 @@ struct Writer::Impl {
     std::vector<Node> nodes;
     std::vector<WaveColumn> waves;
     std::size_t written_strings = 0, written_nodes = 0, written_signals = 0;
+    std::vector<std::string> values;
+    HashMap<std::string, Id> interned_values;
+    std::size_t written_values = 0;
     std::vector<Time> times;
     std::vector<std::pair<Time, bool>> blackout;
     std::vector<std::uint32_t> previous_dirty;
@@ -557,7 +560,7 @@ struct Writer::Impl {
     void declarations(bool hierarchy = true) {
         for (auto& a : meta.attrs) {
             key(a.key);
-            validate_value(a.value, strings.size());
+            validate_value(a.value, strings.size(), values.size());
         }
         validate_attrs(meta.attrs);
         if (written_strings < strings.size()) {
@@ -570,6 +573,16 @@ struct Writer::Impl {
             section(2, compress(raw, options.codec, options.compression_level), written_strings,
                     strings.size() - written_strings);
             written_strings = strings.size();
+        }
+        if (written_values < values.size()) {
+            Bytes raw;
+            put(raw, written_values);
+            put(raw, values.size() - written_values);
+            for (auto i = written_values; i < values.size(); ++i)
+                blob(raw, values[i]);
+            section(11, compress(raw, options.codec, options.compression_level), written_values,
+                    values.size() - written_values);
+            written_values = values.size();
         }
         if (!meta_written) {
             validate_utf8(view(meta.writer));
@@ -850,6 +863,41 @@ Meta& Writer::metadata() {
     return impl_->meta;
 }
 
+Value Writer::resolve_value(const Value& value) const {
+    auto resolved = value;
+    while (resolved.tag == Tag::ref) {
+        require(resolved.number < impl_->values.size(), "unknown interned value identifier");
+        Cursor cursor(view(impl_->values[resolved.number]));
+        resolved = decode_value(cursor);
+    }
+    return resolved;
+}
+
+std::size_t Writer::value_count() const {
+    return impl_->values.size();
+}
+
+Id Writer::intern_value(const Value& value) {
+    auto& p = *impl_;
+    require(!p.closed, "writer is closed", ErrorCode::invalid_state);
+    validate_value(value, p.strings.size(), p.values.size());
+    Bytes encoded;
+    encode_value(encoded, value);
+    std::string key(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+    if (auto found = p.interned_values.find(key); found != p.interned_values.end())
+        return found->second;
+    require(p.values.size() < none, "value identifier exhaustion", ErrorCode::id_exhausted);
+    const auto id = static_cast<Id>(p.values.size());
+    p.values.push_back(key);
+    try {
+        p.interned_values.emplace(std::move(key), id);
+    } catch (...) {
+        p.values.pop_back();
+        throw;
+    }
+    return id;
+}
+
 Id Writer::intern(std::string_view value) {
     return impl_->intern(value);
 }
@@ -968,7 +1016,7 @@ void Writer::node_attr(Id node, Id key, const Value& value) {
     p.key(key);
     auto& attrs = p.nodes[node].attrs;
     unique_attr(attrs, key);
-    validate_value(value, p.strings.size());
+    validate_value(value, p.strings.size(), p.values.size());
     attrs.push_back({key, value});
 }
 

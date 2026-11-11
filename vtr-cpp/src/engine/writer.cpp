@@ -379,9 +379,10 @@ struct Writer::Impl {
         d::validate_attrs(list);
         for (const auto& a : list) {
             key(a.key);
-            d::validate_value(a.value, native.string_count());
+            d::validate_value(a.value, native.string_count(), native.value_count());
             if (native.string(a.key) == "vtr.label") {
-                require(a.value.tag == Tag::str || a.value.tag == Tag::text, "invalid label type");
+                const auto tag = native.resolve_value(a.value).tag;
+                require(tag == Tag::str || tag == Tag::text, "invalid label type");
             }
         }
     }
@@ -741,6 +742,14 @@ vtr::detail::wire::Meta& Writer::metadata() {
     });
 }
 
+Id Writer::intern_value(const Value& value) {
+    auto& p = *impl_;
+    return p.call([&] {
+        p.alive();
+        return p.native.intern_value(value);
+    });
+}
+
 Id Writer::intern(std::string_view value) {
     auto& p = *impl_;
     return p.call([&] {
@@ -803,7 +812,7 @@ TypeId Writer::declare_datatype(std::string name, decltype(vtr::DataType::defini
         for (const auto& attribute : attributes) {
             require(attribute.key < p.native.string_count(), "Undeclared datatype attribute key",
                     ErrorCode::invalid_argument);
-            d::validate_value(attribute.value, p.native.string_count());
+            d::validate_value(attribute.value, p.native.string_count(), p.native.value_count());
         }
         const auto id =
             p.types.declare_datatype(std::move(name), std::move(definition), std::move(attributes));
@@ -874,24 +883,27 @@ void Writer::generator_attribute(GeneratorId generator, Id key, const Value& val
         p.alive();
         auto kind = p.generators[generator].kind;
         auto name = p.native.string(key);
+        const auto resolved = p.native.resolve_value(value);
         if (name == "vtr.label") {
-            require(value.tag == Tag::str || value.tag == Tag::text, "invalid label metadata type");
+            require(resolved.tag == Tag::str || resolved.tag == Tag::text,
+                    "invalid label metadata type");
         }
         if (name == "vtr.clock") {
-            require(value.tag == Tag::u32 && value.number <= UINT32_MAX,
+            require(resolved.tag == Tag::u32 && resolved.number <= UINT32_MAX,
                     "clock association must be u32");
-            require(p.generators[static_cast<GeneratorId>(value.number)].kind == RecordKind::clock,
+            require(p.generators[static_cast<GeneratorId>(resolved.number)].kind ==
+                        RecordKind::clock,
                     "invalid associated clock generator");
         }
         if (kind == RecordKind::log) {
             if (name == "log.severity") {
-                require(value.tag == Tag::enumeration, "invalid log severity metadata type");
+                require(resolved.tag == Tag::enumeration, "invalid log severity metadata type");
             }
             if (name == "log.line") {
-                require(value.tag == Tag::u64, "invalid numeric log metadata type");
+                require(resolved.tag == Tag::u64, "invalid numeric log metadata type");
             }
             if (name == "log.file" || name == "log.func") {
-                require(value.tag == Tag::str, "invalid log provenance type");
+                require(resolved.tag == Tag::str, "invalid log provenance type");
             }
         }
         p.native.node_attr(generator, key, value);
@@ -993,8 +1005,9 @@ void Writer::attribute(RecordId id, Id key, const Value& value) {
     p.call([&] {
         auto& owner = p.owner(id);
         const auto name = p.attribute_name(key);
-        d::validate_value(value, p.native.string_count());
-        p.validate_attribute(owner, key, name, value.tag);
+        d::validate_value(value, p.native.string_count(), p.native.value_count());
+        p.validate_attribute(owner, key, name,
+                             name == "vtr.label" ? p.native.resolve_value(value).tag : value.tag);
         if (numeric_attribute(value.tag) && value.payload.empty() &&
             p.store_numeric_attribute(owner, key, value.tag, value.number))
             return;

@@ -17,7 +17,7 @@ struct Mapping {
         int fd = ::open(path.c_str(), O_RDONLY);
         require(fd >= 0, "cannot open VTR file", ErrorCode::io);
 
-        struct stat st {};
+        struct stat st{};
 
         if (fstat(fd, &st) != 0 || st.st_size < 32) {
             ::close(fd);
@@ -86,6 +86,7 @@ struct Reader::Impl {
     ReaderStats stats;
     std::vector<Section> sections;
     std::vector<std::string> strings;
+    std::vector<Value> values;
     std::vector<Node> nodes;
     std::vector<SignalKind> signals;
     std::vector<Id> signal_nodes;
@@ -296,6 +297,30 @@ struct Reader::Impl {
                 s.block_number = number;
                 break;
             }
+            case 11: {
+                auto raw = decompress(payload(s));
+                Cursor r(raw);
+                auto first = r.id(), count = r.id();
+                require(first == values.size() && count <= r.data.size() / 2 &&
+                            std::uint64_t(first) + count <= none,
+                        "invalid value chunk");
+                if (directory)
+                    require(s.aux0 == first && s.aux1 == count && !s.block_number,
+                            "value directory bounds mismatch");
+                s.aux0 = first;
+                s.aux1 = count;
+                std::vector<Value> added;
+                for (Id i = 0; i < count; ++i) {
+                    Cursor entry(r.blob());
+                    added.push_back(
+                        decode_value(entry, {}, 0, true, strings.size(), values.size() + i));
+                    entry.done();
+                }
+                r.done();
+                values.insert(values.end(), std::make_move_iterator(added.begin()),
+                              std::make_move_iterator(added.end()));
+                break;
+            }
             case 10:
                 require(have_meta && s.block_number == 0, "invalid datatype section");
                 break;
@@ -365,7 +390,7 @@ struct Reader::Impl {
     void attrs_valid(std::span<const Attribute> attrs) const {
         for (auto& a : attrs) {
             string_id(a.key);
-            validate_value(a.value, strings.size());
+            validate_value(a.value, strings.size(), values.size());
         }
     }
 
@@ -840,6 +865,19 @@ const Meta& Reader::metadata() const {
 
 const ReaderStats& Reader::stats() const {
     return impl_->stats;
+}
+
+const Value& Reader::resolve_value(const Value& value) const {
+    auto resolved = &value;
+    while (resolved->tag == Tag::ref) {
+        require(resolved->number < impl_->values.size(), "unknown interned value identifier");
+        resolved = &impl_->values[resolved->number];
+    }
+    return *resolved;
+}
+
+std::span<const Value> Reader::values() const {
+    return impl_->values;
 }
 
 std::span<const std::string> Reader::strings() const {

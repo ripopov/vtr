@@ -1,0 +1,3970 @@
+[
+  {
+    "workload": "core",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "48.24",
+    "fresh_baseline": "43.94",
+    "candidate": "46.86"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "110.30",
+    "fresh_baseline": "96.92",
+    "candidate": "106.39"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Write time (ms)",
+    "committed": "624.27",
+    "fresh_baseline": "424.61",
+    "candidate": "488.47"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Write time (ms)",
+    "committed": "162.67",
+    "fresh_baseline": "149.66",
+    "candidate": "149.04"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "57.037",
+    "fresh_baseline": "64.910",
+    "candidate": "59.131"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "10.077",
+    "fresh_baseline": "14.816",
+    "candidate": "12.879"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "38.674",
+    "fresh_baseline": "42.035",
+    "candidate": "42.211"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "38.66",
+    "fresh_baseline": "44.13",
+    "candidate": "44.76"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Read time (ms)",
+    "committed": "166.47",
+    "fresh_baseline": "135.54",
+    "candidate": "149.12"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Read time (ms)",
+    "committed": "177.65",
+    "fresh_baseline": "167.19",
+    "candidate": "169.04"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "162.721",
+    "fresh_baseline": "142.562",
+    "candidate": "140.550"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "37.791",
+    "fresh_baseline": "46.415",
+    "candidate": "42.188"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "35.412",
+    "fresh_baseline": "37.628",
+    "candidate": "37.216"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "7.695",
+    "fresh_baseline": "7.695",
+    "candidate": "7.695"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "File size (MiB)",
+    "committed": "8.941",
+    "fresh_baseline": "8.941",
+    "candidate": "8.941"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "File size (MiB)",
+    "committed": "149.324",
+    "fresh_baseline": "149.324",
+    "candidate": "149.324"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "1.28",
+    "fresh_baseline": "1.28",
+    "candidate": "1.28"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Bytes per observation",
+    "committed": "1.49",
+    "fresh_baseline": "1.49",
+    "candidate": "1.49"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Bytes per observation",
+    "committed": "24.89",
+    "fresh_baseline": "24.89",
+    "candidate": "24.89"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "11.86",
+    "fresh_baseline": "11.86",
+    "candidate": "11.86"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Logical bytes / file bytes",
+    "committed": "10.21",
+    "fresh_baseline": "10.21",
+    "candidate": "10.21"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Logical bytes / file bytes",
+    "committed": "0.61",
+    "fresh_baseline": "0.61",
+    "candidate": "0.61"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "19.08",
+    "fresh_baseline": "21.56",
+    "candidate": "21.53"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "141.07",
+    "fresh_baseline": "143.32",
+    "candidate": "143.14"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "5.61",
+    "fresh_baseline": "4.65",
+    "candidate": "4.66"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "14.07",
+    "fresh_baseline": "14.23",
+    "candidate": "13.84"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "26.42",
+    "fresh_baseline": "25.82",
+    "candidate": "25.85"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "5.39",
+    "fresh_baseline": "4.64",
+    "candidate": "5.70"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "108.85",
+    "fresh_baseline": "95.52",
+    "candidate": "105.11"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Capture time (ms)",
+    "committed": "541.24",
+    "fresh_baseline": "373.42",
+    "candidate": "437.74"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Capture time (ms)",
+    "committed": "161.72",
+    "fresh_baseline": "149.34",
+    "candidate": "148.81"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "226.8",
+    "fresh_baseline": "199.0",
+    "candidate": "219.0"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1127.6",
+    "fresh_baseline": "778.0",
+    "candidate": "912.0"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Capture time (ns/tick)",
+    "committed": "336.9",
+    "fresh_baseline": "311.1",
+    "candidate": "310.0"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "16.8",
+    "fresh_baseline": "16.8",
+    "candidate": "16.8"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "File bytes per tick",
+    "committed": "19.5",
+    "fresh_baseline": "19.5",
+    "candidate": "19.5"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "File bytes per tick",
+    "committed": "326.2",
+    "fresh_baseline": "326.2",
+    "candidate": "326.2"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "1.28",
+    "fresh_baseline": "1.29",
+    "candidate": "1.22"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Close time (ms)",
+    "committed": "78.37",
+    "fresh_baseline": "49.35",
+    "candidate": "54.12"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Close time (ms)",
+    "committed": "0.55",
+    "fresh_baseline": "0.04",
+    "candidate": "0.05"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "111.17",
+    "fresh_baseline": "97.33",
+    "candidate": "106.90"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Write CPU time (ms)",
+    "committed": "624.96",
+    "fresh_baseline": "425.08",
+    "candidate": "489.00"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Write CPU time (ms)",
+    "committed": "163.22",
+    "fresh_baseline": "150.05",
+    "candidate": "149.51"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "108.28 / 111.55",
+    "fresh_baseline": "95.82 / 103.30",
+    "candidate": "97.07 / 114.42"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "Write min / max (ms)",
+    "committed": "603.59 / 644.06",
+    "fresh_baseline": "417.98 / 425.93",
+    "candidate": "483.12 / 534.52"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "Write min / max (ms)",
+    "committed": "162.09 / 210.65",
+    "fresh_baseline": "141.25 / 153.50",
+    "candidate": "141.10 / 156.72"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "search-signal: matches",
+    "committed": "291",
+    "fresh_baseline": "291",
+    "candidate": "291"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "search-signal: matches",
+    "committed": "291",
+    "fresh_baseline": "291",
+    "candidate": "291"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "search-signal: matches",
+    "committed": "291",
+    "fresh_baseline": "291",
+    "candidate": "291"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.115",
+    "fresh_baseline": "0.255",
+    "candidate": "0.271"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "2.400",
+    "fresh_baseline": "1.139",
+    "candidate": "1.222"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "55.563",
+    "fresh_baseline": "57.619",
+    "candidate": "59.166"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "0.390",
+    "fresh_baseline": "0.434",
+    "candidate": "0.490"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "6.139",
+    "fresh_baseline": "4.719",
+    "candidate": "5.331"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "87.801",
+    "fresh_baseline": "90.998",
+    "candidate": "96.412"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "7.72",
+    "fresh_baseline": "8.20",
+    "candidate": "9.25"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "27.09",
+    "fresh_baseline": "27.46",
+    "candidate": "27.87"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.75",
+    "fresh_baseline": "7.21",
+    "candidate": "7.10"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "find-signal: matches",
+    "committed": "1,068,627",
+    "fresh_baseline": "1,068,627",
+    "candidate": "1,068,627"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "find-signal: matches",
+    "committed": "1,068,627",
+    "fresh_baseline": "1,068,627",
+    "candidate": "1,068,627"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "find-signal: matches",
+    "committed": "1,068,627",
+    "fresh_baseline": "1,068,627",
+    "candidate": "1,068,627"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.630",
+    "fresh_baseline": "1.369",
+    "candidate": "1.420"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "2.835",
+    "fresh_baseline": "1.520",
+    "candidate": "1.754"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "91.725",
+    "fresh_baseline": "95.162",
+    "candidate": "99.400"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "2.629",
+    "fresh_baseline": "3.801",
+    "candidate": "4.404"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "8.439",
+    "fresh_baseline": "6.462",
+    "candidate": "6.716"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "95.109",
+    "fresh_baseline": "102.096",
+    "candidate": "106.187"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "10.24",
+    "fresh_baseline": "10.27",
+    "candidate": "10.48"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "27.03",
+    "fresh_baseline": "28.00",
+    "candidate": "27.93"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.76",
+    "fresh_baseline": "7.07",
+    "candidate": "7.34"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "point: p50 (ms)",
+    "committed": "0.118",
+    "fresh_baseline": "0.239",
+    "candidate": "0.262"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "point: p50 (ms)",
+    "committed": "0.357",
+    "fresh_baseline": "0.356",
+    "candidate": "0.413"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "point: p50 (ms)",
+    "committed": "54.273",
+    "fresh_baseline": "58.791",
+    "candidate": "60.223"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "point: p95 (ms)",
+    "committed": "0.425",
+    "fresh_baseline": "0.669",
+    "candidate": "0.617"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "point: p95 (ms)",
+    "committed": "1.327",
+    "fresh_baseline": "0.764",
+    "candidate": "1.060"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "point: p95 (ms)",
+    "committed": "87.817",
+    "fresh_baseline": "92.720",
+    "candidate": "98.896"
+  },
+  {
+    "workload": "core",
+    "format": "VTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "7.83",
+    "fresh_baseline": "8.76",
+    "candidate": "8.30"
+  },
+  {
+    "workload": "core",
+    "format": "FST",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "8.97",
+    "fresh_baseline": "8.93",
+    "candidate": "9.22"
+  },
+  {
+    "workload": "core",
+    "format": "VCD",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.80",
+    "fresh_baseline": "7.34",
+    "candidate": "7.34"
+  },
+  {
+    "workload": "soc",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "140.85",
+    "fresh_baseline": "111.66",
+    "candidate": "121.19"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "417.12",
+    "fresh_baseline": "385.17",
+    "candidate": "411.09"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Write time (ms)",
+    "committed": "835.77",
+    "fresh_baseline": "665.31",
+    "candidate": "707.42"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Write time (ms)",
+    "committed": "545.25",
+    "fresh_baseline": "420.04",
+    "candidate": "422.03"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "48.293",
+    "fresh_baseline": "52.298",
+    "candidate": "49.001"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "24.102",
+    "fresh_baseline": "30.277",
+    "candidate": "28.475"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "36.944",
+    "fresh_baseline": "47.957",
+    "candidate": "47.731"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "121.86",
+    "fresh_baseline": "134.09",
+    "candidate": "142.69"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Read time (ms)",
+    "committed": "594.27",
+    "fresh_baseline": "451.93",
+    "candidate": "479.74"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Read time (ms)",
+    "committed": "574.09",
+    "fresh_baseline": "512.08",
+    "candidate": "515.08"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "165.304",
+    "fresh_baseline": "150.223",
+    "candidate": "141.169"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "33.896",
+    "fresh_baseline": "44.572",
+    "candidate": "41.989"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "35.088",
+    "fresh_baseline": "39.337",
+    "candidate": "39.108"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "24.579",
+    "fresh_baseline": "24.579",
+    "candidate": "24.579"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "File size (MiB)",
+    "committed": "52.345",
+    "fresh_baseline": "52.345",
+    "candidate": "52.345"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "File size (MiB)",
+    "committed": "485.555",
+    "fresh_baseline": "485.555",
+    "candidate": "485.555"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "1.28",
+    "fresh_baseline": "1.28",
+    "candidate": "1.28"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Bytes per observation",
+    "committed": "2.72",
+    "fresh_baseline": "2.72",
+    "candidate": "2.72"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Bytes per observation",
+    "committed": "25.28",
+    "fresh_baseline": "25.28",
+    "candidate": "25.28"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "11.89",
+    "fresh_baseline": "11.89",
+    "candidate": "11.89"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Logical bytes / file bytes",
+    "committed": "5.58",
+    "fresh_baseline": "5.58",
+    "candidate": "5.58"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Logical bytes / file bytes",
+    "committed": "0.60",
+    "fresh_baseline": "0.60",
+    "candidate": "0.60"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "16.32",
+    "fresh_baseline": "17.54",
+    "candidate": "17.18"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "145.61",
+    "fresh_baseline": "147.92",
+    "candidate": "147.64"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "5.77",
+    "fresh_baseline": "4.90",
+    "candidate": "4.78"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "30.71",
+    "fresh_baseline": "29.73",
+    "candidate": "31.68"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "22.75",
+    "fresh_baseline": "23.53",
+    "candidate": "23.58"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "5.38",
+    "fresh_baseline": "4.64",
+    "candidate": "4.59"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "409.09",
+    "fresh_baseline": "378.10",
+    "candidate": "403.91"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Capture time (ms)",
+    "committed": "810.99",
+    "fresh_baseline": "646.72",
+    "candidate": "687.41"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Capture time (ms)",
+    "committed": "544.28",
+    "fresh_baseline": "419.55",
+    "candidate": "421.45"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "17045.3",
+    "fresh_baseline": "15754.0",
+    "candidate": "16829.5"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Capture time (ns/tick)",
+    "committed": "33791.0",
+    "fresh_baseline": "26946.6",
+    "candidate": "28642.0"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Capture time (ns/tick)",
+    "committed": "22678.4",
+    "fresh_baseline": "17481.4",
+    "candidate": "17560.5"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "1073.9",
+    "fresh_baseline": "1073.9",
+    "candidate": "1073.9"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "File bytes per tick",
+    "committed": "2287.0",
+    "fresh_baseline": "2287.0",
+    "candidate": "2287.0"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "File bytes per tick",
+    "committed": "21214.2",
+    "fresh_baseline": "21214.2",
+    "candidate": "21214.2"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "6.69",
+    "fresh_baseline": "6.23",
+    "candidate": "6.59"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Close time (ms)",
+    "committed": "24.19",
+    "fresh_baseline": "17.96",
+    "candidate": "18.93"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Close time (ms)",
+    "committed": "0.16",
+    "fresh_baseline": "0.06",
+    "candidate": "0.13"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "418.09",
+    "fresh_baseline": "385.55",
+    "candidate": "411.65"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Write CPU time (ms)",
+    "committed": "836.44",
+    "fresh_baseline": "665.71",
+    "candidate": "707.96"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Write CPU time (ms)",
+    "committed": "546.19",
+    "fresh_baseline": "420.42",
+    "candidate": "422.49"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "405.33 / 433.57",
+    "fresh_baseline": "372.32 / 397.78",
+    "candidate": "376.33 / 468.85"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "Write min / max (ms)",
+    "committed": "824.52 / 840.96",
+    "fresh_baseline": "656.90 / 676.14",
+    "candidate": "669.66 / 753.77"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "Write min / max (ms)",
+    "committed": "513.97 / 615.55",
+    "fresh_baseline": "416.06 / 424.97",
+    "candidate": "419.85 / 459.04"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "search-signal: matches",
+    "committed": "297",
+    "fresh_baseline": "297",
+    "candidate": "297"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "search-signal: matches",
+    "committed": "297",
+    "fresh_baseline": "297",
+    "candidate": "297"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "search-signal: matches",
+    "committed": "297",
+    "fresh_baseline": "297",
+    "candidate": "297"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.421",
+    "fresh_baseline": "0.316",
+    "candidate": "0.308"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.448",
+    "fresh_baseline": "0.232",
+    "candidate": "0.256"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "184.291",
+    "fresh_baseline": "178.905",
+    "candidate": "182.894"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "0.674",
+    "fresh_baseline": "0.488",
+    "candidate": "0.497"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "6.911",
+    "fresh_baseline": "0.310",
+    "candidate": "0.345"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "265.464",
+    "fresh_baseline": "252.911",
+    "candidate": "257.228"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "7.20",
+    "fresh_baseline": "8.70",
+    "candidate": "8.32"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "22.82",
+    "fresh_baseline": "22.93",
+    "candidate": "22.50"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.71",
+    "fresh_baseline": "7.30",
+    "candidate": "6.71"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "find-signal: matches",
+    "committed": "53,517",
+    "fresh_baseline": "53,517",
+    "candidate": "53,517"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "find-signal: matches",
+    "committed": "53,517",
+    "fresh_baseline": "53,517",
+    "candidate": "53,517"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "find-signal: matches",
+    "committed": "53,517",
+    "fresh_baseline": "53,517",
+    "candidate": "53,517"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.584",
+    "fresh_baseline": "0.439",
+    "candidate": "0.440"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "7.463",
+    "fresh_baseline": "0.507",
+    "candidate": "0.562"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "277.875",
+    "fresh_baseline": "274.352",
+    "candidate": "272.478"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "0.796",
+    "fresh_baseline": "0.599",
+    "candidate": "0.628"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "8.117",
+    "fresh_baseline": "0.758",
+    "candidate": "0.838"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "280.339",
+    "fresh_baseline": "282.793",
+    "candidate": "322.970"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "9.45",
+    "fresh_baseline": "12.33",
+    "candidate": "11.46"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "22.47",
+    "fresh_baseline": "27.36",
+    "candidate": "26.97"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.80",
+    "fresh_baseline": "6.77",
+    "candidate": "6.53"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "point: p50 (ms)",
+    "committed": "0.422",
+    "fresh_baseline": "0.293",
+    "candidate": "0.288"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "point: p50 (ms)",
+    "committed": "0.203",
+    "fresh_baseline": "0.133",
+    "candidate": "0.144"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "point: p50 (ms)",
+    "committed": "181.910",
+    "fresh_baseline": "179.330",
+    "candidate": "179.965"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "point: p95 (ms)",
+    "committed": "0.644",
+    "fresh_baseline": "0.431",
+    "candidate": "0.478"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "point: p95 (ms)",
+    "committed": "0.317",
+    "fresh_baseline": "0.201",
+    "candidate": "0.217"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "point: p95 (ms)",
+    "committed": "258.111",
+    "fresh_baseline": "256.881",
+    "candidate": "254.928"
+  },
+  {
+    "workload": "soc",
+    "format": "VTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "7.11",
+    "fresh_baseline": "8.77",
+    "candidate": "8.96"
+  },
+  {
+    "workload": "soc",
+    "format": "FST",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "5.09",
+    "fresh_baseline": "6.03",
+    "candidate": "5.75"
+  },
+  {
+    "workload": "soc",
+    "format": "VCD",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.75",
+    "fresh_baseline": "7.23",
+    "candidate": "7.07"
+  },
+  {
+    "workload": "idle",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "17.84",
+    "fresh_baseline": "15.56",
+    "candidate": "15.83"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "57.34",
+    "fresh_baseline": "53.30",
+    "candidate": "57.50"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Write time (ms)",
+    "committed": "113.88",
+    "fresh_baseline": "75.41",
+    "candidate": "96.02"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Write time (ms)",
+    "committed": "66.43",
+    "fresh_baseline": "53.76",
+    "candidate": "57.18"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "44.420",
+    "fresh_baseline": "47.785",
+    "candidate": "44.298"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "22.365",
+    "fresh_baseline": "33.776",
+    "candidate": "26.527"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "38.344",
+    "fresh_baseline": "47.379",
+    "candidate": "44.541"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "16.97",
+    "fresh_baseline": "18.07",
+    "candidate": "18.54"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Read time (ms)",
+    "committed": "73.78",
+    "fresh_baseline": "56.71",
+    "candidate": "65.97"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Read time (ms)",
+    "committed": "71.34",
+    "fresh_baseline": "65.93",
+    "candidate": "75.87"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "150.134",
+    "fresh_baseline": "140.975",
+    "candidate": "137.349"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "34.520",
+    "fresh_baseline": "44.916",
+    "candidate": "38.611"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "35.703",
+    "fresh_baseline": "38.631",
+    "candidate": "33.572"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "1.732",
+    "fresh_baseline": "1.732",
+    "candidate": "1.732"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "File size (MiB)",
+    "committed": "4.165",
+    "fresh_baseline": "4.165",
+    "candidate": "4.165"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "File size (MiB)",
+    "committed": "61.551",
+    "fresh_baseline": "61.551",
+    "candidate": "61.551"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "0.71",
+    "fresh_baseline": "0.71",
+    "candidate": "0.71"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Bytes per observation",
+    "committed": "1.71",
+    "fresh_baseline": "1.71",
+    "candidate": "1.71"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Bytes per observation",
+    "committed": "25.34",
+    "fresh_baseline": "25.34",
+    "candidate": "25.34"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "21.34",
+    "fresh_baseline": "21.34",
+    "candidate": "21.34"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Logical bytes / file bytes",
+    "committed": "8.88",
+    "fresh_baseline": "8.88",
+    "candidate": "8.88"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Logical bytes / file bytes",
+    "committed": "0.60",
+    "fresh_baseline": "0.60",
+    "candidate": "0.60"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "15.44",
+    "fresh_baseline": "15.63",
+    "candidate": "16.73"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "77.69",
+    "fresh_baseline": "78.75",
+    "candidate": "80.24"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "5.76",
+    "fresh_baseline": "4.90",
+    "candidate": "5.65"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "7.94",
+    "fresh_baseline": "8.84",
+    "candidate": "8.12"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "14.78",
+    "fresh_baseline": "13.72",
+    "candidate": "15.00"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "5.42",
+    "fresh_baseline": "4.65",
+    "candidate": "4.59"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "48.68",
+    "fresh_baseline": "45.59",
+    "candidate": "49.08"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Capture time (ms)",
+    "committed": "58.04",
+    "fresh_baseline": "31.17",
+    "candidate": "30.37"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Capture time (ms)",
+    "committed": "65.60",
+    "fresh_baseline": "53.27",
+    "candidate": "56.64"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1014.2",
+    "fresh_baseline": "949.8",
+    "candidate": "1022.5"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1209.2",
+    "fresh_baseline": "649.5",
+    "candidate": "632.8"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1366.7",
+    "fresh_baseline": "1109.8",
+    "candidate": "1180.0"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "37.8",
+    "fresh_baseline": "37.8",
+    "candidate": "37.8"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "File bytes per tick",
+    "committed": "91.0",
+    "fresh_baseline": "91.0",
+    "candidate": "91.0"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "File bytes per tick",
+    "committed": "1344.6",
+    "fresh_baseline": "1344.6",
+    "candidate": "1344.6"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "7.38",
+    "fresh_baseline": "6.97",
+    "candidate": "7.46"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Close time (ms)",
+    "committed": "55.25",
+    "fresh_baseline": "43.50",
+    "candidate": "65.14"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Close time (ms)",
+    "committed": "0.17",
+    "fresh_baseline": "0.06",
+    "candidate": "0.06"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "58.03",
+    "fresh_baseline": "53.70",
+    "candidate": "58.09"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Write CPU time (ms)",
+    "committed": "114.66",
+    "fresh_baseline": "75.81",
+    "candidate": "96.55"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Write CPU time (ms)",
+    "committed": "67.06",
+    "fresh_baseline": "54.13",
+    "candidate": "57.30"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "56.71 / 58.69",
+    "fresh_baseline": "53.08 / 53.96",
+    "candidate": "56.23 / 64.94"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "Write min / max (ms)",
+    "committed": "112.06 / 115.71",
+    "fresh_baseline": "73.19 / 75.73",
+    "candidate": "79.70 / 99.31"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "Write min / max (ms)",
+    "committed": "66.16 / 66.67",
+    "fresh_baseline": "53.75 / 54.93",
+    "candidate": "56.71 / 94.32"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "search-signal: matches",
+    "committed": "3",
+    "fresh_baseline": "3",
+    "candidate": "3"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "search-signal: matches",
+    "committed": "3",
+    "fresh_baseline": "3",
+    "candidate": "3"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "search-signal: matches",
+    "committed": "3",
+    "fresh_baseline": "3",
+    "candidate": "3"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.389",
+    "fresh_baseline": "0.311",
+    "candidate": "0.330"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.328",
+    "fresh_baseline": "0.158",
+    "candidate": "0.193"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "13.609",
+    "fresh_baseline": "14.317",
+    "candidate": "20.734"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "0.678",
+    "fresh_baseline": "0.510",
+    "candidate": "0.662"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "4.132",
+    "fresh_baseline": "0.230",
+    "candidate": "0.364"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "33.908",
+    "fresh_baseline": "37.441",
+    "candidate": "81.400"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.77",
+    "fresh_baseline": "7.49",
+    "candidate": "7.50"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "15.18",
+    "fresh_baseline": "16.00",
+    "candidate": "15.71"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.74",
+    "fresh_baseline": "6.61",
+    "candidate": "6.93"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "find-signal: matches",
+    "committed": "6,744",
+    "fresh_baseline": "6,744",
+    "candidate": "6,744"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "find-signal: matches",
+    "committed": "6,744",
+    "fresh_baseline": "6,744",
+    "candidate": "6,744"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "find-signal: matches",
+    "committed": "6,744",
+    "fresh_baseline": "6,744",
+    "candidate": "6,744"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.414",
+    "fresh_baseline": "0.349",
+    "candidate": "0.382"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.333",
+    "fresh_baseline": "0.153",
+    "candidate": "0.177"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "34.198",
+    "fresh_baseline": "35.935",
+    "candidate": "39.798"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "0.701",
+    "fresh_baseline": "0.521",
+    "candidate": "0.603"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "4.055",
+    "fresh_baseline": "0.254",
+    "candidate": "0.288"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "34.906",
+    "fresh_baseline": "46.720",
+    "candidate": "62.676"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.77",
+    "fresh_baseline": "7.80",
+    "candidate": "7.51"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "15.12",
+    "fresh_baseline": "16.08",
+    "candidate": "15.93"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.71",
+    "fresh_baseline": "6.71",
+    "candidate": "6.93"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "point: p50 (ms)",
+    "committed": "0.410",
+    "fresh_baseline": "0.289",
+    "candidate": "0.339"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "point: p50 (ms)",
+    "committed": "0.095",
+    "fresh_baseline": "0.102",
+    "candidate": "0.112"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "point: p50 (ms)",
+    "committed": "13.303",
+    "fresh_baseline": "14.124",
+    "candidate": "16.147"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "point: p95 (ms)",
+    "committed": "0.623",
+    "fresh_baseline": "0.512",
+    "candidate": "0.595"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "point: p95 (ms)",
+    "committed": "0.297",
+    "fresh_baseline": "0.202",
+    "candidate": "0.167"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "point: p95 (ms)",
+    "committed": "33.361",
+    "fresh_baseline": "37.921",
+    "candidate": "41.066"
+  },
+  {
+    "workload": "idle",
+    "format": "VTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.82",
+    "fresh_baseline": "7.50",
+    "candidate": "7.72"
+  },
+  {
+    "workload": "idle",
+    "format": "FST",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "5.54",
+    "fresh_baseline": "6.12",
+    "candidate": "6.00"
+  },
+  {
+    "workload": "idle",
+    "format": "VCD",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.76",
+    "fresh_baseline": "6.43",
+    "candidate": "7.12"
+  },
+  {
+    "workload": "requests",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "7.23",
+    "fresh_baseline": "9.71",
+    "candidate": "8.74"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "28.49",
+    "fresh_baseline": "31.76",
+    "candidate": "31.87"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Write time (ms)",
+    "committed": "37.11",
+    "fresh_baseline": "47.07",
+    "candidate": "34.42"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "7.222",
+    "fresh_baseline": "6.477",
+    "candidate": "6.456"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "5.544",
+    "fresh_baseline": "4.370",
+    "candidate": "5.976"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "14.91",
+    "fresh_baseline": "19.49",
+    "candidate": "16.45"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Read time (ms)",
+    "committed": "11.20",
+    "fresh_baseline": "13.95",
+    "candidate": "11.36"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "13.796",
+    "fresh_baseline": "10.557",
+    "candidate": "12.508"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "18.361",
+    "fresh_baseline": "14.743",
+    "candidate": "18.109"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "1.046",
+    "fresh_baseline": "1.046",
+    "candidate": "1.046"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "File size (MiB)",
+    "committed": "4.424",
+    "fresh_baseline": "4.424",
+    "candidate": "4.424"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "5.33",
+    "fresh_baseline": "5.33",
+    "candidate": "5.33"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Bytes per observation",
+    "committed": "22.55",
+    "fresh_baseline": "22.55",
+    "candidate": "22.55"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "12.75",
+    "fresh_baseline": "12.75",
+    "candidate": "12.75"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "3.02",
+    "fresh_baseline": "3.02",
+    "candidate": "3.02"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "6.41",
+    "fresh_baseline": "6.59",
+    "candidate": "6.66"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "5.06",
+    "fresh_baseline": "5.87",
+    "candidate": "4.07"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "6.25",
+    "fresh_baseline": "5.32",
+    "candidate": "7.33"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "8.82",
+    "fresh_baseline": "9.71",
+    "candidate": "7.61"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "28.18",
+    "fresh_baseline": "31.33",
+    "candidate": "31.48"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Capture time (ms)",
+    "committed": "36.90",
+    "fresh_baseline": "46.86",
+    "candidate": "34.18"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "234.8",
+    "fresh_baseline": "261.1",
+    "candidate": "262.3"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "307.5",
+    "fresh_baseline": "390.5",
+    "candidate": "284.8"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "9.1",
+    "fresh_baseline": "9.1",
+    "candidate": "9.1"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "File bytes per tick",
+    "committed": "38.7",
+    "fresh_baseline": "38.7",
+    "candidate": "38.7"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "0.12",
+    "fresh_baseline": "0.14",
+    "candidate": "0.16"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Close time (ms)",
+    "committed": "0.16",
+    "fresh_baseline": "0.15",
+    "candidate": "0.16"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "29.39",
+    "fresh_baseline": "32.34",
+    "candidate": "32.46"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "37.74",
+    "fresh_baseline": "47.62",
+    "candidate": "35.02"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "28.48 / 29.28",
+    "fresh_baseline": "30.16 / 36.26",
+    "candidate": "31.38 / 41.11"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "Write min / max (ms)",
+    "committed": "36.64 / 37.83",
+    "fresh_baseline": "34.85 / 49.54",
+    "candidate": "32.55 / 58.16"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "search-transaction: matches",
+    "committed": "27",
+    "fresh_baseline": "27",
+    "candidate": "27"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "search-transaction: matches",
+    "committed": "27",
+    "fresh_baseline": "27",
+    "candidate": "27"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.074",
+    "fresh_baseline": "0.096",
+    "candidate": "0.096"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "3.381",
+    "fresh_baseline": "3.906",
+    "candidate": "3.819"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "0.145",
+    "fresh_baseline": "0.251",
+    "candidate": "0.159"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "4.267",
+    "fresh_baseline": "5.881",
+    "candidate": "5.629"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "6.18",
+    "fresh_baseline": "7.33",
+    "candidate": "7.24"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "8.92",
+    "fresh_baseline": "9.65",
+    "candidate": "9.57"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "find-transaction: matches",
+    "committed": "2,715",
+    "fresh_baseline": "2,715",
+    "candidate": "2,715"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "find-transaction: matches",
+    "committed": "2,715",
+    "fresh_baseline": "2,715",
+    "candidate": "2,715"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "4.245",
+    "fresh_baseline": "4.534",
+    "candidate": "4.262"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "4.853",
+    "fresh_baseline": "5.630",
+    "candidate": "5.300"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "4.351",
+    "fresh_baseline": "6.552",
+    "candidate": "6.688"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "5.041",
+    "fresh_baseline": "7.352",
+    "candidate": "7.858"
+  },
+  {
+    "workload": "requests",
+    "format": "VTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "6.17",
+    "fresh_baseline": "5.32",
+    "candidate": "7.29"
+  },
+  {
+    "workload": "requests",
+    "format": "FTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "8.76",
+    "fresh_baseline": "7.78",
+    "candidate": "7.61"
+  },
+  {
+    "workload": "many-generators",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "13.83",
+    "fresh_baseline": "17.72",
+    "candidate": "30.66"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "51.48",
+    "fresh_baseline": "58.80",
+    "candidate": "59.54"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Write time (ms)",
+    "committed": "66.26",
+    "fresh_baseline": "73.68",
+    "candidate": "76.43"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "6.394",
+    "fresh_baseline": "5.598",
+    "candidate": "5.528"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "4.968",
+    "fresh_baseline": "4.467",
+    "candidate": "4.307"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "24.53",
+    "fresh_baseline": "31.33",
+    "candidate": "30.78"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Read time (ms)",
+    "committed": "20.57",
+    "fresh_baseline": "26.13",
+    "candidate": "23.20"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "13.421",
+    "fresh_baseline": "10.506",
+    "candidate": "10.694"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "16.002",
+    "fresh_baseline": "12.598",
+    "candidate": "14.190"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "1.662",
+    "fresh_baseline": "1.662",
+    "candidate": "1.662"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "File size (MiB)",
+    "committed": "7.571",
+    "fresh_baseline": "7.571",
+    "candidate": "7.571"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "5.29",
+    "fresh_baseline": "5.29",
+    "candidate": "5.29"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Bytes per observation",
+    "committed": "24.12",
+    "fresh_baseline": "24.12",
+    "candidate": "24.12"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "12.84",
+    "fresh_baseline": "12.84",
+    "candidate": "12.84"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "2.82",
+    "fresh_baseline": "2.82",
+    "candidate": "2.82"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "6.59",
+    "fresh_baseline": "5.77",
+    "candidate": "7.27"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "6.25",
+    "fresh_baseline": "6.45",
+    "candidate": "7.03"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "7.05",
+    "fresh_baseline": "6.06",
+    "candidate": "6.00"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "12.02",
+    "fresh_baseline": "10.93",
+    "candidate": "12.79"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "51.16",
+    "fresh_baseline": "58.46",
+    "candidate": "59.13"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Capture time (ms)",
+    "committed": "65.54",
+    "fresh_baseline": "72.98",
+    "candidate": "75.68"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "2131.8",
+    "fresh_baseline": "2436.0",
+    "candidate": "2463.9"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "2730.8",
+    "fresh_baseline": "3041.0",
+    "candidate": "3153.5"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "72.6",
+    "fresh_baseline": "72.6",
+    "candidate": "72.6"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "File bytes per tick",
+    "committed": "330.8",
+    "fresh_baseline": "330.8",
+    "candidate": "330.8"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "0.14",
+    "fresh_baseline": "0.16",
+    "candidate": "0.14"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Close time (ms)",
+    "committed": "0.69",
+    "fresh_baseline": "0.65",
+    "candidate": "0.69"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "52.27",
+    "fresh_baseline": "59.31",
+    "candidate": "60.20"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "67.12",
+    "fresh_baseline": "74.17",
+    "candidate": "77.01"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "51.43 / 52.41",
+    "fresh_baseline": "58.62 / 65.54",
+    "candidate": "54.38 / 92.27"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "Write min / max (ms)",
+    "committed": "66.26 / 68.26",
+    "fresh_baseline": "71.04 / 76.51",
+    "candidate": "63.97 / 110.02"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "search-transaction: matches",
+    "committed": "15",
+    "fresh_baseline": "15",
+    "candidate": "15"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "search-transaction: matches",
+    "committed": "15",
+    "fresh_baseline": "15",
+    "candidate": "15"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.159",
+    "fresh_baseline": "0.263",
+    "candidate": "0.205"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.609",
+    "fresh_baseline": "0.994",
+    "candidate": "1.090"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "0.273",
+    "fresh_baseline": "0.516",
+    "candidate": "0.433"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "1.315",
+    "fresh_baseline": "2.344",
+    "candidate": "5.343"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "7.09",
+    "fresh_baseline": "6.06",
+    "candidate": "7.95"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "12.00",
+    "fresh_baseline": "12.85",
+    "candidate": "12.79"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "find-transaction: matches",
+    "committed": "537",
+    "fresh_baseline": "537",
+    "candidate": "537"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "find-transaction: matches",
+    "committed": "537",
+    "fresh_baseline": "537",
+    "candidate": "537"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "4.842",
+    "fresh_baseline": "5.230",
+    "candidate": "5.089"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "1.286",
+    "fresh_baseline": "1.648",
+    "candidate": "1.609"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "5.137",
+    "fresh_baseline": "8.906",
+    "candidate": "13.389"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "1.361",
+    "fresh_baseline": "3.003",
+    "candidate": "2.757"
+  },
+  {
+    "workload": "many-generators",
+    "format": "VTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "7.06",
+    "fresh_baseline": "6.06",
+    "candidate": "7.86"
+  },
+  {
+    "workload": "many-generators",
+    "format": "FTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "12.04",
+    "fresh_baseline": "10.87",
+    "candidate": "10.87"
+  },
+  {
+    "workload": "mixed",
+    "format": "null",
+    "metric": "Null producer (ms)",
+    "committed": "11.93",
+    "fresh_baseline": "11.61",
+    "candidate": "12.86"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Write time (ms)",
+    "committed": "37.43",
+    "fresh_baseline": "32.76",
+    "candidate": "32.96"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Write time (ms)",
+    "committed": "87.27",
+    "fresh_baseline": "58.91",
+    "candidate": "68.05"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Write time (ms)",
+    "committed": "49.94",
+    "fresh_baseline": "43.18",
+    "candidate": "47.17"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "35.835",
+    "fresh_baseline": "40.948",
+    "candidate": "40.689"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "15.369",
+    "fresh_baseline": "22.766",
+    "candidate": "19.709"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Write throughput (Mobs/s)",
+    "committed": "26.856",
+    "fresh_baseline": "31.065",
+    "candidate": "28.436"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Read time (ms)",
+    "committed": "13.94",
+    "fresh_baseline": "15.00",
+    "candidate": "18.82"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Read time (ms)",
+    "committed": "38.67",
+    "fresh_baseline": "32.36",
+    "candidate": "33.81"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Read time (ms)",
+    "committed": "40.99",
+    "fresh_baseline": "42.31",
+    "candidate": "43.43"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "96.223",
+    "fresh_baseline": "89.396",
+    "candidate": "71.286"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "34.683",
+    "fresh_baseline": "41.446",
+    "candidate": "39.670"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Read throughput (Mobs/s)",
+    "committed": "32.719",
+    "fresh_baseline": "31.699",
+    "candidate": "30.885"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "File size (MiB)",
+    "committed": "1.970",
+    "fresh_baseline": "1.970",
+    "candidate": "1.970"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "File size (MiB)",
+    "committed": "4.010",
+    "fresh_baseline": "4.010",
+    "candidate": "4.010"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "File size (MiB)",
+    "committed": "31.812",
+    "fresh_baseline": "31.812",
+    "candidate": "31.812"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Bytes per observation",
+    "committed": "1.54",
+    "fresh_baseline": "1.54",
+    "candidate": "1.54"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Bytes per observation",
+    "committed": "3.13",
+    "fresh_baseline": "3.13",
+    "candidate": "3.13"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Bytes per observation",
+    "committed": "24.87",
+    "fresh_baseline": "24.87",
+    "candidate": "24.87"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "11.98",
+    "fresh_baseline": "11.98",
+    "candidate": "11.98"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "5.89",
+    "fresh_baseline": "5.89",
+    "candidate": "5.89"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Logical bytes / file bytes",
+    "committed": "0.74",
+    "fresh_baseline": "0.74",
+    "candidate": "0.74"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "15.72",
+    "fresh_baseline": "15.79",
+    "candidate": "15.98"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "41.11",
+    "fresh_baseline": "44.16",
+    "candidate": "43.49"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Write peak RSS (MiB)",
+    "committed": "6.27",
+    "fresh_baseline": "7.23",
+    "candidate": "7.18"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "7.56",
+    "fresh_baseline": "8.49",
+    "candidate": "8.20"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "9.52",
+    "fresh_baseline": "8.53",
+    "candidate": "8.52"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Read peak RSS (MiB)",
+    "committed": "6.27",
+    "fresh_baseline": "5.96",
+    "candidate": "6.04"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Capture time (ms)",
+    "committed": "32.83",
+    "fresh_baseline": "29.79",
+    "candidate": "30.06"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Capture time (ms)",
+    "committed": "45.99",
+    "fresh_baseline": "29.42",
+    "candidate": "37.09"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Capture time (ms)",
+    "committed": "49.18",
+    "fresh_baseline": "42.76",
+    "candidate": "46.67"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1367.8",
+    "fresh_baseline": "1241.1",
+    "candidate": "1252.4"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "1916.4",
+    "fresh_baseline": "1226.0",
+    "candidate": "1545.5"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Capture time (ns/tick)",
+    "committed": "2049.1",
+    "fresh_baseline": "1781.7",
+    "candidate": "1944.7"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "File bytes per tick",
+    "committed": "86.1",
+    "fresh_baseline": "86.1",
+    "candidate": "86.1"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "File bytes per tick",
+    "committed": "175.2",
+    "fresh_baseline": "175.2",
+    "candidate": "175.2"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "File bytes per tick",
+    "committed": "1389.9",
+    "fresh_baseline": "1389.9",
+    "candidate": "1389.9"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Close time (ms)",
+    "committed": "4.38",
+    "fresh_baseline": "2.68",
+    "candidate": "2.69"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Close time (ms)",
+    "committed": "40.29",
+    "fresh_baseline": "29.29",
+    "candidate": "29.41"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Close time (ms)",
+    "committed": "0.26",
+    "fresh_baseline": "0.24",
+    "candidate": "0.20"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "38.22",
+    "fresh_baseline": "33.26",
+    "candidate": "33.53"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "87.94",
+    "fresh_baseline": "59.29",
+    "candidate": "69.01"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Write CPU time (ms)",
+    "committed": "50.71",
+    "fresh_baseline": "43.64",
+    "candidate": "47.63"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "Write min / max (ms)",
+    "committed": "37.34 / 37.69",
+    "fresh_baseline": "31.29 / 33.07",
+    "candidate": "31.12 / 75.77"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "Write min / max (ms)",
+    "committed": "84.24 / 89.94",
+    "fresh_baseline": "55.06 / 88.21",
+    "candidate": "53.31 / 70.72"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "Write min / max (ms)",
+    "committed": "49.75 / 50.46",
+    "fresh_baseline": "42.56 / 44.96",
+    "candidate": "41.87 / 48.63"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-signal: matches",
+    "committed": "294",
+    "fresh_baseline": "294",
+    "candidate": "294"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-signal: matches",
+    "committed": "294",
+    "fresh_baseline": "294",
+    "candidate": "294"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-signal: matches",
+    "committed": "294",
+    "fresh_baseline": "294",
+    "candidate": "294"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.082",
+    "fresh_baseline": "0.110",
+    "candidate": "0.123"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "0.234",
+    "fresh_baseline": "0.166",
+    "candidate": "0.120"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-signal: p50 (ms)",
+    "committed": "11.829",
+    "fresh_baseline": "14.419",
+    "candidate": "14.584"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "0.246",
+    "fresh_baseline": "0.225",
+    "candidate": "0.525"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "2.015",
+    "fresh_baseline": "0.585",
+    "candidate": "0.360"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-signal: p95 (ms)",
+    "committed": "16.863",
+    "fresh_baseline": "20.568",
+    "candidate": "20.202"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.69",
+    "fresh_baseline": "5.68",
+    "candidate": "7.34"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "9.92",
+    "fresh_baseline": "10.81",
+    "candidate": "10.40"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-signal: peak RSS (MiB)",
+    "committed": "6.66",
+    "fresh_baseline": "6.62",
+    "candidate": "6.63"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-signal: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-signal: matches",
+    "committed": "53,496",
+    "fresh_baseline": "53,496",
+    "candidate": "53,496"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-signal: matches",
+    "committed": "53,496",
+    "fresh_baseline": "53,496",
+    "candidate": "53,496"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-signal: matches",
+    "committed": "53,496",
+    "fresh_baseline": "53,496",
+    "candidate": "53,496"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.092",
+    "fresh_baseline": "0.141",
+    "candidate": "0.144"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "0.215",
+    "fresh_baseline": "0.138",
+    "candidate": "0.114"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-signal: p50 (ms)",
+    "committed": "17.848",
+    "fresh_baseline": "21.955",
+    "candidate": "21.519"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "0.239",
+    "fresh_baseline": "0.287",
+    "candidate": "0.379"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "1.808",
+    "fresh_baseline": "0.445",
+    "candidate": "0.356"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-signal: p95 (ms)",
+    "committed": "18.470",
+    "fresh_baseline": "28.296",
+    "candidate": "24.057"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.70",
+    "fresh_baseline": "7.57",
+    "candidate": "7.55"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "9.98",
+    "fresh_baseline": "9.88",
+    "candidate": "10.14"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-signal: peak RSS (MiB)",
+    "committed": "6.74",
+    "fresh_baseline": "7.16",
+    "candidate": "6.90"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "point: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "point: matches",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "point: p50 (ms)",
+    "committed": "0.086",
+    "fresh_baseline": "0.115",
+    "candidate": "0.124"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "point: p50 (ms)",
+    "committed": "0.036",
+    "fresh_baseline": "0.039",
+    "candidate": "0.051"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "point: p50 (ms)",
+    "committed": "11.900",
+    "fresh_baseline": "15.214",
+    "candidate": "14.169"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "point: p95 (ms)",
+    "committed": "0.224",
+    "fresh_baseline": "0.207",
+    "candidate": "0.230"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "point: p95 (ms)",
+    "committed": "0.144",
+    "fresh_baseline": "0.105",
+    "candidate": "0.096"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "point: p95 (ms)",
+    "committed": "16.362",
+    "fresh_baseline": "21.294",
+    "candidate": "23.650"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.68",
+    "fresh_baseline": "5.68",
+    "candidate": "5.62"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "5.29",
+    "fresh_baseline": "5.89",
+    "candidate": "5.68"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "point: peak RSS (MiB)",
+    "committed": "6.76",
+    "fresh_baseline": "7.09",
+    "candidate": "6.37"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-transaction: matches",
+    "committed": "24",
+    "fresh_baseline": "24",
+    "candidate": "24"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-transaction: matches",
+    "committed": "24",
+    "fresh_baseline": "24",
+    "candidate": "24"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-transaction: matches",
+    "committed": "24",
+    "fresh_baseline": "24",
+    "candidate": "24"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.081",
+    "fresh_baseline": "0.081",
+    "candidate": "0.088"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.438",
+    "fresh_baseline": "0.447",
+    "candidate": "0.442"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-transaction: p50 (ms)",
+    "committed": "0.432",
+    "fresh_baseline": "0.440",
+    "candidate": "0.612"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "0.153",
+    "fresh_baseline": "0.139",
+    "candidate": "0.359"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "1.119",
+    "fresh_baseline": "1.088",
+    "candidate": "1.082"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-transaction: p95 (ms)",
+    "committed": "1.088",
+    "fresh_baseline": "1.087",
+    "candidate": "1.137"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "5.96",
+    "fresh_baseline": "4.98",
+    "candidate": "4.93"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "6.21",
+    "fresh_baseline": "5.10",
+    "candidate": "6.89"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "search-transaction: peak RSS (MiB)",
+    "committed": "6.21",
+    "fresh_baseline": "5.10",
+    "candidate": "4.92"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-transaction: probes",
+    "committed": "36",
+    "fresh_baseline": "36",
+    "candidate": "36"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-transaction: matches",
+    "committed": "543",
+    "fresh_baseline": "543",
+    "candidate": "543"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-transaction: matches",
+    "committed": "543",
+    "fresh_baseline": "543",
+    "candidate": "543"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-transaction: matches",
+    "committed": "543",
+    "fresh_baseline": "543",
+    "candidate": "543"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "1.658",
+    "fresh_baseline": "1.437",
+    "candidate": "1.497"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "1.075",
+    "fresh_baseline": "1.091",
+    "candidate": "1.079"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-transaction: p50 (ms)",
+    "committed": "1.072",
+    "fresh_baseline": "1.079",
+    "candidate": "1.068"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "1.754",
+    "fresh_baseline": "1.624",
+    "candidate": "3.607"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "1.164",
+    "fresh_baseline": "1.318",
+    "candidate": "1.350"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-transaction: p95 (ms)",
+    "committed": "1.159",
+    "fresh_baseline": "1.161",
+    "candidate": "1.888"
+  },
+  {
+    "workload": "mixed",
+    "format": "VTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "5.96",
+    "fresh_baseline": "4.99",
+    "candidate": "6.77"
+  },
+  {
+    "workload": "mixed",
+    "format": "FST+FTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "6.18",
+    "fresh_baseline": "5.10",
+    "candidate": "7.04"
+  },
+  {
+    "workload": "mixed",
+    "format": "VCD+FTR",
+    "metric": "find-transaction: peak RSS (MiB)",
+    "committed": "6.21",
+    "fresh_baseline": "5.10",
+    "candidate": "5.04"
+  }
+]

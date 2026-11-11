@@ -401,6 +401,13 @@ impl Capture for Producer {
     }
 }
 impl Recorder for Producer {
+    fn intern_value(&mut self, value: crate::Value) -> Result<crate::ValueId> {
+        if self.front.finished {
+            return Err(Error::State("producer is finished"));
+        }
+        self.shared
+            .control(move |backend| backend.intern_value(value))
+    }
     fn intern(&mut self, name: &str) -> Result<u32> {
         if self.front.finished {
             return Err(Error::State("producer is finished"));

@@ -79,6 +79,10 @@ class TransactionBlockView {
                          std::size_t max_payload_bytes = default_payload_limit,
                          std::span<const std::string> shared_text = {});
 
+    void value_count(std::size_t count) noexcept {
+        value_count_ = count;
+    }
+
     std::uint64_t number() const noexcept {
         return number_;
     }
@@ -115,6 +119,7 @@ class TransactionBlockView {
     const Types& types_;
     const Generators& generators_;
     std::uint64_t number_, string_count_;
+    std::size_t value_count_ = 0;
     std::size_t max_payload_bytes_;
     TransactionBounds bounds_;
     std::vector<GeneratorId> generator_ids_;

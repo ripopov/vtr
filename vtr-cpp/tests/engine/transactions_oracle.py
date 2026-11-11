@@ -34,6 +34,10 @@ def payload(tag, numeric, floating, string, misc):
         width = misc.var()
         per_byte = {15: 8, 16: 4, 17: 2}[tag]
         return width, misc.take((width + per_byte - 1) // per_byte)
+    if tag == 25:
+        value = numeric.var()
+        assert value < 1 << 32
+        return value
     if tag in (18, 20):
         return numeric.var()
     if tag == 19:

@@ -455,6 +455,7 @@ struct Reader::Impl {
     std::vector<Generator> generators;
     std::vector<DataType> types;
     std::vector<SignalKind> signals;
+    std::vector<Value> values;
     Provenance ending;
 
     Impl(const std::filesystem::path& path, ReaderOptions options)
@@ -471,6 +472,8 @@ struct Reader::Impl {
                       ? (backend.incomplete() ? Completion::incomplete : Completion::complete)
                       : Completion::unfinished,
                   dropped};
+        for (const auto& value : backend.container().waveform().values())
+            values.push_back(detail::decode_value(value));
         types.reserve(schema->types->size());
         for (std::uint32_t i = 0; i < schema->types->size(); ++i) {
             if (i == static_cast<std::uint32_t>(Primitive::enumeration)) {
@@ -573,6 +576,19 @@ std::span<const DataType> Reader::types() const noexcept {
 
 std::span<const SignalKind> Reader::signals() const noexcept {
     return impl_->signals;
+}
+
+const Value& Reader::resolve_value(const Value& value) const {
+    auto resolved = &value;
+    while (const auto* id = std::get_if<ValueId>(&resolved->data))
+        resolved = &this->value(*id);
+    return *resolved;
+}
+
+const Value& Reader::value(ValueId id) const {
+    if (id.value >= impl_->values.size())
+        throw Error(ErrorCode::invalid_argument, "Unknown interned value identifier");
+    return impl_->values[id.value];
 }
 
 std::string_view Reader::string(StringId id) const {

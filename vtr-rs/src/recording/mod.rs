@@ -497,6 +497,10 @@ impl Writer {
         let name = name.to_owned();
         self.control(move |backend| backend.intern(&name))
     }
+    pub fn intern_value(&mut self, value: Value) -> Result<crate::ValueId> {
+        let _guard = self.crash.guard();
+        self.control(move |backend| backend.intern_value(value))
+    }
     pub fn scope(&mut self, name: impl Into<String>, parent: Option<NodeId>) -> Result<NodeId> {
         let _guard = self.crash.guard();
         self.scope_with(SourceOptions::new(name, parent), ScopeType::Module, "")
@@ -831,6 +835,9 @@ impl Recorder for Writer {
     }
     fn intern(&mut self, name: &str) -> Result<u32> {
         Writer::intern(self, name)
+    }
+    fn intern_value(&mut self, value: Value) -> Result<crate::ValueId> {
+        Writer::intern_value(self, value)
     }
 }
 impl Drop for Writer {

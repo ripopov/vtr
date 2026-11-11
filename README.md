@@ -13,6 +13,7 @@ A VTR recording contains:
 | --- | --- |
 | Metadata | Time scale, time origin, producer identity, and typed attributes |
 | Hierarchy | Scopes, variables, signal aliases, generators, and enum tables |
+| Interned values | Reusable complete typed descriptions, referenced by a varint value ID |
 | Datatypes | Reusable payload layouts, references to other datatypes, and arbitrary tagged metadata |
 | Waveforms | Value changes of 2-, 4-, and 9-state bit vectors, reals, and byte strings; event occurrences |
 | Transactions | Timed intervals with typed attributes, point events, stages, parent links, and directed relations |
@@ -52,7 +53,7 @@ flowchart TB
 
 ![Schematic file order: a 32-byte header, append-only sections, a directory, and a 24-byte trailer; widths do not represent payload sizes.](docs/diagrams/transaction-file-structure.drawio.svg)
 
-VTR stores metadata, strings, datatype and hierarchy declarations, waveform data,
+VTR stores metadata, strings, interned values, datatype and hierarchy declarations, waveform data,
 transactions, logs, and blackout intervals in append-only sections. Each section has a 24-byte
 header followed by its payload.
 
@@ -63,6 +64,9 @@ complete sections by scanning from the start.
 
 See the [container specification](docs/SPEC.md#2-container) for field layouts,
 section ordering, and recovery rules.
+
+Repeated typed descriptions can be [interned once and referenced](docs/INTERNED_VALUES.md)
+without changing a transaction's payload schema.
 
 ## Try a recording
 
@@ -88,7 +92,7 @@ developed separately.
 | `vtr-convert-wasm` | Browser conversion host |
 | `vtr-progress` | Conversion progress reporting |
 
-Recordings use VTR 3.4, including scalar-page and shared-text encodings.
+Recordings use VTR 3.5, including interned attribute values, scalar pages, and shared text.
 The C++ package is version 6.0;
 activity sidecars have their own VTI 4.0 format. Older trace assets must be
 regenerated. Rust and C++ implementations are independent and tested in both

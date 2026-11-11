@@ -1,6 +1,6 @@
 # Typed records and payloads
 
-This is the normative typed-record portion of **VTR 3.4**. [SPEC.md](SPEC.md)
+This is the normative typed-record portion of **VTR 3.5**. [SPEC.md](SPEC.md)
 defines the container, compression, metadata, hierarchy, tagged attributes,
 waveforms, recovery, and activity sidecars. Together these documents describe
 the implemented format.
@@ -141,7 +141,7 @@ is already complete without supplied bytes; variable-length types still require
 their lengths, even when empty. Only the final complete value is serialized.
 
 Typed payloads are separate from optional tagged attributes. Attribute widths,
-keys, tags, and nested list/map values follow [SPEC section 5.3](SPEC.md#53-attributes-and-values).
+keys, tags, nested list/map values, and interned value references follow [SPEC section 5.3](SPEC.md#53-attributes-and-values).
 A payload field named `vtr.label` has type str or text. It supplies an instance
 label without replacing source identity or its optional attributes.
 
@@ -386,7 +386,7 @@ A general decompressed page contains one column set with 33 columns:
 | 6 | attribute count | Varint count per keyed attribute list |
 | 7 | attribute key | Varint string ID |
 | 8 | attribute tag | Byte value tag, upper three bits zero |
-| 9 | attribute numeric | bool byte; signed/unsigned varints according to type |
+| 9 | attribute numeric | bool byte; signed/unsigned varints according to type; tag 25 value IDs |
 | 10 | attribute floating | f32 as 4 little-endian bytes; f64 as 8 little-endian bytes |
 | 11 | attribute string | Varint string ID for str or enum literal |
 | 12 | attribute miscellaneous | Payload for tags 13–17 and 23–24 |

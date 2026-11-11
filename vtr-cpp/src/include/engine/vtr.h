@@ -46,6 +46,7 @@ class Writer {
     const TraceId& trace_id() const noexcept;
     vtr::detail::wire::Meta& metadata();
     Id intern(std::string_view value);
+    Id intern_value(const Value& value);
     Id add_scope(Id parent, std::string_view name, std::uint16_t type = 0,
                  std::string_view component = {});
     std::pair<Id, Id> add_var(Id parent, std::string_view name, SignalKind kind,

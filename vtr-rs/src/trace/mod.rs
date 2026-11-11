@@ -290,6 +290,7 @@ pub struct Expansion {
 
 #[derive(Clone, Copy)]
 struct Availability {
+    values: usize,
     strings: u64,
     types: usize,
     nodes: usize,
@@ -349,6 +350,7 @@ impl Reader {
             allocation_limit: options.max_payload_bytes,
         });
         let mut available = Availability {
+            values: 0,
             strings: 0,
             types: crate::schema::FIRST_DECLARED_TYPE as usize,
             nodes: 0,
@@ -362,6 +364,10 @@ impl Reader {
                         .aux0
                         .checked_add(section.aux1)
                         .ok_or_else(|| Error::corrupt("string count overflow"))?;
+                }
+                11 => {
+                    available.values = usize::try_from(section.aux0 + section.aux1)
+                        .map_err(|_| Error::Corrupt("value count overflow"))?;
                 }
                 3 => {
                     available.nodes = usize::try_from(section.aux0 + section.aux1)
@@ -583,6 +589,12 @@ impl Reader {
         }
         Ok(range)
     }
+    pub fn resolve_value<'a>(&'a self, value: &'a Value) -> Result<&'a Value> {
+        self.declarations.resolve_value(value)
+    }
+    pub fn value(&self, id: crate::ValueId) -> Result<&Value> {
+        self.declarations.value(id)
+    }
     pub fn string(&self, id: u32) -> Result<&str> {
         self.declarations.string(id)
     }
@@ -632,7 +644,8 @@ impl Reader {
             available.strings,
             self.options.max_payload_bytes,
             &self.declarations.strings,
-        )?;
+        )?
+        .with_value_count(available.values);
         if view.number() != section.block_number
             || view.bounds().begin != section.aux0
             || view.bounds().end != section.aux1
@@ -1038,7 +1051,7 @@ impl Reader {
         self.declarations.generators.get(generator)?;
         for attribute in &self.declarations.nodes[generator as usize].attributes {
             if self.string(attribute.key)? == "vtr.clock" {
-                let Value::U32(clock) = attribute.value else {
+                let &Value::U32(clock) = self.resolve_value(&attribute.value)? else {
                     return Err(Error::Corrupt("clock association is not u32"));
                 };
                 match self.declarations.generators.get(clock) {
@@ -1098,7 +1111,7 @@ impl Reader {
         let mut period = None;
         for attribute in &tx.attributes {
             if self.string(attribute.key)? == "vtr.period" {
-                let Value::Time(step) = attribute.value else {
+                let &Value::Time(step) = self.resolve_value(&attribute.value)? else {
                     return Err(Error::Corrupt("clock period is not a time"));
                 };
                 if step == 0 {

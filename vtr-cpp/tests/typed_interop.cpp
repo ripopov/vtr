@@ -39,9 +39,20 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     options.encoding.waveform_records = 4;
     options.meta.timescale = -9;
     vt::Writer writer(path, options);
+    const auto description_key = writer.intern("instruction_description");
+    const auto mnemonic = writer.intern_value(vt::Value(std::string("FADD")));
+    const vt::Value description(
+        vt::Value::List{vt::Value(mnemonic), vt::Value(std::uint8_t{32}),
+                        vt::Value(std::bit_cast<double>(std::uint64_t{0x7ff800000000beef})),
+                        vt::Value(vt::Bytes{std::byte{0}, std::byte{255}})});
+    const auto description_id = writer.intern_value(description);
+    check(writer.intern_value(description) == description_id);
+    const vt::Attributes shared{{description_key, vt::Value(description_id)}};
+    writer.metadata({.timescale = -9, .extra = shared});
+    (void)writer.datatype<vt::Unit>({.name = "InstructionMetadata", .attributes = shared});
     const auto label = writer.intern("vtr.label"), name = writer.intern("embedded");
     const auto relation = writer.intern("causes");
-    const auto core = writer.scope("core");
+    const auto core = writer.scope("core", {}, shared);
     auto requests = writer.transactions<Packet>({.name = "requests", .parent = core}, "REQUEST");
     auto scalar = writer.transactions<std::array<std::uint64_t, 3>>(
         {.name = "scalar", .parent = core}, "SCALAR");
@@ -75,10 +86,11 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     writer.emit_real(real, -0.0);
     auto owner = writer.begin(requests);
     writer.payload(owner, packet());
+    writer.attribute(owner, description_key, vt::Value(description_id));
     writer.attribute(owner, label, vt::Value(std::string("instruction Δ")));
     auto visit = writer.begin_at(execute, owner, 11);
     writer.payload(visit, std::string("replaced stage"));
-    (void)writer.embedded_event(owner, 12, name);
+    (void)writer.embedded_event(owner, 12, name, shared);
     (void)writer.embedded_stage(owner, 100, name);
     auto child = writer.begin_at(requests, 12, packet(), {.parent = owner});
     writer.payload(child, Packet{1, "replaced owner", {}});
@@ -106,10 +118,13 @@ void write(const char* path, unsigned codec, unsigned workers, std::string_view 
     writer.emit(counter, 4);
     writer.end(child, packet(), vt::Status::ok);
     writer.flush();
+    const auto late = writer.intern_value(vt::Value::List{vt::Value(description_id), vt::Value(std::string("late"))});
     for (std::uint64_t time = 21; time < 37; ++time) {
         writer.advance_time(time);
         writer.emit(counter, time);
         auto tx = writer.begin(scalar);
+        if (time == 21)
+            writer.attribute(tx, description_key, vt::Value(late));
         if (time % 2 == 0) {
             writer.payload(tx, std::array<std::uint64_t, 3>{time, time * 2, UINT64_MAX});
             writer.end(tx, vt::Status::ok);
@@ -136,6 +151,29 @@ void read(const char* path) {
         check(report.records == 29 && report.relations == 1 && report.missing.empty());
         auto owner = reader.lookup(vt::RecordId(2));
         check(owner.has_value());
+        const auto attributes = owner->attributes();
+        const auto description =
+            std::find_if(attributes.begin(), attributes.end(), [&](const auto& attr) {
+                return reader.string(attr.key) == "instruction_description";
+            });
+        check(description != attributes.end());
+        const auto& items = std::get<vt::Value::List>(
+            reader.value(std::get<vt::ValueId>(description->data.data)).data);
+        check(std::get<std::string>(reader.value(std::get<vt::ValueId>(items[0].data)).data) ==
+              "FADD");
+        check(std::get<std::uint8_t>(items[1].data) == 32);
+        check(std::bit_cast<std::uint64_t>(std::get<double>(items[2].data)) == 0x7ff800000000beef);
+        check(std::get<vt::Bytes>(items[3].data) == vt::Bytes{std::byte{0}, std::byte{255}});
+        const auto id = std::get<vt::ValueId>(description->data.data);
+        check(std::get<vt::ValueId>(reader.metadata().extra[0].data.data) == id);
+        check(std::get<vt::ValueId>(reader.lookup(vt::RecordId(4))->attributes()[0].data.data) == id);
+        check(std::get<vt::ValueId>(
+                  reader.nodes()[reader.find("core")->value].metadata[0].data.data) == id);
+        const auto datatype =
+            std::find_if(reader.types().begin(), reader.types().end(),
+                         [](const auto& type) { return type.name == "InstructionMetadata"; });
+        check(datatype != reader.types().end());
+        check(std::get<vt::ValueId>(datatype->attributes[0].data.data) == id);
         retained = owner;
         check(owner->payload().as<Packet>() == packet() && owner->begin() == 10 &&
               owner->end() == 15);
@@ -170,6 +208,12 @@ void read(const char* path) {
             {.generator = reader.find_generator("core.scalar")}, [&](const vt::Record& record) {
                 check(record.payload().as<std::array<std::uint64_t, 3>>() ==
                       std::array<std::uint64_t, 3>{record.begin(), record.begin() * 2, UINT64_MAX});
+                if (record.begin() == 21) {
+                    const auto late = std::get<vt::ValueId>(record.attributes()[0].data.data);
+                    const auto& fields = std::get<vt::Value::List>(reader.value(late).data);
+                    check(fields.size() == 2 && std::get<vt::ValueId>(fields[0].data) == id &&
+                        std::get<std::string>(fields[1].data) == "late");
+                }
                 ++count;
                 return vt::Flow::next;
             });

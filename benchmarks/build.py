@@ -69,6 +69,9 @@ def main():
          "-I", ROOT / "vtr-cpp", "-isystem", fst,
          "-isystem", BUILD / "deps" / "lwtr" / "src", HERE / "benchmark.cpp", *objects,
          libvtr, "-llz4", "-lzstd", "-lz", "-lbz2", "-ldl", "-lpthread", "-lm", "-o", BUILD / "benchmark"])
+    run([cxx, "-std=c++20", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
+         "-I", ROOT / "vtr-cpp", HERE / "intern_values.cpp", libvtr,
+         "-llz4", "-lzstd", "-lz", "-lpthread", "-o", BUILD / "intern_values"])
     (BUILD / "build.json").write_text(json.dumps({
         "dependencies": {name: {"url": url, "revision": revision} for name, (url, revision) in DEPS.items()},
         "vtr_revision": output(["git", "rev-parse", "HEAD"], cwd=ROOT),

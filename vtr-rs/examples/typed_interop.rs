@@ -44,11 +44,41 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     options.encoding.waveform_records = 4;
     options.metadata.timescale = -9;
     let mut writer = Writer::create_with(path, options)?;
+    let description_key = writer.intern("instruction_description")?;
+    let mnemonic = writer.intern_value(Value::Text("FADD".into()))?;
+    let description = Value::List(vec![
+        Value::Ref(mnemonic),
+        Value::U8(32),
+        Value::F64(f64::from_bits(0x7ff8_0000_0000_beef)),
+        Value::Bytes(vec![0, 255]),
+    ]);
+    let description_id = writer.intern_value(description.clone())?;
+    assert_eq!(writer.intern_value(description)?, description_id);
+    let shared = vec![vtr::Attribute {
+        key: description_key,
+        value: Value::Ref(description_id),
+    }];
+    writer.set_metadata(vtr::Metadata {
+        timescale: -9,
+        attributes: shared.clone(),
+        ..Default::default()
+    })?;
+    let _descriptor = writer.datatype::<()>(vtr::DatatypeOptions {
+        name: "InstructionMetadata".into(),
+        attributes: shared.clone(),
+    })?;
     let logger = writer.logger(SourceOptions::new("diagnostics", None))?;
     let label = writer.intern("vtr.label")?;
     let name = writer.intern("embedded")?;
     let relation = writer.intern("causes")?;
-    let core = writer.scope("core", None)?;
+    let core = writer.scope_with(
+        SourceOptions {
+            attributes: shared,
+            ..SourceOptions::new("core", None)
+        },
+        vtr::ScopeType::Module,
+        "",
+    )?;
     let requests =
         writer.transactions::<Packet>(SourceOptions::new("requests", Some(core)), "REQUEST")?;
     let scalar =
@@ -134,10 +164,19 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     writer.emit_real(real, -0.0)?;
     let owner = writer.begin_deferred(requests, None)?;
     writer.payload(owner, &packet())?;
+    writer.attribute(owner.owner(), description_key, Value::Ref(description_id))?;
     writer.attribute(owner.owner(), label, Value::Text("instruction Δ".into()))?;
     let visit = writer.begin_stage_deferred_at(execute, owner.owner(), 11)?;
     writer.payload(visit, &"replaced stage".to_owned())?;
-    writer.embedded_event(owner.owner(), 12, name, vec![])?;
+    writer.embedded_event(
+        owner.owner(),
+        12,
+        name,
+        vec![vtr::Attribute {
+            key: description_key,
+            value: Value::Ref(description_id),
+        }],
+    )?;
     writer.embedded_stage(owner.owner(), 100, name, 0, None, vec![])?;
     let child = writer.begin_at(requests, 12, &packet(), Some(owner.owner()))?;
     writer.payload(
@@ -172,10 +211,17 @@ fn write(path: &str, codec: u8, workers: usize, inline: bool) -> vtr::Result<()>
     writer.emit_u64(counter, 4)?;
     writer.end_with_payload(child, &packet(), Status::Ok)?;
     writer.flush()?;
+    let late = writer.intern_value(Value::List(vec![
+        Value::Ref(description_id),
+        Value::Text("late".into()),
+    ]))?;
     for time in 21..37 {
         writer.advance_time(time)?;
         writer.emit_u64(counter, time)?;
         let tx = writer.begin_deferred(scalar, None)?;
+        if time == 21 {
+            writer.attribute(tx.owner(), description_key, Value::Ref(late))?;
+        }
         if time % 2 == 0 {
             writer.payload(tx, &[time, time * 2, u64::MAX])?;
             writer.end(tx, Status::Ok)?;
@@ -199,6 +245,46 @@ fn read(path: &str) -> vtr::Result<()> {
     assert_eq!(report.relations, 1);
     assert!(report.missing.is_empty());
     let owner = reader.lookup(2)?.unwrap();
+    let description = owner
+        .attributes()
+        .iter()
+        .find(|attr| reader.string(attr.key).unwrap() == "instruction_description")
+        .unwrap();
+    let Value::Ref(id) = description.value else {
+        panic!("missing interned description")
+    };
+    let Value::List(items) = reader.value(id)? else {
+        panic!("description is not a list")
+    };
+    let Value::Ref(mnemonic) = items[0] else {
+        panic!("nested reference lost")
+    };
+    assert_eq!(reader.value(mnemonic)?, &Value::Text("FADD".into()));
+    assert_eq!(items[1], Value::U8(32));
+    let Value::F64(nan) = items[2] else {
+        panic!("float type lost")
+    };
+    assert_eq!(nan.to_bits(), 0x7ff8_0000_0000_beef);
+    assert_eq!(items[3], Value::Bytes(vec![0, 255]));
+    assert_eq!(
+        reader.lookup(4)?.unwrap().attributes()[0].value,
+        Value::Ref(id)
+    );
+    assert_eq!(reader.metadata().attributes[0].value, Value::Ref(id));
+    assert_eq!(
+        reader.node(reader.find("core").unwrap())?.attributes[0].value,
+        Value::Ref(id)
+    );
+    let descriptor = (0..reader.types().len())
+        .find_map(|id| {
+            reader
+                .types()
+                .get(id as u32)
+                .ok()
+                .filter(|datatype| datatype.name == "InstructionMetadata")
+        })
+        .unwrap();
+    assert_eq!(descriptor.attributes[0].value, Value::Ref(id));
     assert_eq!(owner.decode::<Packet>()?, packet());
     assert_eq!((owner.begin(), owner.end()), (10, 15));
     assert_eq!(reader.expand(2)?.located.len(), 3);
@@ -270,6 +356,15 @@ fn read(path: &str) -> vtr::Result<()> {
                 record.decode::<[u64; 3]>().unwrap(),
                 [time, time * 2, u64::MAX]
             );
+            if time == 21 {
+                let Value::Ref(late) = record.attributes()[0].value else {
+                    panic!("late reference lost")
+                };
+                assert_eq!(
+                    reader.value(late).unwrap(),
+                    &Value::List(vec![Value::Ref(id), Value::Text("late".into())])
+                );
+            }
             count += 1;
             true
         },

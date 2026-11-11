@@ -13,7 +13,8 @@ struct NumericAttribute {
 };
 
 inline bool numeric_attribute(wire::Tag tag) noexcept {
-    return tag <= wire::Tag::f64 || tag == wire::Tag::time || tag == wire::Tag::pointer;
+    return tag <= wire::Tag::f64 || tag == wire::Tag::time || tag == wire::Tag::pointer ||
+           tag == wire::Tag::ref;
 }
 
 struct NumericAttributesView {

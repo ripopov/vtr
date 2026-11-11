@@ -173,9 +173,10 @@ Bytes compress(View raw, Codec codec, int level);
 Bytes decompress(View packed);
 std::uint32_t checksum(View data, std::uint32_t seed = 0);
 void encode_payload(Bytes& out, const Value& value);
-void validate_value(const Value& value, std::size_t string_count);
+void validate_value(const Value& value, std::size_t string_count,
+                    std::size_t value_count = SIZE_MAX);
 Value decode_value(Cursor& r, std::optional<Tag> tag = {}, unsigned depth = 0, bool retain = true,
-                   std::uint64_t strings = UINT64_MAX);
+                   std::uint64_t strings = UINT64_MAX, std::size_t values = SIZE_MAX);
 void encode_value(Bytes& out, const Value& value);
 void encode_attrs(Bytes& out, std::span<const Attribute> attrs);
 Attributes decode_attrs(Cursor& r);
@@ -185,14 +186,16 @@ Bytes default_value(SignalKind kind);
 Bytes repack(View bytes, std::uint32_t width, std::uint8_t from, std::uint8_t to);
 void validate_kind(SignalKind kind);
 using Section = ContainerSection;
-inline constexpr std::uint16_t format_major = 3, format_minor = 4;
+inline constexpr std::uint16_t format_major = 3, format_minor = 5;
 inline constexpr std::array<std::uint8_t, 8> magic{0x89, 'V', 'T', 'R', 13, 10, 26, 10};
 inline constexpr std::array<std::uint8_t, 8> trailer{'V', 'T', 'R', '_', 'E', 'N', 'D', 0};
 using AttributeColumns = std::array<Bytes, 7>;
 void checked_column_attrs(AttributeColumns& columns, std::span<const Attribute> attrs,
                           std::uint64_t strings);
-Attributes read_column_attrs(std::array<Cursor, 7>& columns);
-void skip_column_attrs(std::array<Cursor, 7>& columns, std::uint64_t strings);
+Attributes read_column_attrs(std::array<Cursor, 7>& columns, std::uint64_t strings = UINT64_MAX,
+                             std::size_t values = SIZE_MAX);
+void skip_column_attrs(std::array<Cursor, 7>& columns, std::uint64_t strings,
+                       std::size_t values = SIZE_MAX);
 
 template <std::size_t N> Bytes pack_columns(const std::array<Bytes, N>& columns) {
     Bytes raw;

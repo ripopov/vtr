@@ -553,6 +553,7 @@ pub(crate) struct TransactionDirectory {
     number: u64,
     bounds: TransactionBounds,
     strings: u64,
+    values: usize,
     ids: Vec<GeneratorId>,
     pages: Vec<TransactionPage>,
     blob_offset: usize,
@@ -663,6 +664,7 @@ impl<'a> TransactionBlockView<'a> {
                 number,
                 bounds,
                 strings,
+                values: 0,
                 ids,
                 pages,
                 blob_offset: encoded.len() - blobs.len(),
@@ -673,6 +675,12 @@ impl<'a> TransactionBlockView<'a> {
             max_payload_bytes,
             shared_text,
         })
+    }
+
+    #[must_use]
+    pub fn with_value_count(mut self, values: usize) -> Self {
+        self.directory.to_mut().values = values;
+        self
     }
 
     pub(crate) fn into_directory(self) -> TransactionDirectory {

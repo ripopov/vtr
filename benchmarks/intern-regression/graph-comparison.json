@@ -1,0 +1,343 @@
+{
+  "host": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "seed": 20261111,
+  "repeats": 3,
+  "scope": "release builds; real headless App sorting 64 transactions from compact VTR files; elapsed query latency includes a 1 ms completion poll; equality compares a public AttributeValue to its clone",
+  "compiler": "rustc 1.101.0-nightly (c1070d693 2026-09-28)",
+  "executables": {
+    "before": {
+      "sort": "215b3c000635b340fd714d03f57c885a6d63e4b96483d816ebc932a6e88a03c0",
+      "equality": "acca0f60fdcaaa75e865b89466ee798821e76a28920377aec7a8043f2bd84336"
+    },
+    "after": {
+      "sort": "463e3e900b03b5d2d491ee09b51e502f93ad175c92968db2267d994bbe712966",
+      "equality": "4ad65107f0a52553445826fa8020858d68471c3356f55e3bd97dfb5ecadaaf4d"
+    }
+  },
+  "sort_source": "use std::{sync::Arc, time::{Duration, Instant}};\nuse volna_core::{App, Command, Instant as UiInstant, table::{TableCommand, columns::TransactionColumn}, testing::{a_all, complete_pending}};\nuse volna_trace::{session::LocalSession, data::Member};\nuse vtr::{Recorder, Value, Writer, SourceOptions, Status};\nfn main() {\n    for depth in [8, 16, 20] {\n        let path = std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(format!(\"sort-{depth}.vtr\"));\n        let mut writer = Writer::create(&path).unwrap();\n        let key = writer.intern(\"description\").unwrap();\n        let mut id = writer.intern_value(Value::U64(1)).unwrap();\n        for _ in 0..depth {id = writer.intern_value(Value::List(vec![Value::Ref(id); 2])).unwrap();}\n        let source = writer.transactions::<()>(SourceOptions::new(\"instructions\", None), \"INSTRUCTION\").unwrap();\n        for time in 0..64 {\n            let tx=writer.begin_at(source,time,&(),None).unwrap();\n            writer.attribute(tx.owner(),key,Value::Ref(id)).unwrap();\n            writer.end_at(tx,time+1,Status::Ok).unwrap();\n        }\n        writer.close().unwrap();\n        let mut app=App::new();app.set_session(Arc::new(LocalSession::open(&path).unwrap()));\n        app.handle(Command::OpenTable {selected:a_all(vec![Member::Generator(0)]), clicked:None});\n        let panel=app.panels.focused_id();complete_pending(&mut app);\n        let attribute=TransactionColumn::Attribute(\"attributes.description\".into());\n        app.handle(Command::Table(panel,TableCommand::ShowTransactionColumn(attribute.clone())));\n        let table=app.panels.get(panel).unwrap().kind.table().unwrap();\n        let index=(0..100).find(|&i| table.transaction_column(i)==Some(&attribute)).unwrap();\n        assert_eq!(table.len(),64);\n        let start=Instant::now();app.handle(Command::Table(panel,TableCommand::SortColumn(index)));\n        loop {\n            app.tick(UiInstant::now());\n            let table=app.panels.get(panel).unwrap().kind.table().unwrap();\n            assert!(table.query_error.is_none());\n            if !table.querying() {break;}\n            assert!(start.elapsed()<Duration::from_secs(20));\n            std::thread::sleep(Duration::from_millis(1));\n        }\n        println!(\"nodes={} rows=64 file_bytes={} sort_ms={:.3}\",depth+1,std::fs::metadata(&path).unwrap().len(),start.elapsed().as_secs_f64()*1000.0);\n    }\n}\n",
+  "equality_source": "use std::{hint::black_box, sync::Arc, time::Instant};\nuse volna_trace::data::transactions::AttributeValue;\nfn main() {\n    for depth in [8, 16, 22] {\n        let mut value = AttributeValue::Shared(Arc::new(AttributeValue::U64(u64::MAX)));\n        for _ in 0..depth {\n            value = AttributeValue::Shared(Arc::new(AttributeValue::List(vec![value.clone(), value])));\n        }\n        let copy = value.clone();\n        let start = Instant::now();\n        assert!(black_box(&value) == black_box(&copy));\n        println!(\"graph_nodes={} equality_ms={:.3}\", depth + 1, start.elapsed().as_secs_f64() * 1000.0);\n    }\n}\n",
+  "runner": "from pathlib import Path\nimport hashlib,json,platform,random,re,statistics,subprocess\nroot=Path('atemp/intern-final-review')\nvariants={\n 'before':{'sort':root/'intern-sort-review-before','equality':root/'intern-final-review-before'},\n 'after':{'sort':Path('target/release/intern-sort-review'),'equality':Path('target/release/intern-final-review')},\n}\nrows=[];rng=random.Random(20261111)\nfor repeat in range(3):\n order=list(variants);rng.shuffle(order)\n for variant in order:\n  for operation,binary in variants[variant].items():\n   output=subprocess.check_output([str(binary)],text=True,timeout=30)\n   for line in output.splitlines():\n    values=dict(re.findall(r'(\\w+)=([0-9.]+)',line))\n    rows.append(dict(repeat=repeat,variant=variant,operation=operation,**{key:float(value) if '.' in value else int(value) for key,value in values.items()}))\nsummary={}\nfor operation in ['sort','equality']:\n summary[operation]={}\n node_key='nodes' if operation=='sort' else 'graph_nodes';time_key='sort_ms' if operation=='sort' else 'equality_ms'\n for nodes in sorted({row[node_key] for row in rows if row['operation']==operation}):\n  summary[operation][nodes]={variant:statistics.median(row[time_key] for row in rows if row['operation']==operation and row[node_key]==nodes and row['variant']==variant) for variant in variants}\nprint(json.dumps(summary,indent=2))\ndata=dict(host=platform.platform(),seed=20261111,repeats=3,scope='release builds; real headless App sorting 64 transactions from compact VTR files; elapsed query latency includes a 1 ms completion poll; equality compares a public AttributeValue to its clone',compiler=subprocess.check_output(['rustc','--version'],text=True).strip(),executables={variant:{op:hashlib.sha256(path.read_bytes()).hexdigest() for op,path in binaries.items()} for variant,binaries in variants.items()},sort_source=(root/'sort.rs').read_text(),equality_source=(root/'main.rs').read_text(),runner=Path(__file__).read_text(),summary=summary,measurements=rows)\n(root/'graph-comparison.json').write_text(json.dumps(data,indent=2)+'\\n')\n",
+  "summary": {
+    "sort": {
+      "9": {
+        "before": 2.573,
+        "after": 1.292
+      },
+      "17": {
+        "before": 199.993,
+        "after": 1.285
+      },
+      "21": {
+        "before": 2829.501,
+        "after": 1.283
+      }
+    },
+    "equality": {
+      "9": {
+        "before": 0.001,
+        "after": 0.004
+      },
+      "17": {
+        "before": 0.257,
+        "after": 0.003
+      },
+      "23": {
+        "before": 16.285,
+        "after": 0.002
+      }
+    }
+  },
+  "measurements": [
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 2.629
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 205.065
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 2829.501
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.002
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.374
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 21.231
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 1.292
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 1.286
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 1.278
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.035
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.008
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 0.005
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 2.573
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 199.993
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 2761.196
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.001
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.257
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 16.285
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 1.301
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 1.285
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 1.283
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.004
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.003
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 0.002
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 1.281
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 179.287
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 2844.109
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.001
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.257
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 16.064
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 9,
+      "rows": 64,
+      "file_bytes": 910,
+      "sort_ms": 1.292
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 17,
+      "rows": 64,
+      "file_bytes": 958,
+      "sort_ms": 1.282
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "sort",
+      "nodes": 21,
+      "rows": 64,
+      "file_bytes": 983,
+      "sort_ms": 1.293
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 9,
+      "equality_ms": 0.004
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 17,
+      "equality_ms": 0.003
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "operation": "equality",
+      "graph_nodes": 23,
+      "equality_ms": 0.002
+    }
+  ],
+  "before": "Protocol 17 implementation before graph-aware consumer comparisons",
+  "after": "Memoized, iterative value comparisons and graph-aware filtering",
+  "baseline_reverse_patch": "--- a/volna-core/src/data/text.rs\n+++ b/volna-core/src/data/text.rs\n@@ -85,8 +85,8 @@\n \n #[must_use]\n pub fn format_attribute_radix(value: &AttributeValue, radix: Radix, limit: usize) -> String {\n-    let text = match value.resolved() {\n-        AttributeValue::Shared(_) => unreachable!(\"resolved value\"),\n+    let text = match value {\n+        AttributeValue::Shared(value) => return format_attribute_radix(value, radix, limit),\n         AttributeValue::Null => \"null\".into(),\n         AttributeValue::Bool(v) => v.to_string(),\n         AttributeValue::I64(v) => radix.format_i64(*v),\n@@ -114,8 +114,8 @@\n \n #[must_use]\n pub fn attribute_value_min_bytes(value: &AttributeValue) -> usize {\n-    match value.resolved() {\n-        AttributeValue::Shared(_) => unreachable!(\"resolved value\"),\n+    match value {\n+        AttributeValue::Shared(value) => attribute_value_min_bytes(value),\n         AttributeValue::Text(value) => value.len(),\n         AttributeValue::Enum { name, value } => {\n             name.len().saturating_add(value.to_string().len() + 3)\n--- a/volna-core/src/table/filter/mod.rs\n+++ b/volna-core/src/table/filter/mod.rs\n@@ -305,48 +305,8 @@\n         self.missing != Missing::Only && self.present_attribute(value, scratch)\n     }\n     fn present_attribute(&self, value: &AttributeValue, scratch: &mut String) -> bool {\n-        let value = value.resolved();\n-        if !matches!(value, AttributeValue::List(_) | AttributeValue::Map(_)) {\n-            return self.scalar_attribute(value, scratch);\n-        }\n-        let mut pending = vec![(None, value)];\n-        let mut seen = std::collections::HashSet::new();\n-        while let Some((key, value)) = pending.pop() {\n-            if key.is_some_and(|key| self.text(key)) {\n-                return true;\n-            }\n-            let shared = matches!(value, AttributeValue::Shared(_));\n-            let value = value.resolved();\n-            if shared && !seen.insert(std::ptr::from_ref(value)) {\n-                continue;\n-            }\n-            match value {\n-                AttributeValue::List(values) => {\n-                    pending.extend(values.iter().rev().map(|value| (None, value)));\n-                }\n-                AttributeValue::Map(values) => {\n-                    pending.extend(\n-                        values\n-                            .iter()\n-                            .rev()\n-                            .map(|(key, value)| (Some(key.as_str()), value)),\n-                    );\n-                }\n-                value => {\n-                    if self.scalar_attribute(value, scratch) {\n-                        return true;\n-                    }\n-                }\n-            }\n-        }\n-        false\n-    }\n-\n-    fn scalar_attribute(&self, value: &AttributeValue, scratch: &mut String) -> bool {\n         match value {\n-            AttributeValue::Shared(_) | AttributeValue::List(_) | AttributeValue::Map(_) => {\n-                unreachable!(\"scalar attribute\")\n-            }\n+            AttributeValue::Shared(value) => self.present_attribute(value, scratch),\n             AttributeValue::Null => false,\n             AttributeValue::Text(v) => self.text(v),\n             AttributeValue::Enum { value, name } => {\n@@ -377,6 +337,12 @@\n                 )),\n                 scratch,\n             ),\n+            AttributeValue::List(values) => {\n+                values.iter().any(|v| self.present_attribute(v, scratch))\n+            }\n+            AttributeValue::Map(values) => values\n+                .iter()\n+                .any(|(k, v)| self.text(k) || self.present_attribute(v, scratch)),\n             AttributeValue::Bytes(bytes) => {\n                 scratch.clear();\n                 for byte in bytes {\n--- a/volna-core/src/table/sort.rs\n+++ b/volna-core/src/table/sort.rs\n@@ -150,43 +150,12 @@\n }\n \n fn attributes(a: &AttributeValue, b: &AttributeValue) -> (Ordering, bool) {\n-    use volna_trace::data::transactions::comparison::{Comparison, References, Step};\n-    let a = a.resolved();\n-    let b = b.resolved();\n-    let missing = (\n-        matches!(a, AttributeValue::Null),\n-        matches!(b, AttributeValue::Null),\n-    );\n-    // Total ordering is reflexive even for NaNs, unlike ordinary float equality.\n-    if std::ptr::eq(a, b) {\n-        return nullable(missing, Ordering::Equal);\n-    }\n-    if !matches!(\n-        (a, b),\n-        (AttributeValue::List(_), AttributeValue::List(_))\n-            | (AttributeValue::Map(_), AttributeValue::Map(_))\n-    ) {\n-        return nullable(missing, scalar_attributes(a, b));\n-    }\n-    let order = Comparison::new(a, b, References::Resolve)\n-        .find_map(|step| {\n-            let order = match step {\n-                Step::Value(a, b) => scalar_attributes(a, b),\n-                Step::Key(a, b) => a.cmp(b),\n-                Step::Length(a, b) => a.cmp(&b),\n-                Step::Progress => Ordering::Equal,\n-            };\n-            (order != Ordering::Equal).then_some(order)\n-        })\n-        .unwrap_or(Ordering::Equal);\n-    nullable(missing, order)\n-}\n-\n-fn scalar_attributes(a: &AttributeValue, b: &AttributeValue) -> Ordering {\n     use AttributeValue::{\n         Bool, Bytes, Enum, F64, Fixed, I64, List, Logic, Map, Null, Pointer, Text, Time, U64,\n         UFixed,\n     };\n+    let a = a.resolved();\n+    let b = b.resolved();\n     let tag = |a: &AttributeValue| match a {\n         AttributeValue::Shared(_) => unreachable!(\"resolved value\"),\n         Null => 0,\n@@ -205,7 +174,7 @@\n         List(_) => 13,\n         Map(_) => 14,\n     };\n-    tag(a).cmp(&tag(b)).then_with(|| match (a, b) {\n+    let order = tag(a).cmp(&tag(b)).then_with(|| match (a, b) {\n         (Bool(a), Bool(b)) => a.cmp(b),\n         (I64(a), I64(b)) => a.cmp(b),\n         (U64(a), U64(b)) | (Time(a), Time(b)) | (Pointer(a), Pointer(b)) => a.cmp(b),\n@@ -241,8 +210,13 @@\n         (UFixed { raw: a, scale: sa }, UFixed { raw: b, scale: sb }) => {\n             decimal(i128::from(*a), *sa, i128::from(*b), *sb)\n         }\n+        (List(a), List(b)) => sequence(a.iter(), b.iter(), |a, b| attributes(a, b).0),\n+        (Map(a), Map(b)) => sequence(a.iter(), b.iter(), |a, b| {\n+            a.0.cmp(&b.0).then_with(|| attributes(&a.1, &b.1).0)\n+        }),\n         _ => Ordering::Equal,\n-    })\n+    });\n+    nullable((matches!(a, Null), matches!(b, Null)), order)\n }\n \n fn decimal(a: i128, scale_a: i64, b: i128, scale_b: i64) -> Ordering {\n--- a/volna-core/src/transaction/view.rs\n+++ b/volna-core/src/transaction/view.rs\n@@ -597,8 +597,8 @@\n }\n \n fn value_kind(value: &AttributeValue) -> &'static str {\n-    match value.resolved() {\n-        AttributeValue::Shared(_) => unreachable!(\"resolved value\"),\n+    match value {\n+        AttributeValue::Shared(value) => value_kind(value),\n         AttributeValue::Null => \"null\",\n         AttributeValue::Bool(_) => \"bool\",\n         AttributeValue::I64(_) | AttributeValue::U64(_) => \"int\",\n--- a/volna-core/tests/table_baseline.rs\n+++ b/volna-core/tests/table_baseline.rs\n@@ -919,123 +919,3 @@\n         \"Time\\tSeverity\\tMessage\\n20\\tinfo (2)\\tmessage: alpha\\n30\\terror (4)\\tmessage: omega\"\n     );\n }\n-\n-#[test]\n-fn shared_descriptions_sort_stably_and_filter_without_expanding_the_graph() {\n-    use vtr::{Attribute, Recorder, SourceOptions, Status, Value, Writer};\n-    let file = tempfile::NamedTempFile::new().unwrap();\n-    let mut writer = Writer::create(file.path()).unwrap();\n-    let description = writer.intern(\"description\").unwrap();\n-    let prefix_key = writer.intern(\"prefix\").unwrap();\n-    let rank_key = writer.intern(\"rank\").unwrap();\n-    let mut prefix = writer\n-        .intern_value(Value::Text(\"shared leaf\".into()))\n-        .unwrap();\n-    for _ in 0..64 {\n-        prefix = writer\n-            .intern_value(Value::List(vec![Value::Ref(prefix); 2]))\n-            .unwrap();\n-    }\n-    let ranks = [\n-        f64::from_bits(0x7ff8_0000_0000_0002),\n-        0.0,\n-        f64::NEG_INFINITY,\n-        -0.0,\n-        f64::from_bits(0x7ff8_0000_0000_0001),\n-        f64::INFINITY,\n-        1.0,\n-    ];\n-    let descriptions: Vec<_> = ranks\n-        .iter()\n-        .map(|rank| {\n-            writer\n-                .intern_value(Value::Map(vec![\n-                    Attribute {\n-                        key: prefix_key,\n-                        value: Value::Ref(prefix),\n-                    },\n-                    Attribute {\n-                        key: rank_key,\n-                        value: Value::F64(*rank),\n-                    },\n-                ]))\n-                .unwrap()\n-        })\n-        .collect();\n-    let source = writer\n-        .transactions::<()>(SourceOptions::new(\"instructions\", None), \"INSTRUCTION\")\n-        .unwrap();\n-    for time in 0..64 {\n-        let tx = writer.begin_at(source, time, &(), None).unwrap();\n-        writer\n-            .attribute(\n-                tx.owner(),\n-                description,\n-                Value::Ref(descriptions[time as usize % ranks.len()]),\n-            )\n-            .unwrap();\n-        writer.end_at(tx, time + 1, Status::Ok).unwrap();\n-    }\n-    writer.close().unwrap();\n-    let mut app = App::new();\n-    app.set_session(OpenSpec::Path(file.path().into()).open().unwrap());\n-    app.handle(Command::OpenTable {\n-        selected: a_all(vec![Member::Generator(0)]),\n-        clicked: None,\n-    });\n-    let panel = app.panels.focused_id();\n-    complete_pending(&mut app);\n-    let attribute = TransactionColumn::Attribute(\"attributes.description\".into());\n-    app.handle(Command::Table(\n-        panel,\n-        TableCommand::ShowTransactionColumn(attribute.clone()),\n-    ));\n-    frame(&mut app, panel);\n-    let table = app.panels.get(panel).unwrap().kind.table().unwrap();\n-    let column = table\n-        .layout\n-        .columns\n-        .iter()\n-        .find(|column| table.transaction_column(column.source_index) == Some(&attribute))\n-        .unwrap()\n-        .source_index;\n-    // Input positions 2, 3, 1, 6, 5, 4, 0 correspond to the recorded total float order.\n-    let order = [2, 3, 1, 6, 5, 4, 0];\n-    for descending in [false, true] {\n-        app.handle(Command::Table(panel, TableCommand::SortColumn(column)));\n-        finish_query(&mut app, panel);\n-        let table = app.panels.get(panel).unwrap().kind.table().unwrap();\n-        let mut ordered = order.to_vec();\n-        if descending {\n-            ordered.reverse();\n-        }\n-        let expected: Vec<_> = ordered\n-            .into_iter()\n-            .flat_map(|rank| (0..64u64).filter(move |time| *time as usize % ranks.len() == rank))\n-            .map(Some)\n-            .collect();\n-        assert_eq!(\n-            (0..table.len())\n-                .map(|row| table.row_time(row))\n-                .collect::<Vec<_>>(),\n-            expected\n-        );\n-    }\n-    for (query, expected) in [(\"absent leaf\", 0), (\"shared leaf\", 64), (\"rank\", 64)] {\n-        app.handle(Command::Table(\n-            panel,\n-            TableCommand::SetFilter {\n-                source_index: column,\n-                filter: Some(volna_core::table::filter::ColumnFilter {\n-                    query: query.into(),\n-                    ..Default::default()\n-                }),\n-            },\n-        ));\n-        finish_query(&mut app, panel);\n-        assert_eq!(\n-            app.panels.get(panel).unwrap().kind.table().unwrap().len(),\n-            expected\n-        );\n-    }\n-}\n--- a/volna-trace/README.md\n+++ b/volna-trace/README.md\n@@ -93,12 +93,6 @@\n track objects carry their own shared-value tables, preserving the graph and typed\n content without expanding each occurrence. Transport IDs are local to an object\n and are independent of VTR value IDs.\n-\n-Value equality compares shared graphs iteratively and remembers compared pairs.\n-It preserves wrapper boundaries and ordinary float equality, including unequal\n-NaNs and equal signed zeros. `transactions::comparison` exposes the traversal\n-for callers with different scalar rules; sorting and remote validation resolve\n-references and apply their existing total-order or bitwise float semantics.\n \n A text payload field or record attribute named `vtr.label` supplies the\n canonical `vtr.label` instance label used by the viewer, including labels set\n--- a/volna-trace/src/data/transactions.rs\n+++ b/volna-trace/src/data/transactions.rs\n@@ -1,6 +1,4 @@\n //! Raw transaction records and catalog.\n-\n-pub mod comparison;\n \n use serde::{Deserialize, Serialize};\n pub use vtr::{SpanKind, Status};\n@@ -13,7 +11,7 @@\n #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]\n pub struct TrackRef(pub u32);\n \n-#[derive(Clone, Debug, Serialize, Deserialize)]\n+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]\n pub enum AttributeValue {\n     Null,\n     Bool(bool),\n@@ -46,79 +44,7 @@\n     Shared(std::sync::Arc<AttributeValue>),\n }\n \n-impl PartialEq for AttributeValue {\n-    fn eq(&self, other: &Self) -> bool {\n-        use comparison::{Comparison, References, Step};\n-        if !matches!(self, Self::List(_) | Self::Map(_) | Self::Shared(_)) {\n-            return self.scalar_eq(other);\n-        }\n-        Comparison::new(self, other, References::Preserve).all(|step| match step {\n-            Step::Value(a, b) => a.scalar_eq(b),\n-            Step::Key(a, b) => a == b,\n-            Step::Length(a, b) => a == b,\n-            Step::Progress => true,\n-        })\n-    }\n-}\n-\n impl AttributeValue {\n-    fn scalar_eq(&self, other: &Self) -> bool {\n-        match (self, other) {\n-            (Self::Null, Self::Null) => true,\n-            (Self::Bool(a), Self::Bool(b)) => a == b,\n-            (Self::I64(a), Self::I64(b)) => a == b,\n-            (Self::U64(a), Self::U64(b))\n-            | (Self::Time(a), Self::Time(b))\n-            | (Self::Pointer(a), Self::Pointer(b)) => a == b,\n-            (Self::F64(a), Self::F64(b)) => a == b,\n-            (Self::Text(a), Self::Text(b)) => a == b,\n-            (Self::Bytes(a), Self::Bytes(b)) => a == b,\n-            (\n-                Self::Logic {\n-                    width: a_width,\n-                    states: a_states,\n-                    data: a,\n-                },\n-                Self::Logic {\n-                    width: b_width,\n-                    states: b_states,\n-                    data: b,\n-                },\n-            ) => a_width == b_width && a_states == b_states && a == b,\n-            (\n-                Self::Enum {\n-                    value: a,\n-                    name: a_name,\n-                },\n-                Self::Enum {\n-                    value: b,\n-                    name: b_name,\n-                },\n-            ) => a == b && a_name == b_name,\n-            (\n-                Self::Fixed {\n-                    raw: a,\n-                    scale: a_scale,\n-                },\n-                Self::Fixed {\n-                    raw: b,\n-                    scale: b_scale,\n-                },\n-            ) => a == b && a_scale == b_scale,\n-            (\n-                Self::UFixed {\n-                    raw: a,\n-                    scale: a_scale,\n-                },\n-                Self::UFixed {\n-                    raw: b,\n-                    scale: b_scale,\n-                },\n-            ) => a == b && a_scale == b_scale,\n-            _ => false,\n-        }\n-    }\n-\n     #[must_use]\n     pub fn resolved(&self) -> &Self {\n         let mut value = self;\n@@ -152,8 +78,8 @@\n impl AttributeType {\n     #[must_use]\n     pub fn of(value: &AttributeValue) -> Self {\n-        match value.resolved() {\n-            AttributeValue::Shared(_) => unreachable!(\"resolved value\"),\n+        match value {\n+            AttributeValue::Shared(value) => Self::of(value),\n             AttributeValue::Null => Self::Null,\n             AttributeValue::Bool(_) => Self::Bool,\n             AttributeValue::I64(_) => Self::I64,\n--- a/volna-trace/src/data/transactions/comparison.rs\n+++ b/volna-trace/src/data/transactions/comparison.rs\n@@ -1,122 +0,0 @@\n-//! Stack-safe, lexicographic comparison steps over shared attribute graphs.\n-\n-use super::AttributeValue;\n-use std::collections::HashSet;\n-\n-#[derive(Clone, Copy)]\n-pub enum References {\n-    /// Retain shared-wrapper boundaries for ordinary value equality.\n-    Preserve,\n-    /// Compare referenced content for ordering and wire consistency.\n-    Resolve,\n-}\n-\n-pub enum Step<'a> {\n-    Value(&'a AttributeValue, &'a AttributeValue),\n-    Key(&'a str, &'a str),\n-    Length(usize, usize),\n-    Progress,\n-}\n-\n-enum Work<'a> {\n-    Value(&'a AttributeValue, &'a AttributeValue),\n-    Keys(&'a str, &'a str),\n-    Values(&'a [AttributeValue], &'a [AttributeValue]),\n-    Attributes(\n-        &'a [(String, AttributeValue)],\n-        &'a [(String, AttributeValue)],\n-    ),\n-}\n-\n-/// Consumers stop at the first unequal step and supply their own scalar semantics.\n-/// Progress steps let cooperative callers yield even while traversing only shared nodes.\n-pub struct Comparison<'a> {\n-    work: Vec<Work<'a>>,\n-    seen: HashSet<(usize, usize)>,\n-    references: References,\n-}\n-\n-impl<'a> Comparison<'a> {\n-    #[must_use]\n-    pub fn new(a: &'a AttributeValue, b: &'a AttributeValue, references: References) -> Self {\n-        Self {\n-            work: vec![Work::Value(a, b)],\n-            seen: HashSet::new(),\n-            references,\n-        }\n-    }\n-\n-    #[must_use]\n-    pub fn attributes(\n-        a: &'a [(String, AttributeValue)],\n-        b: &'a [(String, AttributeValue)],\n-        references: References,\n-    ) -> Self {\n-        Self {\n-            work: vec![Work::Attributes(a, b)],\n-            seen: HashSet::new(),\n-            references,\n-        }\n-    }\n-\n-    fn shared(&mut self, a: &'a AttributeValue, b: &'a AttributeValue) {\n-        // A repeated pair has already compared equal on this depth-first path.\n-        if self.seen.insert((\n-            std::ptr::from_ref(a) as usize,\n-            std::ptr::from_ref(b) as usize,\n-        )) {\n-            self.work.push(Work::Value(a, b));\n-        }\n-    }\n-}\n-\n-impl<'a> Iterator for Comparison<'a> {\n-    type Item = Step<'a>;\n-\n-    fn next(&mut self) -> Option<Self::Item> {\n-        Some(match self.work.pop()? {\n-            Work::Value(a, b) => {\n-                if matches!(self.references, References::Resolve)\n-                    && (matches!(a, AttributeValue::Shared(_))\n-                        || matches!(b, AttributeValue::Shared(_)))\n-                {\n-                    self.shared(a.resolved(), b.resolved());\n-                    return Some(Step::Progress);\n-                }\n-                match (a, b) {\n-                    (AttributeValue::Shared(a_value), AttributeValue::Shared(b_value)) => {\n-                        self.shared(a_value, b_value);\n-                        Step::Progress\n-                    }\n-                    (AttributeValue::List(a_values), AttributeValue::List(b_values)) => {\n-                        self.work.push(Work::Values(a_values, b_values));\n-                        Step::Progress\n-                    }\n-                    (AttributeValue::Map(a_values), AttributeValue::Map(b_values)) => {\n-                        self.work.push(Work::Attributes(a_values, b_values));\n-                        Step::Progress\n-                    }\n-                    _ => Step::Value(a, b),\n-                }\n-            }\n-            Work::Keys(a, b) => Step::Key(a, b),\n-            Work::Attributes(a, b) => match (a.split_first(), b.split_first()) {\n-                (Some(((a_key, a_value), a_tail)), Some(((b_key, b_value), b_tail))) => {\n-                    self.work.push(Work::Attributes(a_tail, b_tail));\n-                    self.work.push(Work::Value(a_value, b_value));\n-                    self.work.push(Work::Keys(a_key, b_key));\n-                    Step::Progress\n-                }\n-                _ => Step::Length(a.len(), b.len()),\n-            },\n-            Work::Values(a, b) => match (a.split_first(), b.split_first()) {\n-                (Some((a_value, a_tail)), Some((b_value, b_tail))) => {\n-                    self.work.push(Work::Values(a_tail, b_tail));\n-                    self.work.push(Work::Value(a_value, b_value));\n-                    Step::Progress\n-                }\n-                _ => Step::Length(a.len(), b.len()),\n-            },\n-        })\n-    }\n-}\n--- a/volna-trace/src/remote/equality.rs\n+++ b/volna-trace/src/remote/equality.rs\n@@ -1,10 +1,17 @@\n //! Compare repeated raw relations without serializing their attributes again.\n \n use crate::data::loaded_tracks::LoadedRelation;\n-use crate::data::transactions::{\n-    AttributeValue,\n-    comparison::{Comparison, References, Step},\n-};\n+use crate::data::transactions::AttributeValue;\n+\n+enum Work<'a> {\n+    Bytes(&'a [u8], &'a [u8]),\n+    Attributes(\n+        &'a [(String, AttributeValue)],\n+        &'a [(String, AttributeValue)],\n+    ),\n+    Values(&'a [AttributeValue], &'a [AttributeValue]),\n+    Value(&'a AttributeValue, &'a AttributeValue),\n+}\n \n pub(super) async fn relation<F: std::future::Future<Output = ()>>(\n     a: &LoadedRelation,\n@@ -19,31 +26,58 @@\n     {\n         return false;\n     }\n-    if !bytes(\n-        a.relation.kind.as_bytes(),\n-        b.relation.kind.as_bytes(),\n-        checkpoint,\n-    )\n-    .await\n-    {\n-        return false;\n-    }\n-    for step in Comparison::attributes(\n-        &a.relation.attributes,\n-        &b.relation.attributes,\n-        References::Resolve,\n-    ) {\n+    let mut work = vec![\n+        Work::Bytes(a.relation.kind.as_bytes(), b.relation.kind.as_bytes()),\n+        Work::Attributes(&a.relation.attributes, &b.relation.attributes),\n+    ];\n+    while let Some(item) = work.pop() {\n         checkpoint().await;\n-        let equal = match step {\n-            Step::Progress => true,\n-            Step::Length(a, b) => a == b,\n-            Step::Key(a, b) => bytes(a.as_bytes(), b.as_bytes(), checkpoint).await,\n-            Step::Value(a, b) => {\n-                use AttributeValue::{Bytes, Enum, F64, Logic, Text};\n-                match (a, b) {\n-                    (F64(a), F64(b)) => a.to_bits() == b.to_bits(),\n-                    (Text(a), Text(b)) => bytes(a.as_bytes(), b.as_bytes(), checkpoint).await,\n-                    (Bytes(a), Bytes(b)) => bytes(a, b, checkpoint).await,\n+        match item {\n+            Work::Bytes(a, b) => {\n+                if a.len() != b.len() {\n+                    return false;\n+                }\n+                let count = a.len().min(4096);\n+                if a[..count] != b[..count] {\n+                    return false;\n+                }\n+                if count < a.len() {\n+                    work.push(Work::Bytes(&a[count..], &b[count..]));\n+                }\n+            }\n+            Work::Attributes(a, b) => {\n+                if a.len() != b.len() {\n+                    return false;\n+                }\n+                if let (Some((first_a, tail_a)), Some((first_b, tail_b))) =\n+                    (a.split_first(), b.split_first())\n+                {\n+                    work.push(Work::Attributes(tail_a, tail_b));\n+                    work.push(Work::Value(&first_a.1, &first_b.1));\n+                    work.push(Work::Bytes(first_a.0.as_bytes(), first_b.0.as_bytes()));\n+                }\n+            }\n+            Work::Values(a, b) => {\n+                if a.len() != b.len() {\n+                    return false;\n+                }\n+                if let (Some((first_a, tail_a)), Some((first_b, tail_b))) =\n+                    (a.split_first(), b.split_first())\n+                {\n+                    work.push(Work::Values(tail_a, tail_b));\n+                    work.push(Work::Value(first_a, first_b));\n+                }\n+            }\n+            Work::Value(a, b) => {\n+                use AttributeValue::{Bytes, Enum, F64, List, Logic, Map, Text};\n+                match (a.resolved(), b.resolved()) {\n+                    (F64(a), F64(b)) => {\n+                        if a.to_bits() != b.to_bits() {\n+                            return false;\n+                        }\n+                    }\n+                    (Text(a), Text(b)) => work.push(Work::Bytes(a.as_bytes(), b.as_bytes())),\n+                    (Bytes(a), Bytes(b)) => work.push(Work::Bytes(a, b)),\n                     (\n                         Logic {\n                             width: a_width,\n@@ -56,7 +90,10 @@\n                             data: b,\n                         },\n                     ) => {\n-                        a_width == b_width && a_states == b_states && bytes(a, b, checkpoint).await\n+                        if a_width != b_width || a_states != b_states {\n+                            return false;\n+                        }\n+                        work.push(Work::Bytes(a, b));\n                     }\n                     (\n                         Enum {\n@@ -67,30 +104,21 @@\n                             value: b_value,\n                             name: b,\n                         },\n-                    ) => a_value == b_value && bytes(a.as_bytes(), b.as_bytes(), checkpoint).await,\n-                    _ => a == b,\n+                    ) => {\n+                        if a_value != b_value {\n+                            return false;\n+                        }\n+                        work.push(Work::Bytes(a.as_bytes(), b.as_bytes()));\n+                    }\n+                    (List(a), List(b)) => work.push(Work::Values(a, b)),\n+                    (Map(a), Map(b)) => work.push(Work::Attributes(a, b)),\n+                    _ => {\n+                        if a != b {\n+                            return false;\n+                        }\n+                    }\n                 }\n             }\n-        };\n-        if !equal {\n-            return false;\n-        }\n-    }\n-    true\n-}\n-\n-async fn bytes<F: std::future::Future<Output = ()>>(\n-    a: &[u8],\n-    b: &[u8],\n-    checkpoint: &mut impl FnMut() -> F,\n-) -> bool {\n-    if a.len() != b.len() {\n-        return false;\n-    }\n-    for (a, b) in a.chunks(4096).zip(b.chunks(4096)) {\n-        checkpoint().await;\n-        if a != b {\n-            return false;\n         }\n     }\n     true\n@@ -166,39 +194,4 @@\n         b.relation.attributes = vec![(\"zero\".into(), AttributeValue::F64(0.0))];\n         assert!(!compare(&a, &b).0);\n     }\n-    #[test]\n-    fn repeated_shared_relation_details_compare_without_expansion_and_keep_float_bits() {\n-        fn graph(value: f64) -> AttributeValue {\n-            let mut value = AttributeValue::Shared(std::sync::Arc::new(AttributeValue::F64(value)));\n-            for _ in 0..96 {\n-                value = AttributeValue::Shared(std::sync::Arc::new(AttributeValue::List(vec![\n-                    value.clone(),\n-                    value,\n-                ])));\n-            }\n-            value\n-        }\n-        let mut a = LoadedRelation {\n-            id: 1,\n-            from_generator: Some(TrackRef(1)),\n-            to_generator: Some(TrackRef(2)),\n-            relation: Relation {\n-                kind: \"shared\".into(),\n-                from: TransactionRef(1),\n-                to: TransactionRef(2),\n-                attributes: vec![(\n-                    \"description\".into(),\n-                    graph(f64::from_bits(0x7ff8_0000_0000_0001)),\n-                )],\n-            },\n-        };\n-        let mut b = a.clone();\n-        b.relation.attributes[0].1 = graph(f64::from_bits(0x7ff8_0000_0000_0001));\n-        assert!(compare(&a, &b).0);\n-        b.relation.attributes[0].1 = graph(f64::from_bits(0x7ff8_0000_0000_0002));\n-        assert!(!compare(&a, &b).0);\n-        a.relation.attributes[0].1 = graph(-0.0);\n-        b.relation.attributes[0].1 = graph(0.0);\n-        assert!(!compare(&a, &b).0);\n-    }\n }\n--- a/volna-trace/tests/shared_comparisons.rs\n+++ b/volna-trace/tests/shared_comparisons.rs\n@@ -1,65 +0,0 @@\n-use std::sync::Arc;\n-use volna_trace::data::transactions::AttributeValue;\n-use volna_trace::session::{LocalSession, Session};\n-use vtr::{Attribute, SourceOptions, Value, Writer};\n-\n-fn description(directory: &std::path::Path, name: &str, leaf: Value) -> AttributeValue {\n-    let path = directory.join(name);\n-    let mut writer = Writer::create(&path).unwrap();\n-    let key = writer.intern(\"description\").unwrap();\n-    let mut value = writer.intern_value(leaf).unwrap();\n-    for _ in 0..96 {\n-        value = writer\n-            .intern_value(Value::List(vec![Value::Ref(value); 2]))\n-            .unwrap();\n-    }\n-    let mut options = SourceOptions::new(\"instructions\", None);\n-    options.attributes = vec![Attribute {\n-        key,\n-        value: Value::Ref(value),\n-    }];\n-    writer.transactions::<()>(options, \"INSTRUCTION\").unwrap();\n-    writer.close().unwrap();\n-    let session = LocalSession::open(&path).unwrap();\n-    session.tracks()[0].attributes[0].1.clone()\n-}\n-\n-#[test]\n-fn independently_loaded_shared_descriptions_compare_by_content_and_float_semantics() {\n-    let dir = tempfile::tempdir().unwrap();\n-    let a = description(dir.path(), \"a.vtr\", Value::U64(u64::MAX));\n-    let b = description(dir.path(), \"b.vtr\", Value::U64(u64::MAX));\n-    let changed = description(dir.path(), \"changed.vtr\", Value::U64(u64::MAX - 1));\n-    assert!(a.eq(&b), \"independently loaded descriptions differ\");\n-    assert!(a.eq(&a.clone()), \"cloned description differs\");\n-    assert!(!a.eq(&changed), \"changed leaf compares equal\");\n-    let zero = description(dir.path(), \"zero.vtr\", Value::F64(0.0));\n-    let negative_zero = description(dir.path(), \"negative-zero.vtr\", Value::F64(-0.0));\n-    assert!(\n-        zero.eq(&negative_zero),\n-        \"ordinary equality distinguishes signed zero\"\n-    );\n-    let nan = description(\n-        dir.path(),\n-        \"nan.vtr\",\n-        Value::F64(f64::from_bits(0x7ff8_0000_0000_0001)),\n-    );\n-    assert!(!nan.eq(&nan.clone()), \"ordinary equality accepts NaN\");\n-    let inline = AttributeValue::U64(7);\n-    let shared = AttributeValue::Shared(Arc::new(inline.clone()));\n-    assert_ne!(inline, shared);\n-    assert_eq!(shared, shared.clone());\n-}\n-\n-#[test]\n-fn deeply_nested_shared_aliases_compare_without_recursive_calls() {\n-    fn chain(leaf: u64) -> AttributeValue {\n-        let mut value = AttributeValue::U64(leaf);\n-        for _ in 0..1024 {\n-            value = AttributeValue::Shared(Arc::new(AttributeValue::List(vec![value])));\n-        }\n-        value\n-    }\n-    assert!(chain(17).eq(&chain(17)));\n-    assert!(!chain(17).eq(&chain(18)));\n-}\n"
+}

@@ -205,6 +205,7 @@ pub(super) fn decode(
     let mut attributes = AttributeReader::new(
         std::array::from_fn(|i| columns[i + 6]),
         view.directory.strings,
+        view.directory.values,
         view.max_payload_bytes,
     );
     let mut arguments = ArgumentReader::new(
@@ -423,6 +424,7 @@ pub(super) fn relations(
     let mut attributes = AttributeReader::new(
         std::array::from_fn(|i| columns[i + 6]),
         view.directory.strings,
+        view.directory.values,
         view.max_payload_bytes,
     );
     if expected.transactions > columns[13].len() as u64

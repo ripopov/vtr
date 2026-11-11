@@ -1,0 +1,482 @@
+{
+  "host": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "seed": 20261111,
+  "repeats": 9,
+  "scope": "first 10000-row GPU instruction track; encode includes preparation, size prepass, and serialization, decode includes cooperative validation and index building; decoded bytes are before packet compression",
+  "units": {
+    "encode": "seconds",
+    "decode": "seconds",
+    "wire_bytes": "uncompressed serialized bytes",
+    "admitted_bytes": "retained budget bytes"
+  },
+  "source": "use std::{sync::Arc, time::Instant};\nuse volna_trace::{session::{LocalSession, Session}, remote::{objects::{TrackPayload, Metadata}, session::RemoteSession, tracks::{TrackDecoder, TrackStep}, memory::MemoryBudget, transport::DATA_BYTES}};\nfn main() {\n    let args:Vec<_>=std::env::args().collect();\n    let local=LocalSession::open(std::path::Path::new(&args[1])).unwrap();\n    let selected=local.tracks().iter().find(|t|t.path.join(\".\").contains(\"warp_slot[0].Instruction\")).unwrap();\n    let loaded=local.load_track(selected.id).unwrap();\n    let start=Instant::now();\n    let payload=TrackPayload::from_loaded(&loaded);\n    let len=bincode::serialized_size(&payload).unwrap();\n    let mut bytes=Vec::with_capacity(len as usize);\n    bincode::serialize_into(&mut bytes,&payload).unwrap();\n    assert_eq!(bytes.len() as u64,len);\n    let encode=start.elapsed().as_secs_f64();\n    let session=Arc::new(RemoteSession::new(11,Metadata::from_session(&local)).unwrap());\n    let budget=MemoryBudget::new(2<<30);\n    let start=Instant::now();\n    let mut decoder=TrackDecoder::new(len,2<<30,&budget,session).unwrap();\n    let mut chunks=bytes.chunks(DATA_BYTES);\n    let decoded=loop {\n        match decoder.step().unwrap() {\n            TrackStep::NeedInput=>decoder.feed(chunks.next().unwrap().to_vec()).unwrap(),\n            TrackStep::Yield=>(),\n            TrackStep::Decoded(track)=>break track,\n        }\n    };\n    let decode=start.elapsed().as_secs_f64();\n    assert!(chunks.next().is_none());\n    let rows=decoded.generators.iter().map(|g|g.transactions().len()).sum::<usize>();\n    let checksum=decoded.generators.iter().flat_map(|g|g.transactions()).fold(0u64,|sum,t|sum.wrapping_add(t.id.0).wrapping_add(t.begin).wrapping_add(t.end));\n    println!(\"{{\\\"encode\\\":{encode},\\\"decode\\\":{decode},\\\"wire_bytes\\\":{len},\\\"admitted_bytes\\\":{},\\\"rows\\\":{rows},\\\"checksum\\\":{checksum}}}\",budget.used());\n    drop(decoded);drop(decoder);assert_eq!(budget.used(),0);\n}\n",
+  "runner": "import hashlib,json,platform,random,statistics,subprocess\nfrom pathlib import Path\nrows=[];rng=random.Random(20261111)\nvariants=['before','after'];workloads={'inline':'atemp/gpu-baseline.vtr','interned':'volna/examples/gpu_transaction_trace.vtr'}\nfor repeat in range(9):\n cases=[(variant,workload) for variant in variants for workload in workloads];rng.shuffle(cases)\n for variant,workload in cases:\n  result=json.loads(subprocess.check_output(['target/release/intern-remote-'+variant,workloads[workload]],text=True))\n  assert result['rows']==10000 and result['checksum']==8208305958,result\n  rows.append(dict(repeat=repeat,variant=variant,workload=workload,**result))\nsummary={}\nfor workload in workloads:\n summary[workload]={}\n for variant in variants:\n  values=[row for row in rows if row['variant']==variant and row['workload']==workload]\n  summary[workload][variant]={key:statistics.median(row[key] for row in values) for key in ['encode','decode','wire_bytes','admitted_bytes']}\n print(workload,summary[workload],flush=True)\nbase=Path('atemp/intern-architecture-review')\ndata=dict(host=platform.platform(),seed=20261111,repeats=9,scope='first 10000-row GPU instruction track; encode includes size prepass and serialization, decode includes cooperative validation and index building; decoded bytes are before packet compression',units=dict(encode='seconds',decode='seconds',wire_bytes='uncompressed serialized bytes',admitted_bytes='retained budget bytes'),source=(base/'bench.rs').read_text(),runner=Path(__file__).read_text(),executables={variant:hashlib.sha256(Path('target/release/intern-remote-'+variant).read_bytes()).hexdigest() for variant in variants},summary=summary,measurements=rows)\n(base/'remote-performance.json').write_text(json.dumps(data,indent=2)+'\\n')\n",
+  "executables": {
+    "before": "3293d769fcd5457441daeff14a31017c1ea3a8d8111fc483e4757e3cf6332091",
+    "after": "8826c05bae05579f26e8ec2ed099c816ed9f0ca30326efc59ed4a5da6378018a"
+  },
+  "summary": {
+    "inline": {
+      "before": {
+        "encode": 0.002715875,
+        "decode": 0.064168458,
+        "wire_bytes": 10031814,
+        "admitted_bytes": 43380717
+      },
+      "after": {
+        "encode": 0.003159625,
+        "decode": 0.064207542,
+        "wire_bytes": 10031822,
+        "admitted_bytes": 43380725
+      }
+    },
+    "interned": {
+      "before": {
+        "encode": 0.002649125,
+        "decode": 0.067181209,
+        "wire_bytes": 10201814,
+        "admitted_bytes": 44750605
+      },
+      "after": {
+        "encode": 0.002954666,
+        "decode": 0.057545834,
+        "wire_bytes": 9146997,
+        "admitted_bytes": 41360988
+      }
+    }
+  },
+  "measurements": [
+    {
+      "repeat": 0,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.00328625,
+      "decode": 0.065426833,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.00362225,
+      "decode": 0.063982458,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 0,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002560083,
+      "decode": 0.067171084,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 0,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.002822791,
+      "decode": 0.057076584,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.003146458,
+      "decode": 0.065888125,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003110208,
+      "decode": 0.063754959,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 1,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.002896208,
+      "decode": 0.057428959,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 1,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002747333,
+      "decode": 0.067224042,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.0026265,
+      "decode": 0.067181209,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.00345425,
+      "decode": 0.063779417,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 2,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.002898583,
+      "decode": 0.057530333,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 2,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002715875,
+      "decode": 0.063183,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 3,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.003207292,
+      "decode": 0.057545834,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 3,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003209333,
+      "decode": 0.065250583,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 3,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002540958,
+      "decode": 0.067495583,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 3,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002726333,
+      "decode": 0.071383708,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 4,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.003325,
+      "decode": 0.059874125,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 4,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002590916,
+      "decode": 0.066726292,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 4,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002912875,
+      "decode": 0.064326292,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 4,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.00305725,
+      "decode": 0.065238334,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 5,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.002954666,
+      "decode": 0.05758,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 5,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002685083,
+      "decode": 0.068001917,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 5,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002568,
+      "decode": 0.063284,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 5,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003159625,
+      "decode": 0.066513792,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 6,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.002909042,
+      "decode": 0.058006584,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 6,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003118375,
+      "decode": 0.064480791,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 6,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.00270375,
+      "decode": 0.063274875,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 6,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002678417,
+      "decode": 0.066971209,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 7,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003041875,
+      "decode": 0.064207542,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 7,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002649125,
+      "decode": 0.066326625,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 7,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.00308675,
+      "decode": 0.05832425,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 7,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002645209,
+      "decode": 0.064168458,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 8,
+      "variant": "before",
+      "workload": "interned",
+      "encode": 0.002732,
+      "decode": 0.068977208,
+      "wire_bytes": 10201814,
+      "admitted_bytes": 44750605,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 8,
+      "variant": "after",
+      "workload": "interned",
+      "encode": 0.0029915,
+      "decode": 0.056618291,
+      "wire_bytes": 9146997,
+      "admitted_bytes": 41360988,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 8,
+      "variant": "before",
+      "workload": "inline",
+      "encode": 0.002672959,
+      "decode": 0.063985833,
+      "wire_bytes": 10031814,
+      "admitted_bytes": 43380717,
+      "rows": 10000,
+      "checksum": 8208305958
+    },
+    {
+      "repeat": 8,
+      "variant": "after",
+      "workload": "inline",
+      "encode": 0.003744708,
+      "decode": 0.063044333,
+      "wire_bytes": 10031822,
+      "admitted_bytes": 43380725,
+      "rows": 10000,
+      "checksum": 8208305958
+    }
+  ],
+  "compiler": "rustc 1.101.0-nightly (c1070d693 2026-09-28)",
+  "before": "Original staged interned-value implementation, transport protocol 16",
+  "after": "Object-local shared attribute tables, transport protocol 17",
+  "before_source_sha256": "ce28cc787665a9fc83d99b579f18ef214221c62aad34dce9a05079b0100c8127",
+  "after_source_sha256": "9390a1f38f82d707c589a165fae7e623e2ab125f2698645ebf6cf0f640df715c",
+  "baseline_reverse_patch": "--- a/volna-trace/src/data/loaded_tracks.rs\n+++ b/volna-trace/src/data/loaded_tracks.rs\n@@ -25,8 +25,6 @@\n \n #[derive(Debug)]\n pub struct LoadedGenerator {\n-    // One wire table can outlive the track through independently cached generators.\n-    pub(crate) shared_reservation: Option<Arc<crate::remote::memory::Reservation>>,\n     pub(crate) reservation: Option<crate::remote::memory::Reservation>,\n     generator: TrackRef,\n     transactions: Vec<Transaction>,\n@@ -308,7 +306,6 @@\n         attributes.sort_unstable_by(|a, b| a.key.cmp(&b.key));\n         Ok(Self {\n             reservation: None,\n-            shared_reservation: None,\n             attributes,\n             generator,\n             transactions,\n--- a/volna-trace/src/remote/attributes.rs\n+++ b/volna-trace/src/remote/attributes.rs\n@@ -1,411 +0,0 @@\n-//! Object-local shared attribute tables and their borrowed wire views.\n-\n-use super::decode::Reader;\n-use super::objects::{GeneratorPayload, GeneratorView};\n-use crate::data::loaded_tracks::LoadedRelation;\n-use crate::data::source::Generator;\n-use crate::data::transactions::{\n-    AttributeValue, Attributes, Relation, Track, Transaction, TransactionAttribute,\n-    TransactionEvent, TransactionStage,\n-};\n-\n-use serde::{Serialize, Serializer, ser::SerializeSeq};\n-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};\n-\n-#[derive(Default)]\n-pub(super) struct Table<'a> {\n-    ids: HashMap<usize, u32>,\n-    entries: Vec<&'a AttributeValue>,\n-    pending: Vec<(&'a AttributeValue, bool)>,\n-}\n-\n-impl<'a> Table<'a> {\n-    pub fn collect(&mut self, roots: impl IntoIterator<Item = &'a AttributeValue>) {\n-        for root in roots {\n-            if !matches!(\n-                root,\n-                AttributeValue::List(_) | AttributeValue::Map(_) | AttributeValue::Shared(_)\n-            ) {\n-                continue;\n-            }\n-            self.pending.push((root, false));\n-            while let Some((value, finish)) = self.pending.pop() {\n-                match value {\n-                    AttributeValue::Shared(shared) => {\n-                        let pointer = Arc::as_ptr(shared) as usize;\n-                        if self.ids.contains_key(&pointer) {\n-                            continue;\n-                        }\n-                        if finish {\n-                            // Dependencies precede their users so forward references are never needed.\n-                            let id = u32::try_from(self.entries.len()).expect(\"shared value count\");\n-                            self.ids.insert(pointer, id);\n-                            self.entries.push(shared);\n-                        } else {\n-                            self.pending.push((value, true));\n-                            self.pending.push((shared, false));\n-                        }\n-                    }\n-                    AttributeValue::List(values) => {\n-                        self.pending.extend(values.iter().rev().map(|v| (v, false)));\n-                    }\n-                    AttributeValue::Map(values) => {\n-                        self.pending\n-                            .extend(values.iter().rev().map(|(_, v)| (v, false)));\n-                    }\n-                    _ => (),\n-                }\n-            }\n-        }\n-    }\n-\n-    pub fn is_empty(&self) -> bool {\n-        self.entries.is_empty()\n-    }\n-\n-    pub fn wrap<T: ?Sized>(&self, value: &'a T) -> View<'_, 'a, T> {\n-        View { value, table: self }\n-    }\n-}\n-\n-pub(super) struct View<'t, 'a, T: ?Sized> {\n-    pub value: &'a T,\n-    pub table: &'t Table<'a>,\n-}\n-\n-impl<T> Serialize for View<'_, '_, [T]>\n-where\n-    for<'t, 'a> View<'t, 'a, T>: Serialize,\n-{\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let mut seq = serializer.serialize_seq(Some(self.value.len()))?;\n-        for value in self.value {\n-            seq.serialize_element(&self.table.wrap(value))?;\n-        }\n-        seq.end()\n-    }\n-}\n-\n-impl Serialize for Table<'_> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let mut seq = serializer.serialize_seq(Some(self.entries.len()))?;\n-        for value in &self.entries {\n-            seq.serialize_element(&self.wrap(*value))?;\n-        }\n-        seq.end()\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, (String, AttributeValue)> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        (&self.value.0, self.table.wrap(&self.value.1)).serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, AttributeValue> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        match self.value {\n-            AttributeValue::List(values) => serializer.serialize_newtype_variant(\n-                \"AttributeValue\",\n-                13,\n-                \"List\",\n-                &self.table.wrap(values.as_slice()),\n-            ),\n-            AttributeValue::Map(values) => serializer.serialize_newtype_variant(\n-                \"AttributeValue\",\n-                14,\n-                \"Map\",\n-                &self.table.wrap(values.as_slice()),\n-            ),\n-            AttributeValue::Shared(value) => serializer.serialize_newtype_variant(\n-                \"AttributeValue\",\n-                15,\n-                \"Ref\",\n-                self.table\n-                    .ids\n-                    .get(&(Arc::as_ptr(value) as usize))\n-                    .expect(\"collected shared value\"),\n-            ),\n-            value => value.serialize(serializer),\n-        }\n-    }\n-}\n-\n-pub(super) struct Values(Vec<Arc<AttributeValue>>);\n-\n-impl Values {\n-    pub async fn read(r: &Reader) -> anyhow::Result<Self> {\n-        let count = r.length(4).await?;\n-        anyhow::ensure!(\n-            u32::try_from(count).is_ok(),\n-            \"shared attribute table is too large\"\n-        );\n-        r.charge(\n-            count\n-                .checked_mul(std::mem::size_of::<Arc<AttributeValue>>())\n-                .ok_or_else(|| anyhow::anyhow!(\"shared attribute table size overflow\"))?,\n-        )?;\n-        let mut values = Self(Vec::new());\n-        values.0.try_reserve_exact(count)?;\n-        for _ in 0..count {\n-            r.checkpoint().await;\n-            r.charge(std::mem::size_of::<AttributeValue>() + 2 * std::mem::size_of::<usize>())?;\n-            let value = attribute(r, &values, 0).await?;\n-            values.0.push(Arc::new(value));\n-        }\n-        Ok(values)\n-    }\n-}\n-\n-pub(super) async fn attributes<'a>(\n-    r: &'a Reader,\n-    values: &'a Values,\n-    depth: usize,\n-) -> anyhow::Result<Attributes> {\n-    r.vector(12, || async {\n-        Ok((r.string().await?, attribute(r, values, depth).await?))\n-    })\n-    .await\n-}\n-\n-pub(super) fn attribute<'a>(\n-    r: &'a Reader,\n-    values: &'a Values,\n-    depth: usize,\n-) -> Pin<Box<dyn Future<Output = anyhow::Result<AttributeValue>> + Send + 'a>> {\n-    Box::pin(async move {\n-        anyhow::ensure!(depth < 128, \"attribute nesting exceeds client limit\");\n-        use AttributeValue::{\n-            Bool, Bytes, Enum, F64, Fixed, I64, List, Logic, Map, Null, Pointer, Text, Time, U64,\n-            UFixed,\n-        };\n-        Ok(match r.u32().await? {\n-            0 => Null,\n-            1 => Bool(r.boolean().await?),\n-            2 => I64(r.u64().await? as i64),\n-            3 => U64(r.u64().await?),\n-            4 => F64(f64::from_bits(r.u64().await?)),\n-            5 => Text(r.string().await?),\n-            6 => Bytes(r.bytes().await?),\n-            7 => {\n-                let width = r.u64().await?;\n-                let states = r.u8().await?;\n-                let data = r.bytes().await?;\n-                anyhow::ensure!(\n-                    usize::try_from(width).is_ok(),\n-                    \"logic width exceeds this platform's address space\"\n-                );\n-                let stride = match states {\n-                    2 => 1u64,\n-                    4 => 2,\n-                    9 => 4,\n-                    _ => anyhow::bail!(\"invalid logic alphabet\"),\n-                };\n-                let per_byte = 8 / stride;\n-                anyhow::ensure!(\n-                    data.len() as u64 == width.div_ceil(per_byte),\n-                    \"logic length does not match width\"\n-                );\n-                let padding = (width % per_byte) * stride;\n-                anyhow::ensure!(\n-                    padding == 0 || data.last().is_none_or(|byte| byte >> padding == 0),\n-                    \"nonzero logic padding\"\n-                );\n-                anyhow::ensure!(\n-                    states != 9\n-                        || data.iter().enumerate().all(|(index, byte)| byte & 15 <= 8\n-                            && (index as u64 * 2 + 1 >= width || byte >> 4 <= 8)),\n-                    \"invalid logic state\"\n-                );\n-                Logic {\n-                    width,\n-                    states,\n-                    data,\n-                }\n-            }\n-            8 => Time(r.u64().await?),\n-            9 => Enum {\n-                value: r.i128().await?,\n-                name: r.string().await?,\n-            },\n-            10 => Pointer(r.u64().await?),\n-            11 => Fixed {\n-                raw: r.u64().await? as i64,\n-                scale: r.u64().await? as i64,\n-            },\n-            12 => UFixed {\n-                raw: r.u64().await?,\n-                scale: r.u64().await? as i64,\n-            },\n-            13 => List(r.vector(4, || attribute(r, values, depth + 1)).await?),\n-            14 => Map(attributes(r, values, depth + 1).await?),\n-            15 => {\n-                let id = r.u32().await? as usize;\n-                AttributeValue::Shared(Arc::clone(values.0.get(id).ok_or_else(|| {\n-                    anyhow::anyhow!(\"unknown or forward shared attribute reference\")\n-                })?))\n-            }\n-            _ => anyhow::bail!(\"invalid attribute kind\"),\n-        })\n-    })\n-}\n-\n-impl<'a> Table<'a> {\n-    pub fn collect_transactions(\n-        &mut self,\n-        transactions: &'a [Transaction],\n-        relations: &'a [LoadedRelation],\n-    ) {\n-        for tx in transactions {\n-            self.collect(tx.attributes.iter().map(|attr| &attr.value));\n-            for attrs in tx\n-                .events\n-                .iter()\n-                .map(|event| &event.attributes)\n-                .chain(tx.stages.iter().map(|stage| &stage.attributes))\n-            {\n-                self.collect(attrs.iter().map(|(_, value)| value));\n-            }\n-        }\n-        for edge in relations {\n-            self.collect(edge.relation.attributes.iter().map(|(_, value)| value));\n-        }\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, Track> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (&v.id, &v.path, &v.kind, t.wrap(v.attributes.as_slice())).serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, Generator> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.name,\n-            &v.scope,\n-            &v.root,\n-            &v.kind,\n-            &v.track,\n-            t.wrap(v.attributes.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, TransactionAttribute> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (&v.key, t.wrap(&v.value)).serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, Transaction> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.id,\n-            &v.generator,\n-            &v.begin,\n-            &v.end,\n-            v.status as u8,\n-            v.kind as u8,\n-            &v.parent,\n-            t.wrap(v.attributes.as_slice()),\n-            t.wrap(v.events.as_slice()),\n-            t.wrap(v.stages.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, TransactionEvent> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.id,\n-            &v.generator,\n-            &v.time,\n-            &v.name,\n-            t.wrap(v.attributes.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, TransactionStage> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.id,\n-            &v.generator,\n-            &v.name,\n-            &v.lane,\n-            &v.begin,\n-            &v.end,\n-            t.wrap(v.attributes.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, Relation> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (&v.kind, &v.from, &v.to, t.wrap(v.attributes.as_slice())).serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, LoadedRelation> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.id,\n-            &v.from_generator,\n-            &v.to_generator,\n-            t.wrap(&v.relation),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, GeneratorPayload> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value, self.table);\n-        (\n-            &v.generator,\n-            t.wrap(v.transactions.as_slice()),\n-            &v.parents,\n-            &v.parent_labels,\n-            t.wrap(v.relations.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for View<'_, '_, GeneratorView<'_>> {\n-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let (v, t) = (self.value.source, self.table);\n-        let (parents, labels) = (&self.value.parents, &self.value.labels);\n-        if t.is_empty() {\n-            return (\n-                v.generator(),\n-                v.transactions(),\n-                parents,\n-                labels,\n-                v.relations(),\n-            )\n-                .serialize(serializer);\n-        }\n-        (\n-            v.generator(),\n-            t.wrap(v.transactions()),\n-            parents,\n-            labels,\n-            t.wrap(v.relations()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n--- a/volna-trace/src/remote/decode.rs\n+++ b/volna-trace/src/remote/decode.rs\n@@ -229,7 +229,7 @@\n         }\n     }\n \n-    pub(super) async fn length(&self, minimum: usize) -> anyhow::Result<usize> {\n+    async fn length(&self, minimum: usize) -> anyhow::Result<usize> {\n         let count = self.usize().await?;\n         let input = self.input();\n         anyhow::ensure!(\n--- a/volna-trace/src/remote/hierarchy.rs\n+++ b/volna-trace/src/remote/hierarchy.rs\n@@ -16,7 +16,7 @@\n pub const PAGE_ENTRIES: usize = 65_536;\n const SCRATCH: u64 = (super::transport::DATA_BYTES + 8192) as u64;\n \n-#[derive(Clone, Debug)]\n+#[derive(Clone, Debug, Serialize, Deserialize)]\n pub struct Header {\n     pub info: TraceInfo,\n     pub capabilities: Capabilities,\n@@ -28,8 +28,8 @@\n     pub activity: Option<super::activity::Descriptor>,\n     pub server: String,\n }\n+#[derive(Serialize)]\n pub struct HeaderView<'a> {\n-    table: super::attributes::Table<'a>,\n     info: &'a TraceInfo,\n     capabilities: Capabilities,\n     tracks: &'a [Track],\n@@ -40,77 +40,9 @@\n     activity: Option<super::activity::Descriptor>,\n     server: String,\n }\n-impl Serialize for Header {\n-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        HeaderView {\n-            table: attribute_table(&self.tracks, &self.generators),\n-            info: &self.info,\n-            capabilities: self.capabilities,\n-            tracks: &self.tracks,\n-            generators: &self.generators,\n-            enum_tables: &self.enum_tables,\n-            scopes: self.scopes,\n-            vars: self.vars,\n-            activity: self.activity.clone(),\n-            server: self.server.clone(),\n-        }\n-        .serialize(serializer)\n-    }\n-}\n-\n-impl Serialize for HeaderView<'_> {\n-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let table = &self.table;\n-        if table.is_empty() {\n-            return (\n-                &table,\n-                self.info,\n-                self.capabilities,\n-                self.tracks,\n-                self.generators,\n-                self.enum_tables,\n-                self.scopes,\n-                self.vars,\n-                &self.activity,\n-                &self.server,\n-            )\n-                .serialize(serializer);\n-        }\n-        (\n-            &table,\n-            self.info,\n-            self.capabilities,\n-            table.wrap(self.tracks),\n-            table.wrap(self.generators),\n-            self.enum_tables,\n-            self.scopes,\n-            self.vars,\n-            &self.activity,\n-            &self.server,\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n-fn attribute_table<'a>(\n-    tracks: &'a [Track],\n-    generators: &'a [Generator],\n-) -> super::attributes::Table<'a> {\n-    let mut table = super::attributes::Table::default();\n-    for attrs in tracks\n-        .iter()\n-        .map(|track| &track.attributes)\n-        .chain(generators.iter().map(|generator| &generator.attributes))\n-    {\n-        table.collect(attrs.iter().map(|(_, value)| value));\n-    }\n-    table\n-}\n-\n impl Header {\n     pub fn borrowed(session: &dyn Session, server: String) -> anyhow::Result<HeaderView<'_>> {\n         Ok(HeaderView {\n-            table: attribute_table(session.tracks(), &session.hierarchy().generators),\n             info: session.info(),\n             capabilities: session.capabilities(),\n             tracks: session.tracks(),\n--- a/volna-trace/src/remote/metadata.rs\n+++ b/volna-trace/src/remote/metadata.rs\n@@ -1,12 +1,13 @@\n //! Cooperative decoding and validation of raw metadata.\n \n-use super::attributes::{Values, attributes};\n use super::decode::{Decoder, Reader, Step};\n use super::memory::{MemoryBudget, Reservation};\n use crate::data::TraceInfo;\n use crate::data::source::Generator;\n-use crate::data::transactions::{Track, TrackRef};\n+use crate::data::transactions::{AttributeValue, Attributes, Track, TrackRef};\n use crate::session::Capabilities;\n+use std::future::Future;\n+use std::pin::Pin;\n \n pub struct MetadataDecoder(Decoder<super::hierarchy::Header>);\n \n@@ -45,7 +46,6 @@\n }\n \n async fn metadata(r: &Reader) -> anyhow::Result<super::hierarchy::Header> {\n-    let values = Values::read(r).await?;\n     let info = TraceInfo {\n         name: r.string().await?,\n         design_id: if r.boolean().await? {\n@@ -72,7 +72,7 @@\n         transactions: r.boolean().await?,\n         relations: r.boolean().await?,\n     };\n-    let tracks = r.vector(24, || track(r, &values)).await?;\n+    let tracks = r.vector(24, || track(r)).await?;\n     let generators = r\n         .vector(28, || async {\n             Ok(Generator {\n@@ -81,7 +81,7 @@\n                 root: r.boolean().await?,\n                 kind: r.string().await?,\n                 track: TrackRef(r.u32().await?),\n-                attributes: attributes(r, &values, 0).await?,\n+                attributes: attributes(r, 0).await?,\n             })\n         })\n         .await?;\n@@ -134,19 +134,104 @@\n     })\n }\n \n-async fn track(r: &Reader, values: &Values) -> anyhow::Result<Track> {\n+async fn track(r: &Reader) -> anyhow::Result<Track> {\n     Ok(Track {\n         id: TrackRef(r.u32().await?),\n         path: r.vector(8, || r.string()).await?,\n         kind: r.string().await?,\n-        attributes: attributes(r, values, 0).await?,\n+        attributes: attributes(r, 0).await?,\n+    })\n+}\n+\n+pub(super) async fn attributes(r: &Reader, depth: usize) -> anyhow::Result<Attributes> {\n+    r.vector(12, || async {\n+        Ok((r.string().await?, attribute(r, depth).await?))\n+    })\n+    .await\n+}\n+\n+pub(super) fn attribute(\n+    r: &Reader,\n+    depth: usize,\n+) -> Pin<Box<dyn Future<Output = anyhow::Result<AttributeValue>> + Send + '_>> {\n+    Box::pin(async move {\n+        anyhow::ensure!(depth < 128, \"attribute nesting exceeds client limit\");\n+        use AttributeValue::{\n+            Bool, Bytes, Enum, F64, Fixed, I64, List, Logic, Map, Null, Pointer, Text, Time, U64,\n+            UFixed,\n+        };\n+        Ok(match r.u32().await? {\n+            0 => Null,\n+            1 => Bool(r.boolean().await?),\n+            2 => I64(r.u64().await? as i64),\n+            3 => U64(r.u64().await?),\n+            4 => F64(f64::from_bits(r.u64().await?)),\n+            5 => Text(r.string().await?),\n+            6 => Bytes(r.bytes().await?),\n+            7 => {\n+                let width = r.u64().await?;\n+                let states = r.u8().await?;\n+                let data = r.bytes().await?;\n+                anyhow::ensure!(\n+                    usize::try_from(width).is_ok(),\n+                    \"logic width exceeds this platform's address space\"\n+                );\n+                let stride = match states {\n+                    2 => 1u64,\n+                    4 => 2,\n+                    9 => 4,\n+                    _ => anyhow::bail!(\"invalid logic alphabet\"),\n+                };\n+                let per_byte = 8 / stride;\n+                anyhow::ensure!(\n+                    data.len() as u64 == width.div_ceil(per_byte),\n+                    \"logic length does not match width\"\n+                );\n+                let padding = (width % per_byte) * stride;\n+                anyhow::ensure!(\n+                    padding == 0 || data.last().is_none_or(|byte| byte >> padding == 0),\n+                    \"nonzero logic padding\"\n+                );\n+                anyhow::ensure!(\n+                    states != 9\n+                        || data.iter().enumerate().all(|(index, byte)| byte & 15 <= 8\n+                            && (index as u64 * 2 + 1 >= width || byte >> 4 <= 8)),\n+                    \"invalid logic state\"\n+                );\n+                Logic {\n+                    width,\n+                    states,\n+                    data,\n+                }\n+            }\n+            8 => Time(r.u64().await?),\n+            9 => Enum {\n+                value: r.i128().await?,\n+                name: r.string().await?,\n+            },\n+            10 => Pointer(r.u64().await?),\n+            11 => Fixed {\n+                raw: r.u64().await? as i64,\n+                scale: r.u64().await? as i64,\n+            },\n+            12 => UFixed {\n+                raw: r.u64().await?,\n+                scale: r.u64().await? as i64,\n+            },\n+            13 => List(r.vector(4, || attribute(r, depth + 1)).await?),\n+            14 => Map(attributes(r, depth + 1).await?),\n+            15 => {\n+                r.charge(std::mem::size_of::<AttributeValue>() + 2 * std::mem::size_of::<usize>())?;\n+                AttributeValue::Shared(std::sync::Arc::new(attribute(r, depth + 1).await?))\n+            }\n+            _ => anyhow::bail!(\"invalid attribute kind\"),\n+        })\n     })\n }\n \n #[cfg(test)]\n mod tests {\n     use super::*;\n-    use crate::data::transactions::AttributeValue;\n     use crate::remote::hierarchy::Header;\n     use crate::remote::objects::Metadata;\n     use crate::remote::transport::DATA_BYTES;\n@@ -372,7 +457,7 @@\n         let mut trailing = valid.clone();\n         trailing.push(0);\n         let mut utf8 = valid.clone();\n-        utf8[16] = 255;\n+        utf8[8] = 255;\n         for bytes in [valid[..valid.len() - 1].to_vec(), trailing, utf8] {\n             let budget = MemoryBudget::new(4 * 1024 * 1024);\n             let mut decoder =\n@@ -389,34 +474,4 @@\n             assert_eq!(budget.used(), 0);\n         }\n     }\n-\n-    #[test]\n-    fn shared_table_rejects_forward_references_and_releases_private_storage() {\n-        let header =\n-            Header::from_session(crate::testing::ProceduralTrace::session(1).as_ref()).unwrap();\n-        let valid = bincode::serialize(&header).unwrap();\n-        assert_eq!(&valid[..8], &0u64.to_le_bytes());\n-        for id in [0u32, 1, u32::MAX] {\n-            let mut bytes = 1u64.to_le_bytes().to_vec();\n-            bytes.extend_from_slice(&15u32.to_le_bytes());\n-            bytes.extend_from_slice(&id.to_le_bytes());\n-            bytes.extend_from_slice(&valid[8..]);\n-            let budget = MemoryBudget::new(1024 * 1024);\n-            let mut decoder =\n-                MetadataDecoder::new(bytes.len() as u64, 1024 * 1024, &budget).unwrap();\n-            decoder.feed(bytes).unwrap();\n-            loop {\n-                match decoder.step() {\n-                    Err(error) => {\n-                        assert!(error.to_string().contains(\"shared attribute reference\"));\n-                        break;\n-                    }\n-                    Ok(MetadataStep::Yield) => (),\n-                    Ok(_) => panic!(\"accepted a reference to an unpublished table entry\"),\n-                }\n-            }\n-            drop(decoder);\n-            assert_eq!(budget.used(), 0);\n-        }\n-    }\n-}\n+}\n--- a/volna-trace/src/remote/mod.rs\n+++ b/volna-trace/src/remote/mod.rs\n@@ -1,7 +1,6 @@\n //! Raw complete-object transport.\n \n pub mod activity;\n-mod attributes;\n pub mod client;\n mod decode;\n mod equality;\n--- a/volna-trace/src/remote/objects.rs\n+++ b/volna-trace/src/remote/objects.rs\n@@ -117,8 +117,9 @@\n     }\n }\n \n-#[derive(Debug)]\n+#[derive(Debug, Serialize)]\n pub struct GeneratorPayload {\n+    #[serde(skip)]\n     pub(super) reservation: Option<super::memory::Reservation>,\n     pub generator: TrackRef,\n     pub transactions: Vec<Transaction>,\n@@ -127,73 +128,49 @@\n     pub relations: Vec<LoadedRelation>,\n }\n \n-#[derive(Debug)]\n+#[derive(Debug, Serialize)]\n pub struct TrackPayload {\n     pub track: TrackRef,\n     pub generators: Vec<GeneratorPayload>,\n }\n \n-impl Serialize for TrackPayload {\n-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        let mut table = super::attributes::Table::default();\n-        for generator in &self.generators {\n-            table.collect_transactions(&generator.transactions, &generator.relations);\n-        }\n-        (&table, self.track, table.wrap(self.generators.as_slice())).serialize(serializer)\n-    }\n-}\n-\n-pub(super) struct GeneratorView<'a> {\n-    pub source: &'a LoadedGenerator,\n-    pub parents: Vec<(TransactionRef, TransactionLocation)>,\n-    pub labels: Vec<(TransactionRef, &'a str)>,\n-}\n-\n-struct TrackView<'a> {\n-    table: super::attributes::Table<'a>,\n-    track: TrackRef,\n-    generators: Vec<GeneratorView<'a>>,\n-}\n-\n-impl Serialize for TrackView<'_> {\n-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {\n-        (\n-            &self.table,\n-            self.track,\n-            self.table.wrap(self.generators.as_slice()),\n-        )\n-            .serialize(serializer)\n-    }\n-}\n-\n impl TrackPayload {\n     #[must_use]\n     pub fn from_loaded(track: &LoadedTrack) -> impl Serialize + '_ {\n-        let mut table = super::attributes::Table::default();\n-        let generators = track\n-            .generators\n-            .iter()\n-            .map(|generator| {\n-                table.collect_transactions(generator.transactions(), generator.relations());\n-                GeneratorView {\n-                    source: generator,\n+        #[derive(Serialize)]\n+        struct Generator<'a> {\n+            generator: TrackRef,\n+            transactions: &'a [Transaction],\n+            parents: Vec<(TransactionRef, TransactionLocation)>,\n+            parent_labels: Vec<(TransactionRef, &'a str)>,\n+            relations: &'a [LoadedRelation],\n+        }\n+        #[derive(Serialize)]\n+        struct Track<'a> {\n+            track: TrackRef,\n+            generators: Vec<Generator<'a>>,\n+        }\n+        Track {\n+            track: track.track,\n+            generators: track\n+                .generators\n+                .iter()\n+                .map(|generator| Generator {\n+                    generator: generator.generator(),\n+                    transactions: generator.transactions(),\n                     parents: generator\n                         .transactions()\n                         .iter()\n-                        .filter_map(|tx| generator.parent(tx.id).map(|parent| (tx.id, parent)))\n+                        .filter_map(|tx| generator.parent(tx.id).map(|p| (tx.id, p)))\n                         .collect(),\n-                    labels: generator\n+                    parent_labels: generator\n                         .parent_labels()\n                         .iter()\n                         .map(|(&id, label)| (id, label.as_str()))\n                         .collect(),\n-                }\n-            })\n-            .collect();\n-        TrackView {\n-            table,\n-            track: track.track,\n-            generators,\n+                    relations: generator.relations(),\n+                })\n+                .collect(),\n         }\n     }\n \n--- a/volna-trace/src/remote/tracks.rs\n+++ b/volna-trace/src/remote/tracks.rs\n@@ -1,8 +1,8 @@\n //! Cooperative decoding of complete transaction payloads.\n \n-use super::attributes::{Values, attribute, attributes};\n use super::decode::{Decoder, Reader, Step};\n use super::memory::MemoryBudget;\n+use super::metadata::{attribute, attributes};\n use super::objects::{GeneratorPayload, TrackPayload};\n use crate::data::loaded_tracks::LoadedTrack;\n use crate::data::loaded_tracks::{LoadedRelation, TransactionLocation};\n@@ -34,10 +34,7 @@\n             budget,\n             move |reader| {\n                 Box::pin(async move {\n-                    let before = reader.charged();\n-                    let values = Values::read(&reader).await?;\n-                    let shared = Arc::new(reader.take_since(before)?);\n-                    let payload = payload(&reader, &values).await?;\n+                    let payload = payload(&reader).await?;\n                     let mut workspace = session\n                         .tracks()\n                         .len()\n@@ -54,15 +51,9 @@\n                             .ok_or_else(|| anyhow::anyhow!(\"track workspace size overflow\"))?;\n                     }\n                     reader.charge(workspace)?;\n-                    let mut loaded = payload\n+                    payload\n                         .into_loaded(session.tracks(), || reader.checkpoint())\n-                        .await?;\n-                    for generator in &mut loaded.generators {\n-                        Arc::get_mut(generator)\n-                            .expect(\"unpublished generator\")\n-                            .shared_reservation = Some(Arc::clone(&shared));\n-                    }\n-                    Ok(loaded)\n+                        .await\n                 })\n             },\n         )?))\n@@ -87,7 +78,7 @@\n     })\n }\n \n-async fn payload(r: &Reader, values: &Values) -> anyhow::Result<TrackPayload> {\n+async fn payload(r: &Reader) -> anyhow::Result<TrackPayload> {\n     Ok(TrackPayload {\n         track: TrackRef(r.u32().await?),\n         generators: r\n@@ -96,7 +87,7 @@\n                 let mut generator = GeneratorPayload {\n                     reservation: None,\n                     generator: TrackRef(r.u32().await?),\n-                    transactions: r.vector(55, || transaction(r, values)).await?,\n+                    transactions: r.vector(55, || transaction(r)).await?,\n                     parents: r\n                         .vector(20, || async {\n                             Ok((\n@@ -123,7 +114,7 @@\n                                     kind: r.string().await?,\n                                     from: TransactionRef(r.u64().await?),\n                                     to: TransactionRef(r.u64().await?),\n-                                    attributes: attributes(r, values, 0).await?,\n+                                    attributes: attributes(r, 0).await?,\n                                 },\n                             })\n                         })\n@@ -168,7 +159,7 @@\n     })\n }\n \n-async fn transaction(r: &Reader, values: &Values) -> anyhow::Result<Transaction> {\n+async fn transaction(r: &Reader) -> anyhow::Result<Transaction> {\n     Ok(Transaction {\n         id: TransactionRef(r.u64().await?),\n         generator: TrackRef(r.u32().await?),\n@@ -185,7 +176,7 @@\n             .vector(13, || async {\n                 Ok(TransactionAttribute {\n                     key: r.string().await?,\n-                    value: attribute(r, values, 0).await?,\n+                    value: attribute(r, 0).await?,\n                 })\n             })\n             .await?,\n@@ -198,7 +189,7 @@\n                     generator: optional_track(r).await?,\n                     time: r.u64().await?,\n                     name: r.string().await?,\n-                    attributes: attributes(r, values, 0).await?,\n+                    attributes: attributes(r, 0).await?,\n                 })\n             })\n             .await?,\n@@ -216,7 +207,7 @@\n                     } else {\n                         None\n                     },\n-                    attributes: attributes(r, values, 0).await?,\n+                    attributes: attributes(r, 0).await?,\n                 })\n             })\n             .await?,\n@@ -382,9 +373,9 @@\n     fn invalid_status_truncation_and_oversized_collections_are_rejected() {\n         let valid = bincode::serialize(&sample()).unwrap();\n         let mut bad_status = valid.clone();\n-        bad_status[60] = 255;\n+        bad_status[52] = 255;\n         let mut bad_count = valid.clone();\n-        bad_count[24..32].copy_from_slice(&u64::MAX.to_le_bytes());\n+        bad_count[16..24].copy_from_slice(&u64::MAX.to_le_bytes());\n         for bytes in [bad_status, bad_count, valid[..valid.len() - 1].to_vec()] {\n             let budget = MemoryBudget::new(8 * 1024 * 1024);\n             let mut decoder =\n--- a/volna-trace/src/remote/transport.rs\n+++ b/volna-trace/src/remote/transport.rs\n@@ -6,7 +6,7 @@\n use lz4_flex::frame::{BlockSize, FrameDecoder, FrameEncoder, FrameInfo};\n use serde::{Deserialize, Serialize};\n \n-pub const VERSION: u32 = 17;\n+pub const VERSION: u32 = 16;\n pub const MAX_FRAME_BYTES: usize = 1024 * 1024;\n pub const DATA_BYTES: usize = 256 * 1024;\n pub const MAX_BATCH: usize = 64;\n",
+  "graph_probe_source": "use volna_trace::remote::{hierarchy::Header, memory::MemoryBudget, metadata::{MetadataDecoder, MetadataStep}};\nuse volna_trace::session::LocalSession;\nuse vtr::{Attribute, Recorder, SourceOptions, Value, Writer};\n\nfn recording(depth: usize, width: usize) -> LocalSession {\n    let path = std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\")).join(format!(\"graph-{depth}-{width}.vtr\"));\n    let mut writer = Writer::create(&path).unwrap();\n    let key = writer.intern(\"description\").unwrap();\n    let mut id = writer.intern_value(Value::Text(\"description\".repeat(4))).unwrap();\n    for _ in 0..depth {\n        id = writer.intern_value(Value::List(vec![Value::Ref(id); width])).unwrap();\n    }\n    let mut options = SourceOptions::new(\"instructions\", None);\n    options.attributes = vec![Attribute { key, value: Value::Ref(id) }];\n    writer.transactions::<()>(options, \"INSTRUCTION\").unwrap();\n    writer.close().unwrap();\n    println!(\"depth={depth} width={width} VTR_bytes={}\", std::fs::metadata(&path).unwrap().len());\n    LocalSession::open(&path).unwrap()\n}\n\nfn main() {\n    for depth in [0, 63, 64, 80] {\n        let session = recording(depth, 1);\n        let header = Header::from_session(&session).unwrap();\n        let bytes = bincode::serialize(&header).unwrap();\n        let budget = MemoryBudget::new(1 << 20);\n        let mut decoder = MetadataDecoder::new(bytes.len() as u64, 1 << 20, &budget).unwrap();\n        decoder.feed(bytes.clone()).unwrap();\n        loop {\n            match decoder.step() {\n                Ok(MetadataStep::Decoded(_)) => { println!(\"remote_bytes={} decoded=ok\", bytes.len()); break; }\n                Ok(MetadataStep::Yield) => (),\n                Ok(MetadataStep::NeedInput) => panic!(\"unexpected end\"),\n                Err(error) => { println!(\"remote_bytes={} decoded=ERROR {error}\", bytes.len()); break; }\n            }\n        }\n    }\n    for depth in [10, 16] {\n        let session = recording(depth, 2);\n        let header = Header::from_session(&session).unwrap();\n        println!(\"remote_expanded_bytes={}\", bincode::serialized_size(&header).unwrap());\n    }\n}\n",
+  "graph_reproductions": [
+    {
+      "depth": 64,
+      "width": 1,
+      "vtr_bytes": 733,
+      "before_wire_bytes": 2462,
+      "before_error": "attribute nesting exceeds client limit",
+      "after_wire_bytes": 1654,
+      "after_status": "decoded"
+    },
+    {
+      "depth": 80,
+      "width": 1,
+      "vtr_bytes": 797,
+      "before_wire_bytes": 2974,
+      "before_error": "attribute nesting exceeds client limit",
+      "after_wire_bytes": 1974,
+      "after_status": "decoded"
+    },
+    {
+      "depth": 16,
+      "width": 2,
+      "vtr_bytes": 572,
+      "before_wire_bytes": 9961734,
+      "before_status": "expanded",
+      "after_wire_bytes": 822,
+      "after_status": "decoded"
+    }
+  ]
+}

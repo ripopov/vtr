@@ -125,7 +125,7 @@ pub fn metadata(reader: &Reader, datatype: TypeId) -> Result<Option<LogMetadata>
     for attribute in &declaration.attributes {
         values
             .entry(reader.string(attribute.key)?)
-            .or_insert(&attribute.value);
+            .or_insert(reader.resolve_value(&attribute.value)?);
     }
     let Some(kind) = values.get("kind") else {
         return Ok(None);

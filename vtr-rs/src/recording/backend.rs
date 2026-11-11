@@ -84,6 +84,7 @@ pub(super) struct Backend {
     pub metadata: Metadata,
     pub encoding: EncodingOptions,
     written_strings: u32,
+    written_values: u32,
     written_nodes: u32,
     written_types: u32,
     metadata_written: bool,
@@ -132,6 +133,7 @@ impl Backend {
             payload_pool: super::payload_pool::Pool::new(options.encoding.payload_pool_bytes),
             encoding: options.encoding,
             written_strings: 0,
+            written_values: 0,
             written_nodes: 0,
             written_types: FIRST_DECLARED_TYPE,
             metadata_written: false,
@@ -189,12 +191,20 @@ impl Backend {
         self.alive()?;
         self.declarations.intern(name)
     }
+    pub fn intern_value(&mut self, value: Value) -> Result<crate::ValueId> {
+        self.alive()?;
+        self.declarations.intern_value(value)
+    }
+    fn validate_refs(&self, attributes: &[Attribute]) -> Result<()> {
+        crate::attributes::validate_attribute_refs(attributes, self.declarations.values().len())
+    }
     pub fn metadata(&mut self, metadata: Metadata) -> Result<()> {
         self.alive()?;
         if self.metadata_written {
             return Err(Error::State("metadata has been published"));
         }
         metadata.encode(self.declarations.strings.len() as u64)?;
+        self.validate_refs(&metadata.attributes)?;
         self.metadata = metadata;
         Ok(())
     }
@@ -209,6 +219,7 @@ impl Backend {
             return Err(Error::invalid("parent must be a scope"));
         }
         validate_attributes(&options.attributes, self.declarations.strings.len() as u64)?;
+        self.validate_refs(&options.attributes)?;
         let name = self.intern(&options.name)?;
         let id = u32::try_from(self.declarations.nodes.len())
             .ok()
@@ -260,6 +271,7 @@ impl Backend {
             &options.attributes,
             self.declarations.strings.len() as u64,
         )?;
+        self.validate_refs(&options.attributes)?;
         let id = self.declarations.types.declare_with_attributes(
             options.name,
             kind,
@@ -335,6 +347,7 @@ impl Backend {
             return Err(Error::invalid("parent must be a scope"));
         }
         validate_attributes(&options.attributes, self.declarations.strings.len() as u64)?;
+        self.validate_refs(&options.attributes)?;
         self.flush_waves()?;
         let signal = SignalId(self.waveform.add_signal(kind, var_type == VarType::Event)?);
         self.declarations.signals.push(kind);
@@ -394,12 +407,20 @@ impl Backend {
             std::slice::from_ref(&attribute),
             self.declarations.strings.len() as u64,
         )?;
+        attribute
+            .value
+            .validate_refs(self.declarations.values().len())?;
         let name = self.declarations.string(attribute.key)?;
-        if name == "vtr.label" && !matches!(attribute.value, Value::Text(_) | Value::Str(_)) {
+        if name == "vtr.label"
+            && !matches!(
+                self.declarations.resolve_value(&attribute.value)?,
+                Value::Text(_) | Value::Str(_)
+            )
+        {
             return Err(Error::invalid("invalid label type"));
         }
         if name == "vtr.clock" {
-            let Value::U32(clock) = attribute.value else {
+            let &Value::U32(clock) = self.declarations.resolve_value(&attribute.value)? else {
                 return Err(Error::invalid("clock association must be u32"));
             };
             if self.declarations.generators.get(clock)?.kind != RecordKind::Clock {
@@ -426,6 +447,17 @@ impl Backend {
                 wire::compress(&raw, self.encoding.compression)?,
             )?;
             self.written_strings = self.declarations.strings.len() as u32;
+        }
+        if self.written_values as usize != self.declarations.values().len() {
+            let raw = self
+                .declarations
+                .values_chunk(crate::ValueId(self.written_values))?;
+            let count = self.declarations.values().len() as u64 - u64::from(self.written_values);
+            self.output.section(
+                Section::new(11, u64::from(self.written_values), count, 0),
+                wire::compress(&raw, self.encoding.compression)?,
+            )?;
+            self.written_values = self.declarations.values().len() as u32;
         }
         if !self.metadata_written {
             self.output.section(
@@ -563,9 +595,13 @@ impl Backend {
     }
     fn attributes(&self, attributes: &[Attribute]) -> Result<()> {
         validate_attributes(attributes, self.declarations.strings.len() as u64)?;
+        self.validate_refs(attributes)?;
         for attr in attributes {
             if self.declarations.string(attr.key)? == "vtr.label"
-                && !matches!(attr.value, Value::Text(_) | Value::Str(_))
+                && !matches!(
+                    self.declarations.resolve_value(&attr.value)?,
+                    Value::Text(_) | Value::Str(_)
+                )
             {
                 return Err(Error::invalid("label must be string or text"));
             }
