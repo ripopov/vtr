@@ -524,7 +524,8 @@ pub fn encode_transaction_block(
                     page_bounds.add_relation(&relations[index - sorted.len()]);
                 }
                 index += 1;
-                if size >= policy.page_bytes {
+                // Endpoint queries should not scan unrelated owner and phase attributes.
+                if index == sorted.len() || size >= policy.page_bytes {
                     break;
                 }
             }

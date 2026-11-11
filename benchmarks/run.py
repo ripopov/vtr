@@ -16,7 +16,7 @@ import sys
 import time
 
 HERE = Path(__file__).resolve().parent
-PROFILES = {
+COMMON_PROFILES = {
     "core": ("vtr", "fst", "vcd"),
     "soc": ("vtr", "fst", "vcd"),
     "idle": ("vtr", "fst", "vcd"),
@@ -24,6 +24,9 @@ PROFILES = {
     "many-generators": ("vtr", "ftr"),
     "mixed": ("vtr", "fst+ftr", "vcd+ftr"),
 }
+GPU_FORMATS = ("vtr-payload", "vtr-interned", "vtr-payload-batched", "vtr-interned-batched",
+               "vtr-payload-fixed", "vtr-interned-fixed")
+PROFILES = {**COMMON_PROFILES, "gpu-instructions": GPU_FORMATS, "gpu-instructions-zstd": GPU_FORMATS}
 
 
 def percentile(values, fraction):
@@ -56,6 +59,9 @@ def metric_values(group, expected):
             "Write min / max (ms)": f"{min(r['seconds'] for r in writes) * 1e3:.2f} / "
                                     f"{max(r['seconds'] for r in writes) * 1e3:.2f}",
         })
+        if "transaction_blocks" in writes[0]:
+            metrics["Transaction blocks"] = f"{med('transaction_blocks'):,.0f}"
+            metrics["Peak transaction buffer (KiB)"] = f"{med('peak_transaction_bytes') / 1024:.2f}"
     if reads:
         elapsed = statistics.median(r["seconds"] for r in reads)
         metrics.update({
@@ -84,7 +90,8 @@ def report(data):
              f"(budget {data['budget_seconds']:.0f} s; dependency setup/build excluded).", "",
              f"Host: {data['host']}. CPU affinity: {data['cpu']}. Repeats: {data['repeats']}. "
              f"Scale divisor: {data['scale_divisor']}. Format-order seed: {data['seed']}.", "",
-             "All backends share one logical CPU, synchronous producers, and LZ4 for binary formats. "
+             "All backends share one logical CPU and synchronous producers. Binary formats use LZ4, "
+             "except the gpu-instructions-zstd profile, which uses Zstandard level 1. "
              "Writes include generation, capture, encoding, compression, metadata/indexing, final drain, and close. "
              "Buffered I/O is used; fsync and storage durability are not measured. "
              "Reads decode every observation and checksum all values/attributes. "
@@ -115,6 +122,7 @@ def report(data):
         ("Waveform results", ("core", "soc", "idle")),
         ("Transaction results", ("requests", "many-generators")),
         ("Mixed signal and transaction results", ("mixed",)),
+        ("GPU instruction descriptions", ("gpu-instructions", "gpu-instructions-zstd")),
     )
     primary_metrics = (
         "Write time (ms)", "Write throughput (Mobs/s)", "Read time (ms)", "Read throughput (Mobs/s)",
@@ -155,7 +163,15 @@ def report(data):
               "FTR and VTR filter attribute values after selecting candidate transactions; no secondary value index is built. "
               "The FTR header scan/index is charged on every open. "
               "No result asserts asynchronous scaling, four-state/wide-vector performance, recovery, "
-              "or rich owner/stage/relation navigation; those are outside these common-format workloads.", ""]
+              "or rich owner/stage/relation navigation in the common-format workloads.", "",
+              "The VTR-only gpu-instructions profile compares identical typed instruction content in canonical payload fields "
+              "and in 50 shared descriptions referenced by an attribute. A short loop runs across 128 wave sources; each "
+              "instruction has five embedded phases, dynamic execution masks, memory-phase attributes and a wave ownership relation. "
+              "Both representations retain the viewer label. Default variants use the production buffer limits. Fixed variants "
+              "use a 2,048-item block limit and a nonbinding byte limit to isolate compression from memory-based batching. "
+              "Batched variants use a 2 MiB block limit; independently decoded pages remain bounded by the default 64 KiB target. "
+              "Reads check instruction content, IDs, ownership, times, phases and all 128 waves' relationships against the generated schedule. "
+              "Its null baseline measures schedule checksumming only and does not model phase capture costs.", ""]
     if data.get("error"):
         lines += ["## Incomplete run", "", data["error"], ""]
     return "\n".join(lines)
@@ -219,7 +235,7 @@ def main():
             oracle = invoke("oracle", "null", profile, path)
             data["oracles"][profile] = oracle
             operations = ["write", "read"]
-            if profile not in ("requests", "many-generators"):
+            if profile in ("core", "soc", "idle", "mixed"):
                 operations += ["search-signal", "find-signal", "point"]
             if profile in ("requests", "many-generators", "mixed"):
                 operations += ["search-transaction", "find-transaction"]

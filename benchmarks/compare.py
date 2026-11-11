@@ -97,7 +97,7 @@ def main():
                 raise RuntimeError(f"producer replays differ: {profile}")
             data["oracles"][profile] = oracle
             operations = ["write", "read"]
-            if profile not in ("requests", "many-generators"):
+            if profile in ("core", "soc", "idle", "mixed"):
                 operations += ["search-signal", "find-signal", "point"]
             if profile in ("requests", "many-generators", "mixed"):
                 operations += ["search-transaction", "find-transaction"]

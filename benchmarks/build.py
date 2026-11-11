@@ -67,7 +67,7 @@ def main():
         objects.append(obj)
     run([cxx, "-std=c++20", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
          "-I", ROOT / "vtr-cpp", "-isystem", fst,
-         "-isystem", BUILD / "deps" / "lwtr" / "src", HERE / "benchmark.cpp", *objects,
+         "-isystem", BUILD / "deps" / "lwtr" / "src", HERE / "benchmark.cpp", HERE / "gpu_instructions.cpp", *objects,
          libvtr, "-llz4", "-lzstd", "-lz", "-lbz2", "-ldl", "-lpthread", "-lm", "-o", BUILD / "benchmark"])
     run([cxx, "-std=c++20", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Wpedantic",
          "-I", ROOT / "vtr-cpp", HERE / "intern_values.cpp", libvtr,
@@ -79,7 +79,7 @@ def main():
         "compiler": output([cxx, "--version"]).splitlines()[0],
         "vtr_implementation": "native C++20",
         "vtr_containers": container_manifest,
-        "flags": "C++20 -O3 -DNDEBUG; native VTR release; synchronous LZ4 writers",
+        "flags": "C++20 -O3 -DNDEBUG; native VTR release; synchronous producers",
         "lz4": "FST and FTR: libfst bundled LZ4; VTR: system liblz4",
     }, indent=2) + "\n")
     print(f"Built {BUILD / 'benchmark'}")

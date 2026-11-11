@@ -193,7 +193,7 @@ fn interning_preserves_types_float_bits_and_order_and_rejects_unknown_references
 }
 
 #[test]
-fn later_value_declarations_cannot_repair_transaction_or_nested_references() {
+fn later_value_declarations_cannot_repair_transaction_or_relation_references() {
     use vtr::framing::{Container, FramedWriter};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ordered.vtr");
@@ -208,7 +208,17 @@ fn later_value_declarations_cannot_repair_transaction_or_nested_references() {
         .attribute(tx.owner(), key, Value::List(vec![Value::Ref(id)]))
         .unwrap();
     writer.end(tx, Status::Ok).unwrap();
-    writer.relate(key, tx.id(), tx.id(), vec![]).unwrap();
+    writer
+        .relate(
+            key,
+            tx.id(),
+            tx.id(),
+            vec![Attribute {
+                key,
+                value: Value::List(vec![Value::Ref(id)]),
+            }],
+        )
+        .unwrap();
     writer.close().unwrap();
     let container = Container::from_bytes(std::fs::read(path).unwrap(), true).unwrap();
     let copy = |out: &mut FramedWriter<Vec<u8>>, section: &vtr::framing::Section| {

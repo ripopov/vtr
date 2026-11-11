@@ -76,6 +76,12 @@ unique or very small descriptions may be cheaper inline. Existing schema payload
 columns already share repeated text, so a string field alone does not always
 benefit from moving into an interned object.
 
+For short descriptions moved out of typed payloads, use the
+[GPU instruction benchmark](GPU_TRACE_BENCHMARK.md). It compares identical
+metadata with embedded phases and ownership relations, tests LZ4 and Zstandard,
+and separates encoding effects from memory-based batching. Codec and batch size
+can matter more than the reduction in uncompressed description bytes.
+
 The [measurement](../benchmarks/intern-values.md) compares complete compressed
 files containing identical instruction descriptions and dynamic masks. Reproduce
 it on Linux from the repository root:

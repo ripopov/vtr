@@ -711,6 +711,14 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
             measured_size = encoder.size();
         }
     };
+    auto begin_relations = [&] {
+        if (!relations.empty()) {
+            // Endpoint queries should not scan unrelated owner and phase attributes.
+            flush();
+            measured_size = encoder.size();
+            unmeasured_upper = 0;
+        }
+    };
     TypeId scalar_type = 0;
     if (numeric.values.empty() && relations.empty() &&
         scalar_page::eligible(types, generators, transactions, scalar_type)) {
@@ -747,6 +755,7 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
                 encoder.append(types, binding.generator, binding.local, *tx, attributes);
             });
         }
+        begin_relations();
         for (const auto& relation : relations) {
             append(relation, transaction_upper(relation), [&] { encoder.append(relation); });
         }
@@ -758,6 +767,7 @@ Bytes encode_transaction_block(std::uint64_t number, const Types& types,
                 encoder.append(types, binding.generator, binding.local, *tx, attributes);
             });
         }
+        begin_relations();
         for (const auto& relation : relations) {
             exact_append(relation, transaction_upper(relation), [&] { encoder.append(relation); });
         }

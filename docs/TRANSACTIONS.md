@@ -351,8 +351,10 @@ oversized item occupies a page alone, subject to the encoded field limits.
 Within a block, transactions and clock stretches are sorted by ID before
 splitting them into pages. Transaction ID ranges are therefore ordered and
 disjoint within that block. Relation-only pages follow pages containing
-transactions. A page may contain both transactions and relations. Relations
-retain their sequence independently of transaction sorting. Sorting never moves
+transactions. A page may contain both transactions and relations. The reference
+writers start relations on a fresh page so endpoint queries can avoid scanning
+owner and embedded-detail attributes. Relations retain their sequence
+independently of transaction sorting. Sorting never moves
 an item to a different numbered block.
 
 Page offsets are relative to the start of the page-blob area. Blobs use [SPEC.md section 3.1](SPEC.md#31-compressed-blob) framing, occur in page-table order, and consume that area without

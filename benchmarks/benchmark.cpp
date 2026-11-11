@@ -4,6 +4,8 @@
 #include <iostream>
 #include <sys/resource.h>
 
+int gpu_benchmark(int argc, char** argv);
+
 namespace {
 using Clock = std::chrono::steady_clock;
 double seconds(Clock::time_point start) { return std::chrono::duration<double>(Clock::now() - start).count(); }
@@ -25,6 +27,7 @@ void digest(const bench::Digest& d) {
 int main(int argc, char** argv) {
     try {
         if (argc != 6) throw std::runtime_error("usage: benchmark OP FORMAT PROFILE PATH SCALE_DIVISOR");
+        if (std::string_view(argv[3]).starts_with("gpu-instructions")) return gpu_benchmark(argc, argv);
         const std::string op = argv[1], format = argv[2], path = argv[4];
         const auto scale = std::stoul(argv[5]);
         if (scale == 0 || scale > 10000) throw std::runtime_error("scale divisor must be 1..10000");
